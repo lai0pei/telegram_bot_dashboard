@@ -135,6 +135,19 @@ export function setLastUpdateId(id: number, updateId: number): void {
   db.update(bots).set({ lastUpdateId: updateId }).where(eq(bots.id, id)).run();
 }
 
+/** Records the outcome of a poller cycle for this bot, so a stalled poller can be surfaced in the attention panel. */
+export function setPollHealth(id: number, error: string | null): void {
+  db.update(bots).set({ lastPolledAt: new Date(), pollError: error }).where(eq(bots.id, id)).run();
+}
+
+/** Caches the bot's webhook health, fetched lazily whenever something already called getWebhookInfo. */
+export function setWebhookHealth(id: number, lastError: string | null, pendingCount: number | null): void {
+  db.update(bots)
+    .set({ webhookLastError: lastError, webhookPendingCount: pendingCount })
+    .where(eq(bots.id, id))
+    .run();
+}
+
 export function deleteBotRow(id: number): void {
   db.transaction((tx) => {
     tx.delete(botMessages).where(eq(botMessages.botId, id)).run();

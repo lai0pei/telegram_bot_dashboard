@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { withAuth, errorResponse } from "@/lib/api-guard";
-import { getBotById, getBotToken } from "@/lib/bots";
+import { getBotById, getBotToken, setWebhookHealth } from "@/lib/bots";
 import { botApi } from "@/lib/botapi";
 import { validateWebhookUrl } from "@/lib/validation";
 
@@ -24,6 +24,7 @@ export const PUT = withAuth(async (req: Request, ctx: { params: Promise<{ id: st
     }
 
     const webhook = await botApi.getWebhookInfo(token);
+    setWebhookHealth(bot.id, webhook.last_error_message ?? null, webhook.pending_update_count ?? null);
     return NextResponse.json({ ok: true, webhook });
   } catch (err) {
     return errorResponse(err, 400);

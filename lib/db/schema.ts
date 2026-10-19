@@ -40,6 +40,13 @@ export const telegramAccounts = sqliteTable(
     phone: text("phone"),
     /** Set when Telegram reports the session ended (e.g. terminated from the phone's Devices list). Cleared by re-linking. */
     revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
+    /** "off" (default) | "daily" | "weekly" — whether lib/digest.ts sends a Saved Messages summary for this account. */
+    digestFrequency: text("digest_frequency", { enum: ["off", "daily", "weekly"] })
+      .notNull()
+      .default("off"),
+    /** Hour of day (0-23, UTC) the digest should go out. */
+    digestHour: integer("digest_hour").notNull().default(9),
+    lastDigestAt: integer("last_digest_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },
@@ -58,6 +65,13 @@ export const bots = sqliteTable(
     tokenFetchedAt: integer("token_fetched_at", { mode: "timestamp_ms" }),
     monitorEnabled: integer("monitor_enabled", { mode: "boolean" }).notNull().default(false),
     lastUpdateId: integer("last_update_id"),
+    /** Set by the poller after each getUpdates cycle that includes this bot, success or failure. Used to detect a stalled poller. */
+    lastPolledAt: integer("last_polled_at", { mode: "timestamp_ms" }),
+    /** Error message from the most recent failed getUpdates call for this bot; cleared on the next success. */
+    pollError: text("poll_error"),
+    /** Cached from the bot's getWebhookInfo, refreshed opportunistically (webhook tab load, overview load). Null when there's no webhook or no error. */
+    webhookLastError: text("webhook_last_error"),
+    webhookPendingCount: integer("webhook_pending_count"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },
@@ -112,3 +126,24 @@ export const botUsers = sqliteTable("bot_users", {
   lastSeenAt: integer("last_seen_at", { mode: "timestamp_ms" }).notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
+
+/**
+ * One row per (account, day, metric, bot), written once a day by
+ * lib/stats.ts so the overview can show a trend ("+12 this week") instead of
+ * only a point-in-time total. `day` is a UTC "YYYY-MM-DD" string so it sorts
+ * and dedupes as plain text. `botId` is null for account-wide metrics.
+ */
+export const dailyStats = sqliteTable(
+  "daily_stats",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    telegramAccountId: text("telegram_account_id").notNull(),
+    day: text("day").notNull(),
+    metric: text("metric", { enum: ["bot_users_new", "bot_messages_in"] }).notNull(),
+    botId: integer("bot_id"),
+    value: integer("value").notNull(),
+  },
+  (table) => [
+    uniqueIndex("daily_stats_unique").on(table.telegramAccountId, table.day, table.metric, table.botId),
+  ]
+);

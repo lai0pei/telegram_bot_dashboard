@@ -1,12 +1,21 @@
 # Telegram Bot Dashboard
 
-A private website that lets you manage all your Telegram bots from one
-place, instead of messaging @BotFather every time. Sign in by scanning a QR
-code with your Telegram app — no separate dashboard password to create or
-remember. You'll only ever see bots and channels belonging to whichever
-Telegram account you have active, and you can link more than one Telegram
-account to the same dashboard account. More than one person can use the
-same dashboard, each seeing only what belongs to them.
+**Manage all your Telegram bots and channels from one private website — sign in by scanning a QR code, no password.**
+
+- 🤖 Create, edit, and delete bots without messaging @BotFather yourself
+- 📢 Manage your channels and groups (invite links, admins, bots)
+- 💬 Watch bot messages live and reply from the dashboard
+- 🔔 "Needs attention" panel + optional digest so you don't have to check manually
+- 🔐 Secrets encrypted at rest; your phone's Telegram app *is* the login
+
+```sh
+cp .env.example .env   # fill in API_ID / API_HASH / APP_SECRET
+docker compose up --build
+```
+
+Open the dashboard, scan the QR code with Telegram (Settings → Devices → Link Desktop Device). Done.
+
+---
 
 ## What it does
 
@@ -24,6 +33,13 @@ same dashboard, each seeing only what belongs to them.
   step so it doesn't happen by accident).
 - **Watch a bot's messages live**: see incoming messages, how many people
   have used it, and reply directly from the dashboard.
+- **"Needs attention" panel** on the overview: revoked sessions, bots
+  missing a token, webhook errors, a monitor that's gone quiet, and
+  conversations waiting on a reply — across every linked account, not just
+  the active one.
+- **Optional digest**: a daily or weekly summary of the above, sent to that
+  account's own Telegram Saved Messages, so you don't have to open the
+  dashboard to know nothing's wrong.
 
 ## Keeping things safe
 
