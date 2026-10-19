@@ -3,6 +3,7 @@ import { withAuth, errorResponse } from "@/lib/api-guard";
 import { deleteBot as botFatherDelete } from "@/lib/botfather";
 import { deleteBotRow, getBotById, getBotToken } from "@/lib/bots";
 import { botApi, type BotCommand } from "@/lib/botapi";
+import { singleFlight } from "@/lib/single-flight";
 
 export const GET = withAuth(async (_req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
   try {
@@ -94,8 +95,10 @@ export const DELETE = withAuth(
       const bot = getBotById(Number(id), userId);
       if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
-      await botFatherDelete(userId, bot.username);
-      deleteBotRow(bot.id);
+      await singleFlight(`delete:${userId}:${bot.id}`, async () => {
+        await botFatherDelete(userId, bot.username);
+        deleteBotRow(bot.id);
+      });
 
       return NextResponse.json({ ok: true });
     } catch (err) {

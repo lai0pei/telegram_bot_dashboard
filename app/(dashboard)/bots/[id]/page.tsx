@@ -19,6 +19,7 @@ export default function BotDetailPage() {
   const router = useRouter();
   const [bot, setBot] = useState<BotDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [fetchingToken, setFetchingToken] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -37,6 +38,20 @@ export default function BotDetailPage() {
     void load();
   }, [load]);
 
+  async function fetchToken() {
+    if (fetchingToken) return;
+    setFetchingToken(true);
+    try {
+      await apiFetch(`/api/bots/${params.id}/token`);
+      toast.success("Token fetched.");
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to fetch token.");
+    } finally {
+      setFetchingToken(false);
+    }
+  }
+
   if (loading && !bot) return <p className="text-sm text-[var(--muted)]">Loading…</p>;
   if (!bot) return <p className="text-sm text-[var(--danger)]">Bot not found.</p>;
 
@@ -51,18 +66,11 @@ export default function BotDetailPage() {
         <Card className="text-sm">
           No token stored yet.{" "}
           <button
-            className="text-[var(--primary)] hover:underline"
-            onClick={async () => {
-              try {
-                await apiFetch(`/api/bots/${bot.id}/token`);
-                toast.success("Token fetched.");
-                load();
-              } catch (err) {
-                toast.error(err instanceof Error ? err.message : "Failed to fetch token.");
-              }
-            }}
+            className="text-[var(--primary)] hover:underline disabled:cursor-wait disabled:no-underline disabled:opacity-60"
+            disabled={fetchingToken}
+            onClick={fetchToken}
           >
-            Fetch it from BotFather
+            {fetchingToken ? "Fetching from BotFather…" : "Fetch it from BotFather"}
           </button>
           .
         </Card>
@@ -79,7 +87,7 @@ export default function BotDetailPage() {
         </TabsList>
 
         <TabsContent value="info">
-          <InfoTab bot={bot} onChange={load} />
+          <InfoTab bot={bot} onChange={load} onFetchToken={fetchToken} fetchingToken={fetchingToken} />
         </TabsContent>
         <TabsContent value="settings">
           <SettingsTab bot={bot} onSaved={load} />

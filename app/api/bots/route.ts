@@ -6,6 +6,7 @@ import { createBot } from "@/lib/botfather";
 import { getBotToken, listBots, saveBotToken, upsertBotFromTelegram } from "@/lib/bots";
 import { botApi } from "@/lib/botapi";
 import { maskSecret } from "@/lib/crypto";
+import { singleFlight } from "@/lib/single-flight";
 
 /**
  * GET: syncs the current user's local bot list against bots.getAdminedBots,
@@ -65,16 +66,18 @@ export const POST = withAuth(async (req, _ctx, userId) => {
       return NextResponse.json({ error: "Both name and username are required." }, { status: 400 });
     }
 
-    const { username: finalUsername, token } = await createBot(userId, name.trim(), username.trim());
-
-    const me = await botApi.getMe(token);
-    const row = upsertBotFromTelegram({
-      ownerUserId: userId,
-      telegramId: me.id.toString(),
-      username: finalUsername.replace(/^@/, ""),
-      firstName: me.first_name,
+    const { row, token } = await singleFlight(`create:${userId}:${username.trim().toLowerCase()}`, async () => {
+      const created = await createBot(userId, name.trim(), username.trim());
+      const me = await botApi.getMe(created.token);
+      const upserted = upsertBotFromTelegram({
+        ownerUserId: userId,
+        telegramId: me.id.toString(),
+        username: created.username.replace(/^@/, ""),
+        firstName: me.first_name,
+      });
+      saveBotToken(upserted.id, created.token);
+      return { row: upserted, token: created.token };
     });
-    saveBotToken(row.id, token);
 
     return NextResponse.json({ ok: true, id: row.id, username: row.username, token });
   } catch (err) {

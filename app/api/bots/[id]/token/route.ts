@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { withAuth, errorResponse } from "@/lib/api-guard";
 import { fetchBotToken } from "@/lib/botfather";
 import { getBotById, getBotToken, saveBotToken } from "@/lib/bots";
+import { singleFlight } from "@/lib/single-flight";
 
 /** GET: returns the full (unmasked) token, fetching it from BotFather first if not cached. */
 export const GET = withAuth(async (_req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
@@ -10,11 +11,13 @@ export const GET = withAuth(async (_req: Request, ctx: { params: Promise<{ id: s
     const bot = getBotById(Number(id), userId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
-    let token = getBotToken(bot);
-    if (!token) {
-      token = await fetchBotToken(userId, bot.username);
-      saveBotToken(bot.id, token);
-    }
+    const token =
+      getBotToken(bot) ??
+      (await singleFlight(`token:${userId}:${bot.id}`, async () => {
+        const fetched = await fetchBotToken(userId, bot.username);
+        saveBotToken(bot.id, fetched);
+        return fetched;
+      }));
 
     return NextResponse.json({ token });
   } catch (err) {

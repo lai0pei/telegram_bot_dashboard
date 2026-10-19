@@ -60,15 +60,40 @@ async function sendAndAwaitReply(
   afterId: number
 ): Promise<Api.Message> {
   await client.sendMessage(BOTFATHER, { message: text });
-  return awaitReply(client, afterId);
+  return awaitResponse(client, afterId);
 }
 
-async function awaitReply(client: TelegramClient, afterId: number): Promise<Api.Message> {
+/** A message we expect BotFather to edit in place (inline-keyboard navigation does this). */
+interface EditWatch {
+  messageId: number;
+  signature: string;
+}
+
+/** Fingerprint of a message's visible state, so an in-place edit can be detected. */
+function messageSignature(message: Api.Message): string {
+  return JSON.stringify([message.editDate ?? 0, message.text ?? "", buttonLabels(message)]);
+}
+
+/**
+ * Waits for BotFather to respond: either a new incoming message after
+ * `afterId`, or — when `watch` is given — an edit of that message. Clicking
+ * an inline button in /mybots edits the menu message rather than sending a
+ * new one, so waiting only for new messages would always time out there.
+ */
+async function awaitResponse(client: TelegramClient, afterId: number, watch?: EditWatch): Promise<Api.Message> {
   const deadline = Date.now() + REPLY_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    const messages = await client.getMessages(BOTFATHER, { limit: 5 });
-    const reply = messages.find((m) => m.id > afterId && m.out === false);
+    const recent = await client.getMessages(BOTFATHER, { limit: 5 });
+    const reply = recent.find((m) => m.id > afterId && !m.out);
     if (reply) return reply;
+
+    if (watch) {
+      const current =
+        recent.find((m) => m.id === watch.messageId) ??
+        (await client.getMessages(BOTFATHER, { ids: [watch.messageId] }))[0];
+      if (current && messageSignature(current) !== watch.signature) return current;
+    }
+
     await sleep(POLL_INTERVAL_MS);
   }
   throw new BotFatherError("Timed out waiting for a reply from @BotFather.");
@@ -166,70 +191,78 @@ export async function deleteBot(userId: string, username: string): Promise<void>
   });
 }
 
-// --- Fetch existing token -------------------------------------------------
+// --- Fetch / revoke token ---------------------------------------------------
+//
+// These flows navigate BotFather's inline keyboards. Each click edits the
+// same menu message in place: /mybots -> @bot -> "API Token" (shows the
+// token) -> "Revoke current token" (shows a new one).
 
-/**
- * Retrieves a bot's token via /mybots -> <bot> -> "API Token", clicking the
- * inline buttons BotFather sends rather than typing text.
- */
+const TOKEN_PATTERN = /(\d{6,}:[\w-]{30,})/;
+const MAX_BOT_LIST_PAGES = 10;
+
+/** Sends /mybots, pages through the list until @username appears, clicks it, and returns the bot's menu. */
+async function openBotMenu(client: TelegramClient, username: string): Promise<Api.Message> {
+  const handle = `@${username.replace(/^@/, "")}`;
+  const lastId = await getLastMessageId(client);
+  let menu = await sendAndAwaitReply(client, "/mybots", lastId);
+
+  for (let page = 0; page < MAX_BOT_LIST_PAGES; page++) {
+    const botButton = findButton(menu, (label) => label.toLowerCase() === handle.toLowerCase());
+    if (botButton) return clickAndAwaitResponse(client, menu, botButton);
+
+    const nextPage = findButton(menu, (label) => label.trim() === "»" || /next/i.test(label));
+    if (!nextPage) break;
+    menu = await clickAndAwaitResponse(client, menu, nextPage);
+  }
+  throw new BotFatherError(`BotFather's /mybots list doesn't include ${handle}.`);
+}
+
+/** From a bot's menu, opens its "API Token" screen. */
+async function openTokenScreen(client: TelegramClient, botMenu: Api.Message): Promise<Api.Message> {
+  const tokenButton = findButton(botMenu, (label) => /api token/i.test(label));
+  if (!tokenButton) {
+    throw new BotFatherError("Could not find the 'API Token' button for this bot.");
+  }
+  return clickAndAwaitResponse(client, botMenu, tokenButton);
+}
+
+/** Retrieves a bot's token via /mybots -> <bot> -> "API Token". */
 export async function fetchBotToken(userId: string, username: string): Promise<string> {
   return withClient(userId, async (client) => {
-    let lastId = await getLastMessageId(client);
-
-    let reply = await sendAndAwaitReply(client, "/mybots", lastId);
-    lastId = reply.id;
-
-    const handle = username.startsWith("@") ? username : `@${username}`;
-    const botButton = findButton(reply, handle.replace(/^@/, ""));
-    if (!botButton) {
-      throw new BotFatherError(`BotFather's /mybots list doesn't include ${handle}.`);
-    }
-
-    reply = await clickAndAwaitReply(client, reply, botButton, lastId);
-    lastId = reply.id;
-
-    const tokenButton = findButton(reply, "API Token");
-    if (!tokenButton) {
-      throw new BotFatherError("Could not find the 'API Token' button for this bot.");
-    }
-
-    reply = await clickAndAwaitReply(client, reply, tokenButton, lastId);
-    const tokenMatch = (reply.text ?? "").match(/(\d{6,}:[\w-]{30,})/);
+    const botMenu = await openBotMenu(client, username);
+    const tokenScreen = await openTokenScreen(client, botMenu);
+    const tokenMatch = (tokenScreen.text ?? "").match(TOKEN_PATTERN);
     if (!tokenMatch) {
-      throw new BotFatherError(`Unexpected BotFather reply while fetching the token: "${reply.text}"`);
+      throw new BotFatherError(`Unexpected BotFather reply while fetching the token: "${tokenScreen.text}"`);
     }
     return tokenMatch[1];
   });
 }
 
-/** Revokes a bot's token via /mybots -> <bot> -> "Revoke current token". */
+/** Revokes a bot's token via /mybots -> <bot> -> "API Token" -> "Revoke current token". */
 export async function revokeBotToken(userId: string, username: string): Promise<string> {
   return withClient(userId, async (client) => {
-    let lastId = await getLastMessageId(client);
+    const botMenu = await openBotMenu(client, username);
+    const tokenScreen = await openTokenScreen(client, botMenu);
+    const oldToken = (tokenScreen.text ?? "").match(TOKEN_PATTERN)?.[1];
 
-    let reply = await sendAndAwaitReply(client, "/mybots", lastId);
-    lastId = reply.id;
-
-    const handle = username.startsWith("@") ? username : `@${username}`;
-    const botButton = findButton(reply, handle.replace(/^@/, ""));
-    if (!botButton) {
-      throw new BotFatherError(`BotFather's /mybots list doesn't include ${handle}.`);
-    }
-
-    reply = await clickAndAwaitReply(client, reply, botButton, lastId);
-    lastId = reply.id;
-
-    const revokeButton = findButton(reply, "Revoke current token");
+    const revokeButton = findButton(tokenScreen, (label) => /revoke/i.test(label));
     if (!revokeButton) {
       throw new BotFatherError("Could not find the 'Revoke current token' button for this bot.");
     }
+    let reply = await clickAndAwaitResponse(client, tokenScreen, revokeButton);
 
-    reply = await clickAndAwaitReply(client, reply, revokeButton, lastId);
-    const tokenMatch = (reply.text ?? "").match(/(\d{6,}:[\w-]{30,})/);
-    if (!tokenMatch) {
+    // Some BotFather versions ask for confirmation before revoking.
+    const confirmButton = findButton(reply, (label) => /^(yes|revoke)/i.test(label.trim()));
+    if (!TOKEN_PATTERN.test(reply.text ?? "") && confirmButton) {
+      reply = await clickAndAwaitResponse(client, reply, confirmButton);
+    }
+
+    const newToken = (reply.text ?? "").match(TOKEN_PATTERN)?.[1];
+    if (!newToken || newToken === oldToken) {
       throw new BotFatherError(`Unexpected BotFather reply while revoking the token: "${reply.text}"`);
     }
-    return tokenMatch[1];
+    return newToken;
   });
 }
 
@@ -239,32 +272,48 @@ export async function revokeBotToken(userId: string, username: string): Promise<
 // keyboard buttons are `KeyboardInlineButton { text, type }`, where `type`
 // is a union and the callback-data variant is `InlineButtonTypeCallback`.
 
-function findButton(message: Api.Message, labelSubstring: string): Api.InlineButtonTypeCallback | undefined {
+function inlineButtons(message: Api.Message): Api.KeyboardInlineButton[] {
   const markup = message.replyMarkup;
-  if (!markup || !(markup instanceof Api.ReplyInlineMarkup)) return undefined;
-  const needle = labelSubstring.toLowerCase();
-  for (const row of markup.rows) {
-    for (const button of row.buttons) {
-      if (button.type instanceof Api.InlineButtonTypeCallback && button.text.toLowerCase().includes(needle)) {
-        return button.type;
-      }
+  if (!markup || !(markup instanceof Api.ReplyInlineMarkup)) return [];
+  return markup.rows.flatMap((row) => row.buttons);
+}
+
+function buttonLabels(message: Api.Message): string[] {
+  return inlineButtons(message).map((button) => button.text);
+}
+
+function findButton(
+  message: Api.Message,
+  matches: (label: string) => boolean
+): Api.InlineButtonTypeCallback | undefined {
+  for (const button of inlineButtons(message)) {
+    if (button.type instanceof Api.InlineButtonTypeCallback && matches(button.text)) {
+      return button.type;
     }
   }
   return undefined;
 }
 
-async function clickAndAwaitReply(
+/** Clicks an inline button and waits for BotFather to edit that message (or send a new one). */
+async function clickAndAwaitResponse(
   client: TelegramClient,
   message: Api.Message,
-  button: Api.InlineButtonTypeCallback,
-  afterId: number
+  button: Api.InlineButtonTypeCallback
 ): Promise<Api.Message> {
-  await client.invoke(
-    new Api.messages.GetBotCallbackAnswer({
-      peer: BOTFATHER,
-      msgId: message.id,
-      data: button.data,
-    })
-  );
-  return awaitReply(client, afterId);
+  const watch: EditWatch = { messageId: message.id, signature: messageSignature(message) };
+  const afterId = Math.max(message.id, await getLastMessageId(client));
+  try {
+    await client.invoke(
+      new Api.messages.GetBotCallbackAnswer({
+        peer: BOTFATHER,
+        msgId: message.id,
+        data: button.data,
+      })
+    );
+  } catch (err) {
+    // BotFather sometimes doesn't answer the callback query itself even
+    // though it does edit the message; the edit is what we wait for.
+    if (!(err instanceof Error && err.message.includes("BOT_RESPONSE_TIMEOUT"))) throw err;
+  }
+  return awaitResponse(client, afterId, watch);
 }
