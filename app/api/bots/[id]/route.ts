@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth, errorResponse } from "@/lib/api-guard";
 import { deleteBot as botFatherDelete } from "@/lib/botfather";
-import { deleteBotRow, getBotById, getBotToken, withLiveBotToken } from "@/lib/bots";
+import { deleteBotRow, getBotById, getBotToken, setWebhookHealth, withLiveBotToken } from "@/lib/bots";
 import { botApi, type BotCommand } from "@/lib/botapi";
 import { singleFlight } from "@/lib/single-flight";
 import {
@@ -40,6 +40,12 @@ export const GET = withAuth(async (_req: Request, ctx: { params: Promise<{ id: s
       ]);
       return { info, name, description, shortDescription, commands, webhook };
     });
+
+    setWebhookHealth(
+      bot.id,
+      result.webhook?.last_error_message ?? null,
+      result.webhook?.pending_update_count ?? null
+    );
 
     return NextResponse.json({
       id: bot.id,

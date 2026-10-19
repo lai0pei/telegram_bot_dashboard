@@ -1,8 +1,10 @@
 import { and, count, desc, eq, gt, inArray } from "drizzle-orm";
 import { db } from "./db";
 import { botMessages, botUsers, bots, chats } from "./db/schema";
+import { getTrend, type TrendPoint } from "./stats";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const TREND_DAYS = 14;
 
 export interface OverviewStats {
   bots: number;
@@ -11,6 +13,7 @@ export interface OverviewStats {
   groups: number;
   botUsers: number;
   messagesToday: number;
+  trend: TrendPoint[];
   recentMessages: {
     id: number;
     botId: number;
@@ -80,6 +83,7 @@ export function getOverviewStats(telegramAccountId: string): OverviewStats {
     groups: chatRows.filter((c) => c.kind !== "channel").length,
     botUsers: botUserCount,
     messagesToday,
+    trend: getTrend(telegramAccountId, TREND_DAYS),
     recentMessages,
   };
 }

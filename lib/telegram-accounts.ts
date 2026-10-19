@@ -86,3 +86,13 @@ export function isTelegramAccountLinkedToAnotherUser(telegramId: string, ownerUs
   const existing = getTelegramAccountByTelegramId(telegramId);
   return !!existing && existing.ownerUserId !== null && existing.ownerUserId !== ownerUserId;
 }
+
+export function setDigestSettings(
+  id: string,
+  settings: { digestFrequency: "off" | "daily" | "weekly"; digestHour: number }
+): void {
+  db.update(telegramAccounts)
+    .set({ ...settings, updatedAt: new Date() })
+    .where(eq(telegramAccounts.id, id))
+    .run();
+}

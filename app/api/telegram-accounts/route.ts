@@ -51,6 +51,8 @@ export const GET = withSession(async (_req, _ctx, userId) => {
         phone: a.phone,
         isActive: a.id === activeId,
         revoked: !!a.revokedAt,
+        digestFrequency: a.digestFrequency,
+        digestHour: a.digestHour,
       })),
     });
   } catch (err) {
