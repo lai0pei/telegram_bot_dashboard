@@ -1,18 +1,22 @@
 import { NextResponse } from "next/server";
-import { withAuth, errorResponse } from "@/lib/api-guard";
+import { withSession, errorResponse } from "@/lib/api-guard";
+import { readSessionClaims } from "@/lib/auth";
 import { getClient, isLoggedIn } from "@/lib/mtproto";
 import { Api } from "teleproto/tl";
 
-export const GET = withAuth(async (_req, _ctx, userId) => {
+export const GET = withSession(async () => {
   try {
-    if (!isLoggedIn(userId)) {
-      return NextResponse.json({ loggedIn: false });
+    const claims = await readSessionClaims();
+    const accountId = claims?.activeTelegramAccountId ?? null;
+    if (!accountId || !isLoggedIn(accountId)) {
+      return NextResponse.json({ hasActiveAccount: false, loggedIn: false });
     }
-    const client = await getClient(userId);
-    if (!client) return NextResponse.json({ loggedIn: false });
+    const client = await getClient(accountId);
+    if (!client) return NextResponse.json({ hasActiveAccount: false, loggedIn: false });
 
     const me = (await client.getMe()) as Api.User;
     return NextResponse.json({
+      hasActiveAccount: true,
       loggedIn: true,
       id: me.id.toString(),
       chatId: me.id.toString(),

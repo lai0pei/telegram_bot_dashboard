@@ -3,12 +3,15 @@ import { cookies } from "next/headers";
 
 /**
  * Two cookies:
- * - GATE_COOKIE: set once the shared dashboard password is correct. Lets the
- *   browser reach the Telegram login steps (/api/auth/*), nothing else.
- * - SESSION_COOKIE: set once Telegram login completes. Carries `sub`, the
- *   Telegram user ID, which scopes every bot/account lookup to that user.
+ * - SESSION_COOKIE: set once a dashboard user logs in. Carries `sub` (the
+ *   dashboard user's ID), `ver` (that user's sessionVersion, so changing the
+ *   password invalidates every other signed-in device), and
+ *   `activeTelegramAccountId` (which linked Telegram account bot/chat routes
+ *   act as — null until one is bound). Re-signed whenever the active account
+ *   changes, so one write keeps all three claims consistent.
+ * - LOGIN_ID_COOKIE: carries the in-progress phone/code/2FA login's loginId
+ *   across its steps.
  */
-const GATE_COOKIE = "tgdash_gate";
 const SESSION_COOKIE = "tgdash_session";
 const LOGIN_ID_COOKIE = "tgdash_login_id";
 const ALG = "HS256";
@@ -19,14 +22,7 @@ function getSecretKey() {
   return new TextEncoder().encode(secret);
 }
 
-/** Checks the submitted dashboard password against DASHBOARD_PASSWORD. */
-export function checkDashboardPassword(password: string): boolean {
-  const expected = process.env.DASHBOARD_PASSWORD;
-  if (!expected) throw new Error("DASHBOARD_PASSWORD is not set.");
-  return password === expected;
-}
-
-/** Optional allowlist of Telegram user IDs permitted to log in. Empty = anyone past the gate. */
+/** Optional allowlist of Telegram user IDs permitted to be linked. Empty = anyone can link any account. */
 export function isTelegramUserAllowed(telegramUserId: string): boolean {
   const raw = process.env.ALLOWED_TELEGRAM_USER_IDS;
   if (!raw || !raw.trim()) return true;
@@ -34,37 +30,12 @@ export function isTelegramUserAllowed(telegramUserId: string): boolean {
   return allowed.includes(telegramUserId);
 }
 
-export async function createGateCookie() {
-  const token = await new SignJWT({ gate: true })
-    .setProtectedHeader({ alg: ALG })
-    .setIssuedAt()
-    .setExpirationTime("30m")
-    .sign(getSecretKey());
-
-  const store = await cookies();
-  store.set(GATE_COOKIE, token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 60 * 30,
-  });
-}
-
-export async function hasPassedGate(): Promise<boolean> {
-  const store = await cookies();
-  const token = store.get(GATE_COOKIE)?.value;
-  if (!token) return false;
-  try {
-    await jwtVerify(token, getSecretKey());
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function createSessionCookie(telegramUserId: string) {
-  const token = await new SignJWT({ sub: telegramUserId })
+export async function createSessionCookie(
+  userId: string,
+  sessionVersion: number,
+  activeTelegramAccountId: string | null
+) {
+  const token = await new SignJWT({ sub: userId, ver: sessionVersion, activeTelegramAccountId })
     .setProtectedHeader({ alg: ALG })
     .setIssuedAt()
     .setExpirationTime("30d")
@@ -78,8 +49,6 @@ export async function createSessionCookie(telegramUserId: string) {
     path: "/",
     maxAge: 60 * 60 * 24 * 30,
   });
-  // The gate cookie has done its job once a real session exists.
-  store.delete(GATE_COOKIE);
 }
 
 export async function clearSessionCookie() {
@@ -109,17 +78,34 @@ export async function clearLoginIdCookie() {
   store.delete(LOGIN_ID_COOKIE);
 }
 
-/** Returns the logged-in Telegram user's ID, or null if there isn't one. */
-export async function getCurrentUserId(): Promise<string | null> {
+interface SessionClaims {
+  userId: string;
+  sessionVersion: number;
+  activeTelegramAccountId: string | null;
+}
+
+async function readSessionClaims(): Promise<SessionClaims | null> {
   const store = await cookies();
   const token = store.get(SESSION_COOKIE)?.value;
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, getSecretKey());
-    return typeof payload.sub === "string" ? payload.sub : null;
+    if (typeof payload.sub !== "string" || !payload.sub) return null;
+    return {
+      userId: payload.sub,
+      sessionVersion: typeof payload.ver === "number" ? payload.ver : 0,
+      activeTelegramAccountId:
+        typeof payload.activeTelegramAccountId === "string" ? payload.activeTelegramAccountId : null,
+    };
   } catch {
     return null;
   }
 }
 
-export { GATE_COOKIE, SESSION_COOKIE };
+/** Returns the logged-in dashboard user's ID, or null if there isn't one. Does not check sessionVersion. */
+export async function getCurrentUserId(): Promise<string | null> {
+  const claims = await readSessionClaims();
+  return claims?.userId ?? null;
+}
+
+export { readSessionClaims, SESSION_COOKIE };

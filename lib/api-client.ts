@@ -24,6 +24,7 @@ export async function apiFetch<T = unknown>(
 }
 
 export interface Me {
+  hasActiveAccount: boolean;
   loggedIn: boolean;
   id?: string;
   chatId?: string;
@@ -31,6 +32,16 @@ export interface Me {
   firstName?: string | null;
   lastName?: string | null;
   phone?: string | null;
+}
+
+export interface TelegramAccountSummary {
+  id: string;
+  telegramId: string;
+  username: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  phone: string | null;
+  isActive: boolean;
 }
 
 let mePromise: Promise<Me> | null = null;

@@ -1,18 +1,23 @@
 import { TelegramClient } from "teleproto";
 import { StringSession } from "teleproto/sessions";
 import { Api } from "teleproto/tl";
-import { db, sqlite } from "./db";
-import { session as sessionTable } from "./db/schema";
-import { decrypt, encrypt } from "./crypto";
+import { decrypt } from "./crypto";
 import { isTelegramUserAllowed } from "./auth";
-import { eq } from "drizzle-orm";
+import {
+  getTelegramAccountById,
+  isTelegramAccountLinkedToAnotherUser,
+  upsertTelegramAccount,
+  deleteTelegramAccount,
+} from "./telegram-accounts";
 
 /**
- * Per-user state stored on globalThis so it survives Next.js dev hot-reloads
- * and route-handler module re-evaluation within one process. Keyed by
- * Telegram user ID for connected clients, and by a random login ID (held in
- * a short-lived cookie, see /api/auth/send-code) for logins in progress —
- * that way two people logging in at once never clobber each other.
+ * Per-account state stored on globalThis so it survives Next.js dev
+ * hot-reloads and route-handler module re-evaluation within one process.
+ * Clients are keyed by Telegram user ID (globally unique, so this stays
+ * correct even though callers elsewhere identify an account by its
+ * telegram_accounts.id — see getClient). Login states are keyed by a random
+ * login ID (held in a short-lived cookie, see /api/auth/send-code) so two
+ * people binding an account at once never clobber each other.
  */
 declare global {
   var __tgDashClients: Map<string, TelegramClient> | undefined;
@@ -44,6 +49,8 @@ interface LoginState {
   phoneNumber: string;
   phoneCodeHash: string;
   expiresAt: number;
+  /** The dashboard user binding this Telegram account, checked again at each step. */
+  ownerUserId: string;
 }
 
 function pruneExpiredLoginStates() {
@@ -57,50 +64,33 @@ function pruneExpiredLoginStates() {
   }
 }
 
-export function getPersistedSession(userId: string): string | null {
-  const row = db.select().from(sessionTable).where(eq(sessionTable.userId, userId)).all()[0];
+export function getPersistedSession(accountId: string): string | null {
+  const row = getTelegramAccountById(accountId);
   if (!row) return null;
   return decrypt(row.encryptedSessionString);
 }
 
-function persistSession(userId: string, sessionString: string, me: Api.User) {
-  const now = new Date();
-  const existing = db.select().from(sessionTable).where(eq(sessionTable.userId, userId)).all()[0];
-  const values = {
-    encryptedSessionString: encrypt(sessionString),
-    username: me.username ?? null,
-    firstName: me.firstName ?? null,
-    lastName: me.lastName ?? null,
-    phone: me.phone ?? null,
-    updatedAt: now,
-  };
-  if (existing) {
-    db.update(sessionTable).set(values).where(eq(sessionTable.userId, userId)).run();
-  } else {
-    db.insert(sessionTable)
-      .values({ userId, ...values, createdAt: now })
-      .run();
-  }
-}
-
-export function clearPersistedSession(userId: string) {
-  sqlite.prepare("DELETE FROM session WHERE user_id = ?").run(userId);
+export function clearPersistedSession(accountId: string): void {
+  const row = getTelegramAccountById(accountId);
+  if (!row) return;
+  deleteTelegramAccount(accountId);
   const clients = getClientsMap();
-  clients.get(userId)?.destroy().catch(() => {});
-  clients.delete(userId);
+  clients.get(row.telegramId)?.destroy().catch(() => {});
+  clients.delete(row.telegramId);
 }
 
-export function isLoggedIn(userId: string): boolean {
-  return getPersistedSession(userId) !== null;
+export function isLoggedIn(accountId: string): boolean {
+  return getPersistedSession(accountId) !== null;
 }
 
-/** Returns the connected, authorized client for this user, or null if not logged in. */
-export async function getClient(userId: string): Promise<TelegramClient | null> {
-  const sessionString = getPersistedSession(userId);
-  if (!sessionString) return null;
+/** Returns the connected, authorized client for this Telegram account, or null if not bound. */
+export async function getClient(accountId: string): Promise<TelegramClient | null> {
+  const row = getTelegramAccountById(accountId);
+  if (!row) return null;
+  const sessionString = decrypt(row.encryptedSessionString);
 
   const clients = getClientsMap();
-  const existing = clients.get(userId);
+  const existing = clients.get(row.telegramId);
   if (existing?.connected) {
     return existing;
   }
@@ -110,12 +100,12 @@ export async function getClient(userId: string): Promise<TelegramClient | null> 
     connectionRetries: 3,
   });
   await client.connect();
-  clients.set(userId, client);
+  clients.set(row.telegramId, client);
   return client;
 }
 
 /** Step 1: send the login code to the given phone number. Returns a loginId to carry through the remaining steps. */
-export async function startLogin(phoneNumber: string): Promise<{ loginId: string }> {
+export async function startLogin(phoneNumber: string, ownerUserId: string): Promise<{ loginId: string }> {
   pruneExpiredLoginStates();
 
   const { apiId, apiHash } = getApiCreds();
@@ -143,20 +133,30 @@ export async function startLogin(phoneNumber: string): Promise<{ loginId: string
     phoneNumber,
     phoneCodeHash: result.phoneCodeHash,
     expiresAt: Date.now() + LOGIN_STATE_TTL_MS,
+    ownerUserId,
   });
 
   return { loginId };
 }
 
 type SignInOutcome =
-  | { status: "logged_in"; userId: string }
+  | { status: "logged_in"; accountId: string; telegramId: string }
   | { status: "password_required" }
-  | { status: "not_allowed"; userId: string };
+  | { status: "not_allowed"; telegramId: string }
+  | { status: "already_linked"; telegramId: string };
 
-/** Step 2: submit the SMS/app code for the given loginId. */
-export async function submitLoginCode(loginId: string, code: string): Promise<SignInOutcome> {
+function requireOwnedState(loginId: string, ownerUserId: string): LoginState {
   const state = getLoginStatesMap().get(loginId);
   if (!state) throw new Error("No login in progress. Request a new code first.");
+  if (state.ownerUserId !== ownerUserId) {
+    throw new Error("This login was started by a different session. Request a new code first.");
+  }
+  return state;
+}
+
+/** Step 2: submit the SMS/app code for the given loginId. */
+export async function submitLoginCode(loginId: string, code: string, ownerUserId: string): Promise<SignInOutcome> {
+  const state = requireOwnedState(loginId, ownerUserId);
 
   try {
     const result = await state.client.invoke(
@@ -168,7 +168,7 @@ export async function submitLoginCode(loginId: string, code: string): Promise<Si
     );
 
     if (result instanceof Api.auth.Authorization) {
-      return finishLogin(loginId, state.client, result.user as Api.User);
+      return finishLogin(loginId, state.client, result.user as Api.User, ownerUserId);
     }
     throw new Error("Unexpected sign-in response.");
   } catch (err: unknown) {
@@ -181,9 +181,12 @@ export async function submitLoginCode(loginId: string, code: string): Promise<Si
 }
 
 /** Step 3 (only if 2FA is enabled): submit the cloud password for the given loginId. */
-export async function submitLoginPassword(loginId: string, password: string): Promise<SignInOutcome> {
-  const state = getLoginStatesMap().get(loginId);
-  if (!state) throw new Error("No login in progress. Request a new code first.");
+export async function submitLoginPassword(
+  loginId: string,
+  password: string,
+  ownerUserId: string
+): Promise<SignInOutcome> {
+  const state = requireOwnedState(loginId, ownerUserId);
 
   // teleproto exposes a high-level helper for the SRP password flow. onError
   // must return true to stop the retry loop (returning normally retries).
@@ -204,26 +207,37 @@ export async function submitLoginPassword(loginId: string, password: string): Pr
     throw lastError ?? new Error("Incorrect 2FA password.");
   }
 
-  return finishLogin(loginId, client, user as Api.User);
+  return finishLogin(loginId, client, user as Api.User, ownerUserId);
 }
 
-function finishLogin(loginId: string, client: TelegramClient, me: Api.User): SignInOutcome {
-  const userId = me.id.toString();
+function finishLogin(
+  loginId: string,
+  client: TelegramClient,
+  me: Api.User,
+  ownerUserId: string
+): SignInOutcome {
+  const telegramId = me.id.toString();
   getLoginStatesMap().delete(loginId);
 
-  if (!isTelegramUserAllowed(userId)) {
+  if (!isTelegramUserAllowed(telegramId)) {
     client.destroy().catch(() => {});
-    return { status: "not_allowed", userId };
+    return { status: "not_allowed", telegramId };
+  }
+
+  if (isTelegramAccountLinkedToAnotherUser(telegramId, ownerUserId)) {
+    client.destroy().catch(() => {});
+    return { status: "already_linked", telegramId };
   }
 
   const sessionString = (client.session as StringSession).save();
-  persistSession(userId, sessionString, me);
-  getClientsMap().set(userId, client);
-  return { status: "logged_in", userId };
+  const accountId = upsertTelegramAccount({ ownerUserId, telegramId, sessionString, me });
+  getClientsMap().set(telegramId, client);
+  return { status: "logged_in", accountId, telegramId };
 }
 
-export async function logout(userId: string): Promise<void> {
-  const client = await getClient(userId);
+/** Ends the Telegram session for this account (best-effort) and removes the local row. */
+export async function logout(accountId: string): Promise<void> {
+  const client = await getClient(accountId);
   if (client) {
     try {
       await client.invoke(new Api.auth.LogOut());
@@ -232,5 +246,5 @@ export async function logout(userId: string): Promise<void> {
     }
     await client.destroy();
   }
-  clearPersistedSession(userId);
+  clearPersistedSession(accountId);
 }

@@ -1,14 +1,17 @@
 # Telegram Bot Dashboard
 
 A private website that lets you manage all your Telegram bots from one
-place, instead of messaging @BotFather every time. You sign in with your
-own Telegram account, and you'll only ever see your own bots. More than one
-person can use the same dashboard, each seeing only what belongs to them.
+place, instead of messaging @BotFather every time. Register your own
+dashboard account, then link one or more Telegram accounts to it — you'll
+only ever see bots and channels belonging to whichever Telegram account you
+have active. More than one person can use the same dashboard, each with
+their own account, each seeing only what belongs to them.
 
 ## What it does
 
-- **Sign in with your Telegram account** (phone number and the code
-  Telegram sends you).
+- **Register a dashboard account** (username and password), then **link one
+  or more Telegram accounts** to it (phone number and the code Telegram
+  sends you). Switch between linked accounts from the sidebar at any time.
 - **See all your bots** in one place: name, username, token, whether it
   has notifications set up.
 - **See your own account info**: your name, username, and phone number.
@@ -22,41 +25,43 @@ person can use the same dashboard, each seeing only what belongs to them.
 
 ## Keeping things safe
 
-Your account's secret login info and your bots' secret codes are stored
-in a locked (encrypted) form, not as plain text. Anyone who can sign in to
-the dashboard has full control over their own account and bots through
-it — so keep your dashboard password and setup secret safe, and don't make
-the dashboard reachable from the open internet unless you've added your
-own extra layer of protection in front of it.
+Your linked Telegram accounts' secret login info and your bots' secret
+codes are stored in a locked (encrypted) form, not as plain text. Your
+dashboard password itself is never stored, only a one-way hashed form of
+it. Anyone who can sign in to your dashboard account has full control over
+the Telegram accounts and bots linked to it — so keep your password safe,
+and don't make the dashboard reachable from the open internet unless
+you've added your own extra layer of protection in front of it.
 
 ## Setting it up
 
-1. Get your app credentials from Telegram's website (you'll need to log
-   in with the Telegram account you plan to use with this dashboard).
+1. Get your app credentials from Telegram's website.
 2. Copy the example settings file to a real settings file and fill in the
-   values it asks for. For trying it out, you can set the dashboard
-   password to `admin123` — just change it to something private before
-   using this for real.
+   values it asks for.
 3. Start it up with one command.
-4. Open the dashboard in your browser, type in the dashboard password,
-   then sign in with your phone number and the code Telegram sends you.
+4. Open the dashboard in your browser, register a dashboard account, then
+   link a Telegram account with its phone number and the code Telegram
+   sends you.
 
-Everything you set up (your login, your bots, their messages) is saved and
-will still be there the next time you start the dashboard.
+Everything you set up (your dashboard account, linked Telegram accounts,
+your bots, their messages) is saved and will still be there the next time
+you start the dashboard.
 
 ## Multiple people using it
 
-Anyone who knows the dashboard password can sign in with their own
-Telegram account. Once signed in, a person only ever sees, edits, or
-deletes their own bots — never anyone else's.
+By default, anyone can register their own dashboard account and link their
+own Telegram accounts to it. Each dashboard account only ever sees, edits,
+or deletes bots and channels belonging to the Telegram accounts linked to
+*that* account — never anyone else's.
 
 A couple of things worth knowing:
 
-- **Treat the dashboard password like an invite code.** Anyone who has it
-  can sign in with their own Telegram account. If you want to control
-  exactly *which* Telegram accounts are allowed in, you can set up an
-  allow-list. If someone isn't on the list, they'll see their own Telegram
-  ID so they can ask you to add them.
+- **You can close registration once you've made your own account**, by
+  setting `REGISTRATION_ENABLED=false`. New accounts can no longer be
+  created, but existing ones keep working.
+- **You can control exactly which Telegram accounts are allowed to be
+  linked** with an allow-list. If a Telegram account isn't on the list,
+  its Telegram ID is shown so its owner can ask you to add it.
 - **Whoever runs the dashboard can see everyone's secrets.** The person
   hosting it holds the key that can unlock everyone's stored login info
   and bot codes. Only share a dashboard with people you trust that much.

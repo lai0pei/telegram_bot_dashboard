@@ -22,6 +22,13 @@
       "when": 1792400002710,
       "tag": "0002_amused_gwen_stacy",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1792405236400,
+      "tag": "0003_users_and_telegram_accounts",
+      "breakpoints": true
     }
   ]
 }

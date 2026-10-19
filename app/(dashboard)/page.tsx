@@ -8,12 +8,16 @@ import { toast } from "sonner";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
-import { apiFetch, getMe, type Me } from "@/lib/api-client";
+import { apiFetch, ApiError, getMe, type Me } from "@/lib/api-client";
 import { FadeIn, Stagger, fade } from "@/components/motion";
 import { AccountCardSkeleton, CardGridSkeleton } from "./loading";
 import { BotCard, type BotSummary } from "./bot-card";
 import { ChatCard } from "./chat-card";
 import type { ChatSummary } from "./chats/[id]/types";
+
+function isNoActiveAccount(err: unknown): boolean {
+  return err instanceof ApiError && err.body.code === "NO_ACTIVE_ACCOUNT";
+}
 
 export default function OverviewPage() {
   const [me, setMe] = useState<Me | null>(null);
@@ -21,6 +25,7 @@ export default function OverviewPage() {
   const [loading, setLoading] = useState(true);
   const [chats, setChats] = useState<ChatSummary[] | null>(null);
   const [chatsLoading, setChatsLoading] = useState(true);
+  const [noActiveAccount, setNoActiveAccount] = useState(false);
 
   useEffect(() => {
     void load();
@@ -34,7 +39,11 @@ export default function OverviewPage() {
       const result = await apiFetch<{ chats: ChatSummary[] }>("/api/chats");
       setChats(result.chats);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load channels and groups.");
+      if (isNoActiveAccount(err)) {
+        setNoActiveAccount(true);
+      } else {
+        toast.error(err instanceof Error ? err.message : "Failed to load channels and groups.");
+      }
     } finally {
       setChatsLoading(false);
     }
@@ -47,10 +56,31 @@ export default function OverviewPage() {
       setMe(meResult);
       setBots(botsResult.bots);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load.");
+      if (isNoActiveAccount(err)) {
+        setNoActiveAccount(true);
+      } else {
+        toast.error(err instanceof Error ? err.message : "Failed to load.");
+      }
     } finally {
       setLoading(false);
     }
+  }
+
+  if (noActiveAccount) {
+    return (
+      <FadeIn>
+        <Card className="flex flex-col items-center gap-3 py-10 text-center text-sm text-[var(--muted)]">
+          <BotIcon className="h-8 w-8 text-[var(--muted)]" />
+          <p>Link a Telegram account to start managing its bots and channels.</p>
+          <Button size="sm" asChild>
+            <Link href="/telegram-accounts/new">
+              <Plus className="h-3.5 w-3.5" />
+              Link Telegram account
+            </Link>
+          </Button>
+        </Card>
+      </FadeIn>
+    );
   }
 
   return (

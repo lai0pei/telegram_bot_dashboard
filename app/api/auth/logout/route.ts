@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { withAuth, errorResponse } from "@/lib/api-guard";
+import { withSession, errorResponse } from "@/lib/api-guard";
 import { clearSessionCookie } from "@/lib/auth";
-import { logout } from "@/lib/mtproto";
 
-export const POST = withAuth(async (_req, _ctx, userId) => {
+/** Ends the dashboard session only. Does not touch any linked Telegram account's session — unbinding does that (see /api/telegram-accounts/[id] DELETE). */
+export const POST = withSession(async () => {
   try {
-    await logout(userId);
     await clearSessionCookie();
     return NextResponse.json({ ok: true });
   } catch (err) {
