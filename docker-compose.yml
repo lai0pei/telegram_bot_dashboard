@@ -1,0 +1,15 @@
+services:
+  app:
+    build: .
+    image: telegram-bot-dashboard:latest
+    env_file: .env
+    environment:
+      - DATABASE_PATH=/app/data/app.db
+    volumes:
+      - tgdash-data:/app/data
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+
+volumes:
+  tgdash-data:

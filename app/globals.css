@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f8f9fb;
+  --foreground: #16181c;
+  --card: #ffffff;
+  --card-border: #e4e7ec;
+  --muted: #667085;
+  --primary: #2aabee; /* Telegram blue */
+  --primary-foreground: #ffffff;
+  --danger: #e03131;
+  --danger-foreground: #ffffff;
+  --success: #12b76a;
+  --radius: 0.75rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --background: #0f1115;
+    --foreground: #e7e9ea;
+    --card: #17191d;
+    --card-border: #2a2d33;
+    --muted: #8a8f98;
+    --primary: #2aabee;
+    --primary-foreground: #ffffff;
+    --danger: #f06565;
+    --danger-foreground: #1a1a1a;
+    --success: #33d487;
+  }
+}
+
+:root[data-theme="dark"] {
+  --background: #0f1115;
+  --foreground: #e7e9ea;
+  --card: #17191d;
+  --card-border: #2a2d33;
+  --muted: #8a8f98;
+  --primary: #2aabee;
+  --primary-foreground: #ffffff;
+  --danger: #f06565;
+  --danger-foreground: #1a1a1a;
+  --success: #33d487;
+}
+
+* {
+  border-color: var(--card-border);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+}

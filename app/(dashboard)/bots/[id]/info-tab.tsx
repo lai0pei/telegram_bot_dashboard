@@ -1,0 +1,83 @@
+"use client";
+
+import { useState } from "react";
+import { toast } from "sonner";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { apiFetch } from "@/lib/api-client";
+import type { BotDetail } from "./types";
+
+export function InfoTab({ bot, onChange }: { bot: BotDetail; onChange: () => void }) {
+  const [revealed, setRevealed] = useState(false);
+  const [token, setToken] = useState(bot.token ?? "");
+
+  async function reveal() {
+    try {
+      const result = await apiFetch<{ token: string }>(`/api/bots/${bot.id}/token`);
+      setToken(result.token);
+      setRevealed(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to fetch token.");
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <h3 className="mb-3 text-sm font-semibold">Bot token</h3>
+        <div className="flex items-center gap-2">
+          <code className="flex-1 truncate rounded-md bg-black/5 px-3 py-2 text-sm dark:bg-white/5">
+            {revealed || bot.token ? token : "••••••••••••••••••••••••"}
+          </code>
+          {!revealed && !bot.token ? (
+            <Button size="sm" variant="outline" onClick={reveal}>
+              Reveal
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                navigator.clipboard.writeText(token);
+                toast.success("Copied.");
+              }}
+            >
+              Copy
+            </Button>
+          )}
+        </div>
+        <p className="mt-2 text-xs text-[var(--muted)]">
+          Anyone with this token has full control of the bot. Keep it secret.
+        </p>
+      </Card>
+
+      <Card>
+        <h3 className="mb-3 text-sm font-semibold">Details</h3>
+        <dl className="grid grid-cols-2 gap-3 text-sm">
+          <Field label="Telegram ID" value={bot.info?.id?.toString() ?? "—"} />
+          <Field label="Username" value={`@${bot.username}`} />
+          <Field label="Name" value={bot.name || bot.firstName} />
+          <Field label="Short description" value={bot.shortDescription || "—"} />
+        </dl>
+      </Card>
+
+      <Card>
+        <h3 className="mb-2 text-sm font-semibold">Description</h3>
+        <p className="text-sm text-[var(--muted)]">{bot.description || "No description set."}</p>
+      </Card>
+
+      <Button variant="outline" size="sm" onClick={onChange}>
+        Refresh
+      </Button>
+    </div>
+  );
+}
+
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs text-[var(--muted)]">{label}</dt>
+      <dd className="font-medium">{value}</dd>
+    </div>
+  );
+}
