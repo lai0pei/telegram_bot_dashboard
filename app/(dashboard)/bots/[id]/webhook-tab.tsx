@@ -6,15 +6,23 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Link2, Link2Off } from "lucide-react";
 import { apiFetch } from "@/lib/api-client";
+import { validateWebhookUrl } from "@/lib/validation";
+import { FieldError } from "@/components/ui/field-error";
 import type { BotDetail } from "./types";
 
 export function WebhookTab({ bot, onChange }: { bot: BotDetail; onChange: () => void }) {
   const [url, setUrl] = useState(bot.webhook?.url ?? "");
   const [saving, setSaving] = useState(false);
+  const [touched, setTouched] = useState(false);
+
+  const urlError = url ? validateWebhookUrl(url) : null;
 
   async function handleSet(e: React.FormEvent) {
     e.preventDefault();
+    setTouched(true);
+    if (urlError) return;
     setSaving(true);
     try {
       await apiFetch(`/api/bots/${bot.id}/webhook`, { method: "PUT", body: { url } });
@@ -51,7 +59,9 @@ export function WebhookTab({ bot, onChange }: { bot: BotDetail; onChange: () => 
             placeholder="https://example.com/webhook/your-bot"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
+            onBlur={() => setTouched(true)}
           />
+          {touched && <FieldError error={urlError} />}
         </div>
 
         {bot.webhook?.pending_update_count ? (
@@ -61,12 +71,14 @@ export function WebhookTab({ bot, onChange }: { bot: BotDetail; onChange: () => 
           <p className="text-xs text-[var(--danger)]">Last error: {bot.webhook.last_error_message}</p>
         )}
 
-        <div className="flex gap-2">
-          <Button type="submit" disabled={saving || !url}>
-            {saving ? "Saving…" : "Set webhook"}
+        <div className="flex flex-wrap gap-2">
+          <Button type="submit" loading={saving} disabled={!url || Boolean(urlError)}>
+            <Link2 className="h-3.5 w-3.5" />
+            Set webhook
           </Button>
           {bot.webhook?.url && (
             <Button type="button" variant="outline" onClick={handleClear} disabled={saving}>
+              <Link2Off className="h-3.5 w-3.5" />
               Remove webhook
             </Button>
           )}

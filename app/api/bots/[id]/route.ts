@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
 import { withAuth, errorResponse } from "@/lib/api-guard";
 import { deleteBot as botFatherDelete } from "@/lib/botfather";
-import { deleteBotRow, getBotById, getBotToken } from "@/lib/bots";
+import { deleteBotRow, getBotById, getBotToken, withLiveBotToken } from "@/lib/bots";
 import { botApi, type BotCommand } from "@/lib/botapi";
 import { singleFlight } from "@/lib/single-flight";
+import {
+  validateBotName,
+  validateCommand,
+  validateCommandDescription,
+  validateDescription,
+  validateShortDescription,
+} from "@/lib/validation";
 
 export const GET = withAuth(async (_req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
   try {
@@ -22,28 +29,31 @@ export const GET = withAuth(async (_req: Request, ctx: { params: Promise<{ id: s
       });
     }
 
-    const [info, name, description, shortDescription, commands, webhook] = await Promise.all([
-      botApi.getMe(token),
-      botApi.getMyName(token).catch(() => ({ name: "" })),
-      botApi.getMyDescription(token).catch(() => ({ description: "" })),
-      botApi.getMyShortDescription(token).catch(() => ({ short_description: "" })),
-      botApi.getMyCommands(token).catch(() => [] as BotCommand[]),
-      botApi.getWebhookInfo(token).catch(() => null),
-    ]);
+    const { result, token: liveToken } = await withLiveBotToken(bot, userId, async (liveToken) => {
+      const [info, name, description, shortDescription, commands, webhook] = await Promise.all([
+        botApi.getMe(liveToken),
+        botApi.getMyName(liveToken).catch(() => ({ name: "" })),
+        botApi.getMyDescription(liveToken).catch(() => ({ description: "" })),
+        botApi.getMyShortDescription(liveToken).catch(() => ({ short_description: "" })),
+        botApi.getMyCommands(liveToken).catch(() => [] as BotCommand[]),
+        botApi.getWebhookInfo(liveToken).catch(() => null),
+      ]);
+      return { info, name, description, shortDescription, commands, webhook };
+    });
 
     return NextResponse.json({
       id: bot.id,
       username: bot.username,
       firstName: bot.firstName,
       hasToken: true,
-      token,
+      token: liveToken,
       monitorEnabled: bot.monitorEnabled,
-      info,
-      name: name.name,
-      description: description.description,
-      shortDescription: shortDescription.short_description,
-      commands,
-      webhook,
+      info: result.info,
+      name: result.name.name,
+      description: result.description.description,
+      shortDescription: result.shortDescription.short_description,
+      commands: result.commands,
+      webhook: result.webhook,
     });
   } catch (err) {
     return errorResponse(err);
@@ -64,19 +74,32 @@ export const PATCH = withAuth(
       const applied: string[] = [];
 
       if (typeof body.name === "string") {
-        await botApi.setMyName(token, body.name);
+        const error = validateBotName(body.name);
+        if (error) return NextResponse.json({ error }, { status: 400 });
+        await botApi.setMyName(token, body.name.trim());
         applied.push("name");
       }
       if (typeof body.description === "string") {
+        const error = validateDescription(body.description);
+        if (error) return NextResponse.json({ error }, { status: 400 });
         await botApi.setMyDescription(token, body.description);
         applied.push("description");
       }
       if (typeof body.shortDescription === "string") {
+        const error = validateShortDescription(body.shortDescription);
+        if (error) return NextResponse.json({ error }, { status: 400 });
         await botApi.setMyShortDescription(token, body.shortDescription);
         applied.push("shortDescription");
       }
       if (Array.isArray(body.commands)) {
-        await botApi.setMyCommands(token, body.commands as BotCommand[]);
+        const commands = body.commands as BotCommand[];
+        for (const c of commands) {
+          const commandError = validateCommand(c.command);
+          if (commandError) return NextResponse.json({ error: commandError }, { status: 400 });
+          const descriptionError = validateCommandDescription(c.description);
+          if (descriptionError) return NextResponse.json({ error: descriptionError }, { status: 400 });
+        }
+        await botApi.setMyCommands(token, commands);
         applied.push("commands");
       }
 

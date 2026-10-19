@@ -33,6 +33,28 @@ export const bots = sqliteTable(
   ]
 );
 
+/**
+ * Local mirror of the channels/groups a user owns or admins, synced from
+ * their dialogs. Mainly exists to keep each channel's access hash, which
+ * every channel API call needs and the session string doesn't persist.
+ */
+export const chats = sqliteTable(
+  "chats",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    ownerUserId: text("owner_user_id").notNull(),
+    telegramId: text("telegram_id").notNull(),
+    kind: text("kind", { enum: ["channel", "supergroup", "group"] }).notNull(),
+    accessHash: text("access_hash"), // null for basic groups
+    title: text("title").notNull(),
+    username: text("username"),
+    isCreator: integer("is_creator", { mode: "boolean" }).notNull().default(false),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [uniqueIndex("chats_owner_telegram_id_unique").on(table.ownerUserId, table.telegramId)]
+);
+
 export const botMessages = sqliteTable("bot_messages", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   botId: integer("bot_id").notNull(),

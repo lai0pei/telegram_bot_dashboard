@@ -1,11 +1,13 @@
 "use client";
 
+import { KeyRound, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiFetch } from "@/lib/api-client";
+import { cn } from "@/lib/utils";
 import type { BotDetail } from "./types";
 
 export function DangerTab({
@@ -20,6 +22,7 @@ export function DangerTab({
   const [revoking, setRevoking] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmText, setConfirmText] = useState("");
+  const confirmed = confirmText === bot.username;
 
   async function handleRevoke() {
     setRevoking(true);
@@ -55,26 +58,37 @@ export function DangerTab({
           Immediately invalidates the current token and issues a new one. Anything using the old token (a deployed
           bot process, a webhook) will stop working until updated.
         </p>
-        <Button variant="outline" onClick={handleRevoke} disabled={revoking}>
-          {revoking ? "Revoking…" : "Revoke token"}
+        <Button variant="outline" onClick={handleRevoke} loading={revoking}>
+          <KeyRound className="h-3.5 w-3.5" />
+          Revoke token
         </Button>
       </Card>
 
-      <Card className="border-[var(--danger)]/40">
-        <h3 className="mb-1 text-sm font-semibold text-[var(--danger)]">Delete this bot</h3>
+      <Card className="border-[var(--danger)]/50">
+        <h3 className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-[var(--danger)]">
+          <Trash2 className="h-4 w-4" />
+          Delete this bot
+        </h3>
         <p className="mb-3 text-sm text-[var(--muted)]">
           Permanently deletes @{bot.username} via BotFather. This cannot be undone and the username becomes
           available for anyone to claim. Type <strong>{bot.username}</strong> to confirm.
         </p>
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <Input
             value={confirmText}
             onChange={(e) => setConfirmText(e.target.value)}
             placeholder={bot.username}
-            className="max-w-xs"
+            className="sm:max-w-xs"
           />
-          <Button variant="danger" onClick={handleDelete} disabled={deleting || confirmText !== bot.username}>
-            {deleting ? "Deleting…" : "Delete bot"}
+          <Button
+            variant="danger"
+            onClick={handleDelete}
+            loading={deleting}
+            disabled={!confirmed}
+            className={cn(confirmed && !deleting && "animate-pulse motion-reduce:animate-none")}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete bot
           </Button>
         </div>
       </Card>

@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-client";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
+import { FadeIn } from "@/components/motion";
+import { DetailHeader } from "../../detail-header";
 import type { BotDetail } from "./types";
 import { InfoTab } from "./info-tab";
 import { SettingsTab } from "./settings-tab";
@@ -13,6 +15,7 @@ import { CommandsTab } from "./commands-tab";
 import { WebhookTab } from "./webhook-tab";
 import { MessagesTab } from "./messages-tab";
 import { DangerTab } from "./danger-tab";
+import BotDetailLoading from "./loading";
 
 export default function BotDetailPage() {
   const params = useParams<{ id: string }>();
@@ -52,15 +55,12 @@ export default function BotDetailPage() {
     }
   }
 
-  if (loading && !bot) return <p className="text-sm text-[var(--muted)]">Loading…</p>;
+  if (loading && !bot) return <BotDetailLoading />;
   if (!bot) return <p className="text-sm text-[var(--danger)]">Bot not found.</p>;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold">@{bot.username}</h1>
-        <p className="text-sm text-[var(--muted)]">{bot.firstName}</p>
-      </div>
+    <FadeIn className="space-y-6">
+      <DetailHeader title={`@${bot.username}`} subtitle={bot.firstName} />
 
       {!bot.hasToken && (
         <Card className="text-sm">
@@ -105,6 +105,6 @@ export default function BotDetailPage() {
           <DangerTab bot={bot} onDeleted={() => router.push("/")} onTokenChanged={load} />
         </TabsContent>
       </Tabs>
-    </div>
+    </FadeIn>
   );
 }

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Toaster } from "sonner";
+import { MotionProvider } from "@/components/motion";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -11,8 +12,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        {children}
-        <Toaster position="top-right" richColors />
+        <MotionProvider>{children}</MotionProvider>
+        <Toaster position="top-right" richColors theme="system" />
       </body>
     </html>
   );

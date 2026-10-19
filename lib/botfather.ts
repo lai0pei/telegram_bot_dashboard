@@ -132,7 +132,7 @@ export async function createBot(userId: string, name: string, username: string):
 
     let reply = await sendAndAwaitReply(client, "/newbot", lastId);
     lastId = reply.id;
-    if (!/alright.*what do you want to call/i.test(reply.text ?? "")) {
+    if (!/choose a name for your bot/i.test(reply.text ?? "")) {
       throw new BotFatherError(`Unexpected BotFather reply to /newbot: "${reply.text}"`);
     }
 
@@ -180,12 +180,13 @@ export async function deleteBot(userId: string, username: string): Promise<void>
     const handle = username.startsWith("@") ? username : `@${username}`;
     reply = await sendAndAwaitReply(client, handle, lastId);
     lastId = reply.id;
-    if (!/are you really sure/i.test(reply.text ?? "")) {
+    const confirmMatch = (reply.text ?? "").match(/send ['‘’"“”]([^'‘’"“”]+)['‘’"“”] to confirm/i);
+    if (!confirmMatch && !/are you (really )?sure/i.test(reply.text ?? "")) {
       throw new BotFatherError(`BotFather did not ask for confirmation: "${reply.text}"`);
     }
 
-    reply = await sendAndAwaitReply(client, "Yes, I am totally sure.", lastId);
-    if (!/done! the bot.*deleted/i.test(reply.text ?? "")) {
+    reply = await sendAndAwaitReply(client, confirmMatch?.[1] ?? "Yes, I am totally sure.", lastId);
+    if (!/deleted/i.test(reply.text ?? "")) {
       throw new BotFatherError(`Unexpected BotFather reply while deleting the bot: "${reply.text}"`);
     }
   });

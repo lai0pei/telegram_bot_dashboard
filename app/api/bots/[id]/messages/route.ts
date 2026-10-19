@@ -5,6 +5,7 @@ import { getBotById, getBotToken } from "@/lib/bots";
 import { db } from "@/lib/db";
 import { botMessages, botUsers } from "@/lib/db/schema";
 import { botApi } from "@/lib/botapi";
+import { validateChatId, validateMessageText } from "@/lib/validation";
 
 /** GET: recent message feed + unique user count for this bot. */
 export const GET = withAuth(async (req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
@@ -42,9 +43,13 @@ export const POST = withAuth(async (req: Request, ctx: { params: Promise<{ id: s
     if (!token) return NextResponse.json({ error: "No token stored for this bot." }, { status: 400 });
 
     const { chatId, text } = await req.json();
-    if (!chatId || typeof text !== "string" || !text.trim()) {
+    if (typeof chatId !== "string" || typeof text !== "string") {
       return NextResponse.json({ error: "chatId and text are required." }, { status: 400 });
     }
+    const chatIdError = validateChatId(chatId);
+    if (chatIdError) return NextResponse.json({ error: chatIdError }, { status: 400 });
+    const textError = validateMessageText(text);
+    if (textError) return NextResponse.json({ error: textError }, { status: 400 });
 
     const sent = await botApi.sendMessage(token, chatId, text);
 

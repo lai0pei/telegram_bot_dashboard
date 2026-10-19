@@ -15,6 +15,13 @@
       "when": 1792392953553,
       "tag": "0001_sour_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792400002710,
+      "tag": "0002_amused_gwen_stacy",
+      "breakpoints": true
     }
   ]
 }

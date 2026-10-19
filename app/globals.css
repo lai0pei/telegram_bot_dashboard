@@ -12,6 +12,7 @@
   --danger-foreground: #ffffff;
   --success: #12b76a;
   --radius: 0.75rem;
+  --ring: #2aabee;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -56,4 +57,11 @@ body {
   background: var(--card);
   border: 1px solid var(--card-border);
   border-radius: var(--radius);
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }

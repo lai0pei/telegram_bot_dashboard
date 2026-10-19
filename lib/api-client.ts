@@ -22,3 +22,31 @@ export async function apiFetch<T = unknown>(
   }
   return json as T;
 }
+
+export interface Me {
+  loggedIn: boolean;
+  id?: string;
+  chatId?: string;
+  username?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  phone?: string | null;
+}
+
+let mePromise: Promise<Me> | null = null;
+
+/**
+ * Fetches /api/me, sharing one in-flight (and then cached) request across
+ * callers in the same page load — AccountBadge and the overview page both
+ * need it. Call clearMeCache() after login/logout so the next call refetches.
+ */
+export function getMe(): Promise<Me> {
+  return (mePromise ??= apiFetch<Me>("/api/me").catch((err) => {
+    mePromise = null;
+    throw err;
+  }));
+}
+
+export function clearMeCache() {
+  mePromise = null;
+}

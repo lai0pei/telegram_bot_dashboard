@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch } from "@/lib/api-client";
+import { validateBotName, validateDescription, validateShortDescription } from "@/lib/validation";
+import { FieldError } from "@/components/ui/field-error";
 import type { BotDetail } from "./types";
 
 export function SettingsTab({ bot, onSaved }: { bot: BotDetail; onSaved: () => void }) {
@@ -15,8 +17,13 @@ export function SettingsTab({ bot, onSaved }: { bot: BotDetail; onSaved: () => v
   const [description, setDescription] = useState(bot.description ?? "");
   const [saving, setSaving] = useState(false);
 
+  const nameError = validateBotName(name);
+  const shortDescriptionError = validateShortDescription(shortDescription);
+  const descriptionError = validateDescription(description);
+
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
+    if (nameError || shortDescriptionError || descriptionError) return;
     setSaving(true);
     try {
       await apiFetch(`/api/bots/${bot.id}`, {
@@ -38,6 +45,7 @@ export function SettingsTab({ bot, onSaved }: { bot: BotDetail; onSaved: () => v
         <div className="space-y-1.5">
           <Label htmlFor="name">Name</Label>
           <Input id="name" value={name} onChange={(e) => setName(e.target.value)} maxLength={64} />
+          <FieldError error={nameError} />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="shortDesc">Short description</Label>
@@ -47,7 +55,11 @@ export function SettingsTab({ bot, onSaved }: { bot: BotDetail; onSaved: () => v
             onChange={(e) => setShortDescription(e.target.value)}
             maxLength={120}
           />
-          <p className="text-xs text-[var(--muted)]">Shown on the bot&apos;s profile, above &quot;Start&quot;.</p>
+          {shortDescriptionError ? (
+            <p className="text-xs text-[var(--danger)]">{shortDescriptionError}</p>
+          ) : (
+            <p className="text-xs text-[var(--muted)]">Shown on the bot&apos;s profile, above &quot;Start&quot;.</p>
+          )}
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="desc">Description</Label>
@@ -59,10 +71,14 @@ export function SettingsTab({ bot, onSaved }: { bot: BotDetail; onSaved: () => v
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
-          <p className="text-xs text-[var(--muted)]">Shown on the empty chat screen before the user starts the bot.</p>
+          {descriptionError ? (
+            <p className="text-xs text-[var(--danger)]">{descriptionError}</p>
+          ) : (
+            <p className="text-xs text-[var(--muted)]">Shown on the empty chat screen before the user starts the bot.</p>
+          )}
         </div>
-        <Button type="submit" disabled={saving}>
-          {saving ? "Saving…" : "Save changes"}
+        <Button type="submit" loading={saving}>
+          Save changes
         </Button>
       </form>
     </Card>

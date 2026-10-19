@@ -1,25 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { apiFetch } from "@/lib/api-client";
-
-interface Me {
-  loggedIn: boolean;
-  username?: string | null;
-  firstName?: string | null;
-}
+import { getMe, type Me } from "@/lib/api-client";
 
 export function AccountBadge() {
   const [me, setMe] = useState<Me | null>(null);
 
   useEffect(() => {
-    void apiFetch<Me>("/api/me").then(setMe).catch(() => {});
+    void getMe().then(setMe).catch(() => {});
   }, []);
 
   if (!me?.loggedIn) return null;
 
   return (
-    <span className="text-sm text-[var(--muted)]">
+    <span className="hidden text-sm text-[var(--muted)] sm:inline">
       Signed in as {me.username ? `@${me.username}` : me.firstName}
     </span>
   );

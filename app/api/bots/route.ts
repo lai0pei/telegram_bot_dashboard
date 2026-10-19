@@ -3,10 +3,18 @@ import { Api } from "teleproto/tl";
 import { withAuth, errorResponse } from "@/lib/api-guard";
 import { getClient } from "@/lib/mtproto";
 import { createBot } from "@/lib/botfather";
-import { getBotToken, listBots, saveBotToken, upsertBotFromTelegram } from "@/lib/bots";
+import {
+  getBotToken,
+  listBots,
+  pruneBotsNotIn,
+  saveBotToken,
+  upsertBotFromTelegram,
+  withLiveBotToken,
+} from "@/lib/bots";
 import { botApi } from "@/lib/botapi";
 import { maskSecret } from "@/lib/crypto";
 import { singleFlight } from "@/lib/single-flight";
+import { validateBotName, validateBotUsername } from "@/lib/validation";
 
 /**
  * GET: syncs the current user's local bot list against bots.getAdminedBots,
@@ -28,6 +36,7 @@ export const GET = withAuth(async (_req, _ctx, userId) => {
         firstName: b.firstName ?? b.username,
       });
     }
+    pruneBotsNotIn(userId, new Set(adminedBots.map((b) => b.id.toString())));
 
     const rows = listBots(userId);
     const results = await Promise.all(
@@ -38,16 +47,30 @@ export const GET = withAuth(async (_req, _ctx, userId) => {
           telegramId: bot.telegramId,
           username: bot.username,
           firstName: bot.firstName,
-          hasToken: Boolean(token),
-          maskedToken: token ? maskSecret(token) : null,
           monitorEnabled: bot.monitorEnabled,
         };
-        if (!token) return { ...base, details: null, error: null };
+        if (!token) return { ...base, hasToken: false, maskedToken: null, details: null, error: null };
         try {
-          const [info, webhook] = await Promise.all([botApi.getMe(token), botApi.getWebhookInfo(token)]);
-          return { ...base, details: { ...info }, webhook, error: null };
+          const { result, token: liveToken } = await withLiveBotToken(bot, userId, (liveToken) =>
+            Promise.all([botApi.getMe(liveToken), botApi.getWebhookInfo(liveToken)])
+          );
+          const [info, webhook] = result;
+          return {
+            ...base,
+            hasToken: true,
+            maskedToken: maskSecret(liveToken),
+            details: { ...info },
+            webhook,
+            error: null,
+          };
         } catch (err) {
-          return { ...base, details: null, error: err instanceof Error ? err.message : String(err) };
+          return {
+            ...base,
+            hasToken: true,
+            maskedToken: maskSecret(token),
+            details: null,
+            error: err instanceof Error ? err.message : String(err),
+          };
         }
       })
     );
@@ -62,9 +85,13 @@ export const GET = withAuth(async (_req, _ctx, userId) => {
 export const POST = withAuth(async (req, _ctx, userId) => {
   try {
     const { name, username } = await req.json();
-    if (typeof name !== "string" || !name.trim() || typeof username !== "string" || !username.trim()) {
+    if (typeof name !== "string" || typeof username !== "string") {
       return NextResponse.json({ error: "Both name and username are required." }, { status: 400 });
     }
+    const nameError = validateBotName(name);
+    if (nameError) return NextResponse.json({ error: nameError }, { status: 400 });
+    const usernameError = validateBotUsername(username);
+    if (usernameError) return NextResponse.json({ error: usernameError }, { status: 400 });
 
     const { row, token } = await singleFlight(`create:${userId}:${username.trim().toLowerCase()}`, async () => {
       const created = await createBot(userId, name.trim(), username.trim());
