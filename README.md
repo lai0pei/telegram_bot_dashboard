@@ -1,132 +1,77 @@
 # Telegram Bot Dashboard
 
-A self-hosted web dashboard that logs in as **your Telegram user account**
-(over MTProto, the same protocol the Telegram apps use) so it can see,
-create, edit and delete every bot you own — all from a UI instead of a
-chat with [@BotFather](https://t.me/BotFather). Supports multiple people
-sharing one deployment, each logging in with their own Telegram account and
-seeing only their own bots.
+A private website that lets you manage all your Telegram bots from one
+place, instead of messaging @BotFather every time. You sign in with your
+own Telegram account, and you'll only ever see your own bots. More than one
+person can use the same dashboard, each seeing only what belongs to them.
 
 ## What it does
 
-- **Log in with your Telegram account** (phone number + code, with 2FA
-  support) instead of the dashboard just trusting a static token. Each
-  logged-in person only ever sees the bots they themselves own.
-- **See every bot you own** in one grid: username, name, token (masked,
-  revealable), webhook status, monitoring status.
-- **See your own account info**: name, username, phone, and your Telegram
-  user/chat ID.
-- **Create / delete bots** — scripted through @BotFather, since Telegram
-  has no direct API for this.
-- **Edit settings**: name, description, short description, commands menu,
-  webhook.
-- **Revoke a token** or **delete a bot entirely** (with typed
-  confirmation), both via @BotFather.
-- **Monitor messages**: optionally long-polls `getUpdates` for a bot and
-  shows a live feed of incoming messages, unique user counts, and lets you
-  reply directly.
+- **Sign in with your Telegram account** (phone number and the code
+  Telegram sends you).
+- **See all your bots** in one place: name, username, token, whether it
+  has notifications set up.
+- **See your own account info**: your name, username, and phone number.
+- **Create or delete a bot** right from the dashboard.
+- **Edit a bot's settings**: its name, descriptions, menu of commands, and
+  notification settings.
+- **Reset a bot's secret code** or **delete a bot** (with a confirmation
+  step so it doesn't happen by accident).
+- **Watch a bot's messages live**: see incoming messages, how many people
+  have used it, and reply directly from the dashboard.
 
-## How it works
+## Keeping things safe
 
-Telegram has two separate APIs, and this dashboard uses both:
+Your account's secret login info and your bots' secret codes are stored
+in a locked (encrypted) form, not as plain text. Anyone who can sign in to
+the dashboard has full control over their own account and bots through
+it — so keep your dashboard password and setup secret safe, and don't make
+the dashboard reachable from the open internet unless you've added your
+own extra layer of protection in front of it.
 
-| | Bot API (`api.telegram.org`) | MTProto (what Telegram apps use) |
-|---|---|---|
-| Acts as | one bot | your user account |
-| Can list bots you own | no | yes (`bots.getAdminedBots`) |
-| Create/delete a bot | no | only via scripting @BotFather |
-| Edit name/description/commands/webhook | yes | — |
+## Setting it up
 
-So the dashboard logs in as your user over MTProto
-([teleproto](https://docs.teleproto.dev), a maintained GramJS-compatible
-client) to list bots and script @BotFather, and calls the plain Bot API
-directly for everything a bot token can do on its own.
+1. Get your app credentials from Telegram's website (you'll need to log
+   in with the Telegram account you plan to use with this dashboard).
+2. Copy the example settings file to a real settings file and fill in the
+   values it asks for. For trying it out, you can set the dashboard
+   password to `admin123` — just change it to something private before
+   using this for real.
+3. Start it up with one command.
+4. Open the dashboard in your browser, type in the dashboard password,
+   then sign in with your phone number and the code Telegram sends you.
 
-**Security note:** the MTProto session string and every bot token are
-encrypted at rest (AES-256-GCM, keyed from `APP_SECRET`). Anyone who logs in
-has full control of their own Telegram account and bots through the
-dashboard — keep `DASHBOARD_PASSWORD` and `APP_SECRET` secret, and don't
-expose the port beyond `127.0.0.1` unless you put a reverse proxy with its
-own TLS in front of it.
+Everything you set up (your login, your bots, their messages) is saved and
+will still be there the next time you start the dashboard.
 
-## Setup
+## Multiple people using it
 
-1. Get `API_ID` / `API_HASH` from <https://my.telegram.org/apps> (requires
-   logging in with the Telegram account you'll use for this dashboard).
-2. Copy `.env.example` to `.env` and fill it in:
-   ```sh
-   cp .env.example .env
-   openssl rand -hex 32   # use this for APP_SECRET
-   ```
-3. Run it:
-   ```sh
-   docker compose up --build
-   ```
-4. Open <http://localhost:3000>, enter your dashboard password, then sign
-   in with your Telegram phone number and the code sent to your Telegram
-   app.
+Anyone who knows the dashboard password can sign in with their own
+Telegram account. Once signed in, a person only ever sees, edits, or
+deletes their own bots — never anyone else's.
 
-Data (your encrypted session, bot tokens, and monitored messages) persists
-in the `tgdash-data` Docker volume across restarts.
+A couple of things worth knowing:
 
-## Multiple users
+- **Treat the dashboard password like an invite code.** Anyone who has it
+  can sign in with their own Telegram account. If you want to control
+  exactly *which* Telegram accounts are allowed in, you can set up an
+  allow-list. If someone isn't on the list, they'll see their own Telegram
+  ID so they can ask you to add them.
+- **Whoever runs the dashboard can see everyone's secrets.** The person
+  hosting it holds the key that can unlock everyone's stored login info
+  and bot codes. Only share a dashboard with people you trust that much.
 
-Anyone who knows `DASHBOARD_PASSWORD` can reach the Telegram login steps and
-sign in with their own account. Once logged in, a user only ever sees,
-edits or deletes bots owned by that same Telegram account — every bot
-lookup is scoped to the logged-in user's ID, so one person can never read
-or touch another's bot token or settings.
+Making the dashboard reachable from outside your own computer or network
+is optional and up to you — just make sure you add proper protection
+first if you do.
 
-Two things worth knowing:
+## Known limits
 
-- **Treat `DASHBOARD_PASSWORD` as an invite code.** Anyone who has it can
-  create a session with their own Telegram account (nothing to do with
-  yours). To restrict *which* Telegram accounts may log in, set
-  `ALLOWED_TELEGRAM_USER_IDS` in `.env` to a comma-separated list of
-  Telegram user IDs. Leave it empty to allow anyone with the password. A
-  rejected login shows the user their Telegram ID so they can send it to
-  you to add to the list.
-- **The host holds `APP_SECRET`.** Whoever runs this deployment can decrypt
-  every logged-in user's MTProto session string and bot tokens, since
-  that's the key used to encrypt them at rest. Only share a deployment with
-  people you'd trust with that.
-
-Exposing the dashboard beyond `127.0.0.1` (for people not on the same
-machine/network) is a normal deployment decision — set `HOST_BIND=0.0.0.0`
-in `.env` and put your own reverse proxy and TLS in front of it.
-
-## Local development (without Docker)
-
-```sh
-npm install
-npm run db:migrate   # applies migrations to ./data/app.db
-npm run dev
-```
-
-## Project layout
-
-- `app/` — Next.js App Router pages and API routes.
-- `lib/auth.ts` — the dashboard-password gate cookie, the per-user session
-  cookie (carries the Telegram user ID), and the optional allowlist check.
-- `lib/mtproto.ts` — the MTProto login flow and per-user client map.
-- `lib/botfather.ts` — scripts @BotFather's chat for create/delete/token
-  flows (clicks its inline buttons rather than parsing free text where
-  possible), with one lock per user so concurrent users never interleave.
-- `lib/botapi.ts` — a thin wrapper around the Bot API.
-- `lib/bots.ts` — every bot lookup here is scoped to an owner's Telegram
-  user ID; this is what keeps users' bots isolated from each other.
-- `lib/poller.ts` + `instrumentation.ts` — the background `getUpdates`
-  poller for bots with monitoring enabled, across all users.
-- `lib/rate-limit.ts` — simple in-memory rate limiting for the login
-  endpoints.
-- `lib/db/` — SQLite schema and migrations (Drizzle ORM).
-
-## Known limitations
-
-- @BotFather is a chat bot, not a formal API — the create/delete/token
-  flows in `lib/botfather.ts` match its current prompts and inline
-  buttons. If Telegram changes BotFather's wording, those flows may need
-  updating.
-- A bot's updates can go to a webhook *or* to this dashboard's monitor
-  poller, never both — setting a webhook disables monitoring for that bot.
-- Telegram rate-limits bot creation and BotFather interactions generally.
+- Creating and deleting bots works by automatically chatting with
+  @BotFather behind the scenes, since Telegram doesn't offer a direct way
+  to do this. If Telegram changes how @BotFather talks, these features
+  might need fixing.
+- A bot can either send its messages to this dashboard for live
+  monitoring, or to an outside service (a "webhook") — not both at once.
+- Telegram limits how often you can create bots or talk to @BotFather, so
+  doing these things too quickly may get temporarily blocked.
