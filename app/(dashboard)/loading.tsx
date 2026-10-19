@@ -48,10 +48,38 @@ export function CardGridSkeleton({ count = 3 }: { count?: number }) {
 
 export default function OverviewLoading() {
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
+      <div className="space-y-1.5">
+        <Skeleton className="h-6 w-56" />
+        <Skeleton className="h-4 w-72" />
+      </div>
       <AccountCardSkeleton />
-      <CardGridSkeleton />
-      <CardGridSkeleton />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <Card key={i} className="p-4">
+            <Skeleton className="mb-2 h-3 w-16" />
+            <Skeleton className="h-7 w-10" />
+          </Card>
+        ))}
+      </div>
+      <div className="grid gap-6 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <Skeleton className="mb-4 h-5 w-40" />
+          <div className="space-y-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-full" />
+            ))}
+          </div>
+        </Card>
+        <Card>
+          <Skeleton className="mb-4 h-5 w-28" />
+          <div className="space-y-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-full" />
+            ))}
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }

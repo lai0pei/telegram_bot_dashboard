@@ -6,6 +6,17 @@ import type { Api } from "teleproto/tl";
 
 export type TelegramAccountRow = typeof telegramAccounts.$inferSelect;
 
+/** Thrown for any MTProto use of an account whose Telegram session has ended; errorResponse maps it to 409 SESSION_REVOKED. */
+export class TelegramSessionRevokedError extends Error {
+  constructor() {
+    super("This Telegram account's session was ended from another device. Scan a QR code to link it again.");
+  }
+}
+
+export function markTelegramAccountRevoked(id: string): void {
+  db.update(telegramAccounts).set({ revokedAt: new Date() }).where(eq(telegramAccounts.id, id)).run();
+}
+
 export function getTelegramAccountById(id: string): TelegramAccountRow | undefined {
   return db.select().from(telegramAccounts).where(eq(telegramAccounts.id, id)).all()[0];
 }
@@ -16,6 +27,15 @@ export function getTelegramAccountByTelegramId(telegramId: string): TelegramAcco
 
 export function listTelegramAccountsForUser(ownerUserId: string): TelegramAccountRow[] {
   return db.select().from(telegramAccounts).where(eq(telegramAccounts.ownerUserId, ownerUserId)).all();
+}
+
+/** The account a session should fall back to: the most recently updated one whose session is still alive. */
+export function pickDefaultTelegramAccountId(ownerUserId: string, excludeId?: string): string | null {
+  return (
+    listTelegramAccountsForUser(ownerUserId)
+      .filter((a) => !a.revokedAt && a.id !== excludeId)
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0]?.id ?? null
+  );
 }
 
 /**
@@ -40,6 +60,7 @@ export function upsertTelegramAccount(info: {
     firstName: info.me.firstName ?? null,
     lastName: info.me.lastName ?? null,
     phone: info.me.phone ?? null,
+    revokedAt: null,
     updatedAt: now,
   };
   if (existing) {

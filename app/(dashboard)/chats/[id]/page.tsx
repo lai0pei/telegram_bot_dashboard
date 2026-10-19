@@ -47,6 +47,8 @@ export default function ChatDetailPage() {
         subtitle={`${KIND_LABELS[chat.kind]} · ${chat.username ? `@${chat.username}` : "private"} · ${
           chat.isCreator ? "owner" : "admin"
         }`}
+        backHref="/chats"
+        backLabel="Channels & groups"
       />
 
       <Tabs defaultValue="info">
@@ -68,7 +70,7 @@ export default function ChatDetailPage() {
         </TabsContent>
         {chat.isCreator && (
           <TabsContent value="danger">
-            <DangerTab chat={chat} onDeleted={() => router.push("/")} />
+            <DangerTab chat={chat} onDeleted={() => router.push("/chats")} />
           </TabsContent>
         )}
       </Tabs>

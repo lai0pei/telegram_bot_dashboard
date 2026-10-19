@@ -18,9 +18,35 @@ export async function apiFetch<T = unknown>(
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
+    if (res.status === 401) endDeadSession();
+    if (json.code === "SESSION_REVOKED") notifyAccountsChanged();
     throw new ApiError(json.error ?? `Request to ${url} failed with status ${res.status}`, json);
   }
   return json as T;
+}
+
+let endingSession = false;
+
+/**
+ * A 401 means the dashboard session cookie no longer works (expired, signed
+ * out from another browser, or its user is gone). The page gate in proxy.ts
+ * only checks the cookie's signature, so without this the dashboard would
+ * keep rendering and every call would fail. Clear the cookie and go sign in.
+ */
+function endDeadSession() {
+  if (typeof window === "undefined" || endingSession || window.location.pathname.startsWith("/login")) return;
+  endingSession = true;
+  void fetch("/api/auth/logout", { method: "POST" }).finally(() =>
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- full reload on purpose: drops all client state (account list, cached /api/me) of the dead session; not a component, so no router here
+    window.location.assign("/login")
+  );
+}
+
+/** Window event the dashboard's AccountsProvider listens for to re-fetch the linked-account list. */
+export const ACCOUNTS_CHANGED_EVENT = "tgdash:accounts-changed";
+
+export function notifyAccountsChanged() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(ACCOUNTS_CHANGED_EVENT));
 }
 
 export interface Me {
@@ -32,6 +58,7 @@ export interface Me {
   firstName?: string | null;
   lastName?: string | null;
   phone?: string | null;
+  premium?: boolean;
 }
 
 export interface TelegramAccountSummary {
@@ -42,6 +69,8 @@ export interface TelegramAccountSummary {
   lastName: string | null;
   phone: string | null;
   isActive: boolean;
+  /** The Telegram session was ended elsewhere (e.g. from the phone); re-link by QR to restore it. */
+  revoked: boolean;
 }
 
 let mePromise: Promise<Me> | null = null;

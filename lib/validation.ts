@@ -6,23 +6,6 @@
 
 const USERNAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]{3,30}[bB][oO][tT]$/;
 
-const DASHBOARD_USERNAME_PATTERN = /^[a-zA-Z0-9_]{3,32}$/;
-
-export function validateDashboardUsername(username: string): string | null {
-  const trimmed = username.trim();
-  if (!trimmed) return "Username is required.";
-  if (!DASHBOARD_USERNAME_PATTERN.test(trimmed)) {
-    return "Username must be 3-32 characters: letters, digits, and underscores only.";
-  }
-  return null;
-}
-
-export function validateDashboardPassword(password: string): string | null {
-  if (!password) return "Password is required.";
-  if (password.length < 8) return "Password must be at least 8 characters.";
-  return null;
-}
-
 export function validateBotName(name: string): string | null {
   const trimmed = name.trim();
   if (!trimmed) return "Name is required.";

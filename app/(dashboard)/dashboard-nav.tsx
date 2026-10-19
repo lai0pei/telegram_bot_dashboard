@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bot, LayoutGrid, Settings, Smartphone } from "lucide-react";
+import { Bot, LayoutGrid, Megaphone, Settings, Smartphone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-client";
 import { AccountSwitcher } from "./account-switcher";
@@ -11,6 +11,8 @@ import { LogoutButton } from "./logout-button";
 
 const NAV_LINKS = [
   { href: "/", label: "Overview", icon: LayoutGrid },
+  { href: "/bots", label: "Bots", icon: Bot },
+  { href: "/chats", label: "Channels & groups", icon: Megaphone },
   { href: "/telegram-accounts", label: "Telegram accounts", icon: Smartphone },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

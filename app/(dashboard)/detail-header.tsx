@@ -1,17 +1,27 @@
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
-/** Shared header for bot/chat detail pages: a back link, an initial avatar, and title/subtitle. */
-export function DetailHeader({ title, subtitle }: { title: string; subtitle: string }) {
+/** Shared header for bot/chat detail pages: a back link to their list page, an initial avatar, and title/subtitle. */
+export function DetailHeader({
+  title,
+  subtitle,
+  backHref,
+  backLabel,
+}: {
+  title: string;
+  subtitle: string;
+  backHref: string;
+  backLabel: string;
+}) {
   const initial = title.replace(/^@/, "").charAt(0).toUpperCase() || "?";
   return (
     <div className="space-y-3">
       <Link
-        href="/"
+        href={backHref}
         className="inline-flex items-center gap-1 text-sm text-[var(--muted)] transition-colors hover:text-[var(--foreground)]"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
-        Back
+        {backLabel}
       </Link>
       <div className="flex items-center gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--primary)]/10 text-sm font-semibold text-[var(--primary)]">

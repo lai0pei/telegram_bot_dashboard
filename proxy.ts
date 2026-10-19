@@ -12,7 +12,7 @@ import { jwtVerify } from "jose";
  * redirect.
  */
 const SESSION_COOKIE = "tgdash_session";
-const PUBLIC_PATHS = ["/login", "/register"];
+const PUBLIC_PATHS = ["/login"];
 
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;

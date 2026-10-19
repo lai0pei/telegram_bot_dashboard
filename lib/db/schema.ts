@@ -1,18 +1,20 @@
 import { sqliteTable, text, integer, uniqueIndex } from "drizzle-orm/sqlite-core";
 
-/** A dashboard account. Can be linked to multiple Telegram accounts (see telegramAccounts). */
-export const users = sqliteTable(
-  "users",
-  {
-    id: text("id").primaryKey(),
-    username: text("username").notNull(),
-    passwordHash: text("password_hash").notNull(),
-    sessionVersion: integer("session_version").notNull().default(0),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-  },
-  (table) => [uniqueIndex("users_username_unique").on(table.username)]
-);
+/**
+ * A dashboard account. Can be linked to multiple Telegram accounts (see
+ * telegramAccounts). Sign-in is a Telegram QR scan, not a password — a
+ * dashboard user is created automatically the first time an unrecognized
+ * Telegram account signs in (lib/mtproto.ts finishLogin), so `username` is
+ * just a display name (its Telegram @username or name), not unique or used
+ * to authenticate.
+ */
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  username: text("username").notNull(),
+  sessionVersion: integer("session_version").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
 
 /**
  * One row per Telegram account linked to a dashboard user. `id` is what
@@ -36,6 +38,8 @@ export const telegramAccounts = sqliteTable(
     firstName: text("first_name"),
     lastName: text("last_name"),
     phone: text("phone"),
+    /** Set when Telegram reports the session ended (e.g. terminated from the phone's Devices list). Cleared by re-linking. */
+    revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },

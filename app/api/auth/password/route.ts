@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { withSession, errorResponse } from "@/lib/api-guard";
-import { createSessionCookie, getLoginIdCookie } from "@/lib/auth";
+import { getLoginIdCookie } from "@/lib/auth";
+import { loginStatusResponse } from "@/lib/login-response";
 import { submitLoginPassword } from "@/lib/mtproto";
-import { getUserById } from "@/lib/users";
 
+/** 2FA step for binding an extra Telegram account to the caller's dashboard user (see /api/auth/qr). */
 export const POST = withSession(async (req, _ctx, userId) => {
   try {
     const { password } = await req.json();
@@ -12,28 +13,11 @@ export const POST = withSession(async (req, _ctx, userId) => {
     }
     const loginId = await getLoginIdCookie();
     if (!loginId) {
-      return NextResponse.json({ error: "No login in progress. Request a new code first." }, { status: 400 });
+      return NextResponse.json({ error: "No login in progress. Start again." }, { status: 400 });
     }
 
-    const result = await submitLoginPassword(loginId, password, userId);
-    if (result.status === "logged_in") {
-      const user = getUserById(userId);
-      await createSessionCookie(userId, user?.sessionVersion ?? 0, result.accountId);
-      return NextResponse.json({ ok: true });
-    }
-    if (result.status === "not_allowed") {
-      return NextResponse.json(
-        { error: "This Telegram account isn't allowed to use this dashboard.", telegramUserId: result.telegramId },
-        { status: 403 }
-      );
-    }
-    if (result.status === "already_linked") {
-      return NextResponse.json(
-        { error: "This Telegram account is already linked to a different dashboard user." },
-        { status: 409 }
-      );
-    }
-    return NextResponse.json({ error: "Unexpected login state." }, { status: 400 });
+    const result = await submitLoginPassword(loginId, password, "link", userId);
+    return loginStatusResponse(result);
   } catch (err) {
     return errorResponse(err, 400);
   }

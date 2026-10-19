@@ -5,34 +5,16 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Check, ChevronsUpDown, Plus } from "lucide-react";
 import { toast } from "sonner";
-import { apiFetch, clearMeCache, type TelegramAccountSummary } from "@/lib/api-client";
+import { apiFetch } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
-
-function accountLabel(account: TelegramAccountSummary): string {
-  return account.username ? `@${account.username}` : account.firstName || account.telegramId;
-}
+import { accountLabel, useAccounts } from "./accounts-context";
 
 export function AccountSwitcher() {
   const router = useRouter();
-  const [accounts, setAccounts] = useState<TelegramAccountSummary[] | null>(null);
+  const { accounts, active, reload } = useAccounts();
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-
-  async function load() {
-    try {
-      const result = await apiFetch<{ accounts: TelegramAccountSummary[] }>("/api/telegram-accounts");
-      setAccounts(result.accounts);
-    } catch {
-      setAccounts([]);
-    }
-  }
-
-  useEffect(() => {
-    // Intentional: fetch-on-mount into local state, not state synchronization.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void load();
-  }, []);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -47,10 +29,9 @@ export function AccountSwitcher() {
     setSwitching(true);
     try {
       await apiFetch(`/api/telegram-accounts/${id}/activate`, { method: "POST" });
-      clearMeCache();
+      await reload();
       setOpen(false);
       router.push("/");
-      router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to switch accounts.");
     } finally {
@@ -58,7 +39,7 @@ export function AccountSwitcher() {
     }
   }
 
-  const active = accounts?.find((a) => a.isActive) ?? null;
+  const liveAccounts = accounts?.filter((a) => !a.revoked) ?? [];
 
   return (
     <div ref={ref} className="relative">
@@ -78,7 +59,8 @@ export function AccountSwitcher() {
 
       {open && (
         <div className="absolute left-0 top-full z-20 mt-1 w-full min-w-56 rounded-lg border border-[var(--card-border)] bg-[var(--card)] p-1 shadow-lg">
-          {accounts?.map((account) => (
+          {/* Signed-out accounts can't be switched to; they live on the Telegram accounts page (re-link or remove). */}
+          {liveAccounts.map((account) => (
             <button
               key={account.id}
               type="button"
@@ -91,7 +73,7 @@ export function AccountSwitcher() {
               <span className="min-w-0 flex-1 truncate">{accountLabel(account)}</span>
             </button>
           ))}
-          {accounts && accounts.length > 0 && <div className="my-1 h-px bg-[var(--card-border)]" />}
+          {liveAccounts.length > 0 && <div className="my-1 h-px bg-[var(--card-border)]" />}
           <Link
             href="/telegram-accounts/new"
             onClick={() => setOpen(false)}

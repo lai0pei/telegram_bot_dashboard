@@ -1,34 +1,25 @@
 import { eq } from "drizzle-orm";
 import { db } from "./db";
 import { users } from "./db/schema";
-import { hashPassword, verifyPassword } from "./password";
+import type { Api } from "teleproto/tl";
 
 export type UserRow = typeof users.$inferSelect;
-
-function normalizeUsername(username: string): string {
-  return username.trim().toLowerCase();
-}
 
 export function getUserById(id: string): UserRow | undefined {
   return db.select().from(users).where(eq(users.id, id)).all()[0];
 }
 
-export function getUserByUsername(username: string): UserRow | undefined {
-  return db.select().from(users).where(eq(users.username, normalizeUsername(username))).all()[0];
+/** Display name shown in the sidebar — not a login credential, since sign-in is by Telegram QR scan. */
+function displayNameForTelegram(me: Api.User): string {
+  return me.username ? `@${me.username}` : [me.firstName, me.lastName].filter(Boolean).join(" ") || me.id.toString();
 }
 
-export class UsernameTakenError extends Error {}
-
-export function createUser(username: string, password: string): UserRow {
-  const normalized = normalizeUsername(username);
-  if (getUserByUsername(normalized)) {
-    throw new UsernameTakenError("That username is already taken.");
-  }
+/** Creates a new dashboard user for a Telegram account seen for the first time at sign-in. */
+export function createUserForTelegram(me: Api.User): UserRow {
   const now = new Date();
   const row: UserRow = {
     id: crypto.randomUUID(),
-    username: normalized,
-    passwordHash: hashPassword(password),
+    username: displayNameForTelegram(me),
     sessionVersion: 0,
     createdAt: now,
     updatedAt: now,
@@ -37,22 +28,12 @@ export function createUser(username: string, password: string): UserRow {
   return row;
 }
 
-/** Verifies credentials, running a dummy hash on an unknown username so the timing doesn't reveal which. */
-export function verifyUserCredentials(username: string, password: string): UserRow | null {
-  const user = getUserByUsername(username);
-  if (!verifyPassword(password, user?.passwordHash ?? null)) return null;
-  return user ?? null;
-}
-
-/** Updates the password and bumps sessionVersion, invalidating every other device's session cookie. */
-export function changePassword(userId: string, newPassword: string): number {
+/** Bumps sessionVersion, invalidating every other signed-in browser's session cookie. */
+export function signOutOtherSessions(userId: string): number {
   const now = new Date();
   const user = getUserById(userId);
   if (!user) throw new Error("User not found.");
   const sessionVersion = user.sessionVersion + 1;
-  db.update(users)
-    .set({ passwordHash: hashPassword(newPassword), sessionVersion, updatedAt: now })
-    .where(eq(users.id, userId))
-    .run();
+  db.update(users).set({ sessionVersion, updatedAt: now }).where(eq(users.id, userId)).run();
   return sessionVersion;
 }

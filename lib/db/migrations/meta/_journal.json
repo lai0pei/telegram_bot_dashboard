@@ -29,6 +29,20 @@
       "when": 1792405236400,
       "tag": "0003_users_and_telegram_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1792410453295,
+      "tag": "0004_telegram_account_revoked_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1792411435598,
+      "tag": "0005_dashboard_qr_signin",
+      "breakpoints": true
     }
   ]
 }

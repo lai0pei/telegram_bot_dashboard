@@ -4,31 +4,18 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { apiFetch } from "@/lib/api-client";
 
 export default function SettingsPage() {
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (newPassword !== confirmPassword) {
-      toast.error("New passwords don't match.");
-      return;
-    }
+  async function handleSignOutOthers() {
     setLoading(true);
     try {
-      await apiFetch("/api/account/password", { body: { currentPassword, newPassword } });
-      toast.success("Password changed. You'll stay signed in on this device.");
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
+      await apiFetch("/api/account/sessions", { method: "POST" });
+      toast.success("Signed out of every other browser. This one stays signed in.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to change password.");
+      toast.error(err instanceof Error ? err.message : "Failed to sign out other browsers.");
     } finally {
       setLoading(false);
     }
@@ -40,46 +27,15 @@ export default function SettingsPage() {
 
       <Card className="max-w-md">
         <CardHeader>
-          <CardTitle>Change password</CardTitle>
+          <CardTitle>Sessions</CardTitle>
         </CardHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="currentPassword">Current password</Label>
-            <Input
-              id="currentPassword"
-              type="password"
-              autoComplete="current-password"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              required
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="newPassword">New password</Label>
-            <Input
-              id="newPassword"
-              type="password"
-              autoComplete="new-password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              required
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="confirmPassword">Confirm new password</Label>
-            <Input
-              id="confirmPassword"
-              type="password"
-              autoComplete="new-password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              required
-            />
-          </div>
-          <Button type="submit" loading={loading}>
-            Change password
-          </Button>
-        </form>
+        <p className="mb-4 text-sm text-[var(--muted)]">
+          Sign out of this dashboard everywhere except the browser you&apos;re using right now. Useful if you signed
+          in somewhere you no longer trust.
+        </p>
+        <Button variant="outline" loading={loading} onClick={handleSignOutOthers}>
+          Sign out of all other browsers
+        </Button>
       </Card>
     </div>
   );

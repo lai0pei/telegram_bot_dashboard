@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Dices } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { FieldError } from "@/components/ui/field-error";
 import { apiFetch } from "@/lib/api-client";
 import { validateChatAbout, validateChatTitle } from "@/lib/validation";
+import { randomChatTitle } from "@/lib/random-names";
 import { FadeIn } from "@/components/motion";
 
 type Kind = "channel" | "supergroup";
@@ -73,7 +75,13 @@ export default function NewChatPage() {
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="title">Title</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="title">Title</Label>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setTitle(randomChatTitle(kind))}>
+                <Dices className="h-3.5 w-3.5" aria-hidden />
+                Random
+              </Button>
+            </div>
             <Input
               id="title"
               value={title}

@@ -3,9 +3,19 @@
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
 import { DashboardNav } from "./dashboard-nav";
+import { AccountsProvider, useAccounts } from "./accounts-context";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <AccountsProvider>
+      <DashboardShell>{children}</DashboardShell>
+    </AccountsProvider>
+  );
+}
+
+function DashboardShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { generation } = useAccounts();
 
   return (
     <div className="min-h-screen lg:flex">
@@ -43,7 +53,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         )}
 
-        <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">{children}</main>
+        {/* Remounts the page when the active Telegram account changes, so it re-fetches as the new account. */}
+        <main key={generation} className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">
+          {children}
+        </main>
       </div>
     </div>
   );

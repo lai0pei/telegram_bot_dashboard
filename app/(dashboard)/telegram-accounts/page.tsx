@@ -1,45 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, QrCode, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { apiFetch, clearMeCache, type TelegramAccountSummary } from "@/lib/api-client";
+import { apiFetch } from "@/lib/api-client";
 import { FadeIn } from "@/components/motion";
-
-function accountLabel(account: TelegramAccountSummary): string {
-  return account.username ? `@${account.username}` : account.firstName || account.telegramId;
-}
+import { accountLabel, useAccounts } from "../accounts-context";
 
 export default function TelegramAccountsPage() {
-  const [accounts, setAccounts] = useState<TelegramAccountSummary[] | null>(null);
+  const { accounts, reload } = useAccounts();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
-
-  async function load() {
-    try {
-      const result = await apiFetch<{ accounts: TelegramAccountSummary[] }>("/api/telegram-accounts");
-      setAccounts(result.accounts);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load Telegram accounts.");
-    }
-  }
-
-  useEffect(() => {
-    // Intentional: fetch-on-mount into local state, not state synchronization.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void load();
-  }, []);
 
   async function activate(id: string) {
     setBusyId(id);
     try {
       await apiFetch(`/api/telegram-accounts/${id}/activate`, { method: "POST" });
-      clearMeCache();
-      await load();
+      await reload();
       toast.success("Switched active account.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to switch accounts.");
@@ -52,9 +33,8 @@ export default function TelegramAccountsPage() {
     setBusyId(id);
     try {
       await apiFetch(`/api/telegram-accounts/${id}`, { method: "DELETE" });
-      clearMeCache();
       setConfirmId(null);
-      await load();
+      await reload();
       toast.success("Telegram account unbound.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to unbind account.");
@@ -96,8 +76,15 @@ export default function TelegramAccountsPage() {
                   <CardTitle className="flex items-center gap-2">
                     {accountLabel(account)}
                     {account.isActive && <Badge variant="primary">Active</Badge>}
+                    {account.revoked && <Badge variant="danger">Session ended</Badge>}
                   </CardTitle>
                 </CardHeader>
+                {account.revoked && (
+                  <p className="mb-4 text-sm text-[var(--muted)]">
+                    This account was signed out from another device (for example from Telegram&apos;s Devices list).
+                    Its bots and channels are kept here — scan a QR code with it to pick up where you left off.
+                  </p>
+                )}
                 <dl className="mb-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
                   <div>
                     <dt className="text-xs text-[var(--muted)]">Name</dt>
@@ -137,7 +124,15 @@ export default function TelegramAccountsPage() {
                   </div>
                 ) : (
                   <div className="flex gap-2">
-                    {!account.isActive && (
+                    {account.revoked && (
+                      <Button size="sm" asChild>
+                        <Link href="/telegram-accounts/new">
+                          <QrCode className="h-3.5 w-3.5" />
+                          Link again
+                        </Link>
+                      </Button>
+                    )}
+                    {!account.isActive && !account.revoked && (
                       <Button
                         variant="outline"
                         size="sm"

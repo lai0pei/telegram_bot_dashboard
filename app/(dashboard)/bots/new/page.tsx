@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Dices } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { FieldError } from "@/components/ui/field-error";
 import { apiFetch } from "@/lib/api-client";
 import { validateBotName, validateBotUsername } from "@/lib/validation";
+import { randomBotIdentity } from "@/lib/random-names";
 import { FadeIn } from "@/components/motion";
 
 export default function NewBotPage() {
@@ -44,7 +46,22 @@ export default function NewBotPage() {
       <Card>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="name">Display name</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="name">Display name</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  const identity = randomBotIdentity();
+                  setName(identity.name);
+                  setUsername(identity.username);
+                }}
+              >
+                <Dices className="h-3.5 w-3.5" aria-hidden />
+                Random
+              </Button>
+            </div>
             <Input
               id="name"
               value={name}

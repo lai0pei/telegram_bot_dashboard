@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { readSessionClaims } from "./auth";
-import { getTelegramAccountById } from "./telegram-accounts";
+import { getTelegramAccountById, TelegramSessionRevokedError } from "./telegram-accounts";
 import { getUserById } from "./users";
 import { getClientIp, rateLimit } from "./rate-limit";
 
@@ -9,11 +9,12 @@ type RouteContext = { params: Promise<Record<string, string>> };
 /**
  * Wraps a route handler so it 401s unless a dashboard session is active
  * (and that session's sessionVersion still matches the user's current one —
- * a password change bumps it, signing out every other device), and passes
- * that user's ID as the last argument. Used by routes that need to know who
- * the dashboard user is but don't need a specific Telegram account selected:
- * account management, /api/me, logout, and the Telegram-account-linking
- * wizard (binding an account is how a selected one gets created).
+ * "sign out other browsers" bumps it, invalidating every other device's
+ * cookie), and passes that user's ID as the last argument. Used by routes
+ * that need to know who the dashboard user is but don't need a specific
+ * Telegram account selected: account management, /api/me, logout, and the
+ * Telegram-account-linking wizard (binding an account is how a selected one
+ * gets created).
  */
 export function withSession<Ctx extends RouteContext = RouteContext>(
   handler: (req: Request, ctx: Ctx, userId: string) => Promise<Response>
@@ -63,6 +64,7 @@ export function withAuth<Ctx extends RouteContext = RouteContext>(
         { status: 409 }
       );
     }
+    if (account.revokedAt) return sessionRevokedResponse();
     return handler(req, ctx, account.id);
   };
 }
@@ -81,7 +83,16 @@ export function withRateLimit(
   };
 }
 
+/** The client reacts to this code by re-syncing the account list (lib/api-client.ts). */
+function sessionRevokedResponse(): Response {
+  return NextResponse.json(
+    { error: new TelegramSessionRevokedError().message, code: "SESSION_REVOKED" },
+    { status: 409 }
+  );
+}
+
 export function errorResponse(err: unknown, fallbackStatus = 500): Response {
+  if (err instanceof TelegramSessionRevokedError) return sessionRevokedResponse();
   const message = err instanceof Error ? err.message : String(err);
   console.error(err);
   return NextResponse.json({ error: message }, { status: fallbackStatus });

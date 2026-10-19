@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-client";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -20,6 +20,8 @@ import BotDetailLoading from "./loading";
 export default function BotDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  // ?tab=messages etc. deep-links a tab (the overview's recent messages link here).
+  const initialTab = useSearchParams().get("tab") ?? "info";
   const [bot, setBot] = useState<BotDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchingToken, setFetchingToken] = useState(false);
@@ -60,7 +62,7 @@ export default function BotDetailPage() {
 
   return (
     <FadeIn className="space-y-6">
-      <DetailHeader title={`@${bot.username}`} subtitle={bot.firstName} />
+      <DetailHeader title={`@${bot.username}`} subtitle={bot.firstName} backHref="/bots" backLabel="Bots" />
 
       {!bot.hasToken && (
         <Card className="text-sm">
@@ -76,7 +78,7 @@ export default function BotDetailPage() {
         </Card>
       )}
 
-      <Tabs defaultValue="info">
+      <Tabs defaultValue={initialTab}>
         <TabsList>
           <TabsTrigger value="info">Info</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
@@ -102,7 +104,7 @@ export default function BotDetailPage() {
           <MessagesTab bot={bot} onChange={load} />
         </TabsContent>
         <TabsContent value="danger">
-          <DangerTab bot={bot} onDeleted={() => router.push("/")} onTokenChanged={load} />
+          <DangerTab bot={bot} onDeleted={() => router.push("/bots")} onTokenChanged={load} />
         </TabsContent>
       </Tabs>
     </FadeIn>

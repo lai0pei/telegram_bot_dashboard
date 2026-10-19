@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { withSession, errorResponse } from "@/lib/api-guard";
 import { createSessionCookie, readSessionClaims } from "@/lib/auth";
 import { logout } from "@/lib/mtproto";
-import { getTelegramAccountById, listTelegramAccountsForUser } from "@/lib/telegram-accounts";
+import { getTelegramAccountById, pickDefaultTelegramAccountId } from "@/lib/telegram-accounts";
 import { deleteBotRow, listBots } from "@/lib/bots";
 import { deleteChatRow, listChats } from "@/lib/chats";
 import { getUserById } from "@/lib/users";
@@ -30,9 +30,7 @@ export const DELETE = withSession(async (_req: Request, ctx: Ctx, userId: string
     const claims = await readSessionClaims();
     let newActiveTelegramAccountId: string | null = claims?.activeTelegramAccountId ?? null;
     if (newActiveTelegramAccountId === id) {
-      const remaining = listTelegramAccountsForUser(userId);
-      newActiveTelegramAccountId =
-        remaining.slice().sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0]?.id ?? null;
+      newActiveTelegramAccountId = pickDefaultTelegramAccountId(userId);
       const user = getUserById(userId);
       await createSessionCookie(userId, user?.sessionVersion ?? 0, newActiveTelegramAccountId);
     }
