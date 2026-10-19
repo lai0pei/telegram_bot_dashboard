@@ -3,13 +3,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { apiFetch } from "@/lib/api-client";
+import { apiFetch, ApiError } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 
-type Step = "dashboard-password" | "phone" | "code" | "password" | "done";
+type Step = "dashboard-password" | "phone" | "code" | "password" | "not-allowed" | "done";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -20,6 +20,7 @@ export default function LoginPage() {
   const [phoneNumber, setPhoneNumber] = useState("");
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
+  const [deniedUserId, setDeniedUserId] = useState<string | null>(null);
 
   async function handleDashboardPassword(e: React.FormEvent) {
     e.preventDefault();
@@ -62,7 +63,12 @@ export default function LoginPage() {
         router.push("/");
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Invalid code.");
+      if (err instanceof ApiError && typeof err.body.telegramUserId === "string") {
+        setDeniedUserId(err.body.telegramUserId);
+        setStep("not-allowed");
+      } else {
+        toast.error(err instanceof Error ? err.message : "Invalid code.");
+      }
     } finally {
       setLoading(false);
     }
@@ -76,7 +82,12 @@ export default function LoginPage() {
       setStep("done");
       router.push("/");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Incorrect password.");
+      if (err instanceof ApiError && typeof err.body.telegramUserId === "string") {
+        setDeniedUserId(err.body.telegramUserId);
+        setStep("not-allowed");
+      } else {
+        toast.error(err instanceof Error ? err.message : "Incorrect password.");
+      }
     } finally {
       setLoading(false);
     }
@@ -91,6 +102,7 @@ export default function LoginPage() {
           {step === "phone" && "Sign in with your Telegram account to manage your bots."}
           {step === "code" && "Enter the login code Telegram just sent you."}
           {step === "password" && "Your account has 2FA enabled — enter your cloud password."}
+          {step === "not-allowed" && "This Telegram account isn't allowed to use this dashboard yet."}
         </p>
 
         {step === "dashboard-password" && (
@@ -168,6 +180,18 @@ export default function LoginPage() {
               {loading ? "Verifying…" : "Sign in"}
             </Button>
           </form>
+        )}
+
+        {step === "not-allowed" && (
+          <div className="space-y-4">
+            <p className="text-sm text-[var(--muted)]">
+              Ask the admin to add your Telegram user ID to the allowlist:
+            </p>
+            <code className="block rounded-lg bg-black/5 px-3 py-2 text-sm dark:bg-white/5">{deniedUserId}</code>
+            <Button variant="outline" className="w-full" onClick={() => setStep("phone")}>
+              Try a different account
+            </Button>
+          </div>
         )}
       </Card>
     </div>

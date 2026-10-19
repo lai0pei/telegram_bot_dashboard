@@ -3,12 +3,12 @@ import { withAuth, errorResponse } from "@/lib/api-guard";
 import { getClient, isLoggedIn } from "@/lib/mtproto";
 import { Api } from "teleproto/tl";
 
-export const GET = withAuth(async () => {
+export const GET = withAuth(async (_req, _ctx, userId) => {
   try {
-    if (!isLoggedIn()) {
+    if (!isLoggedIn(userId)) {
       return NextResponse.json({ loggedIn: false });
     }
-    const client = await getClient();
+    const client = await getClient(userId);
     if (!client) return NextResponse.json({ loggedIn: false });
 
     const me = (await client.getMe()) as Api.User;

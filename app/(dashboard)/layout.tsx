@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { LogoutButton } from "./logout-button";
+import { AccountBadge } from "./account-badge";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -9,7 +10,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <Link href="/" className="font-semibold">
             Bot Dashboard
           </Link>
-          <LogoutButton />
+          <div className="flex items-center gap-3">
+            <AccountBadge />
+            <LogoutButton />
+          </div>
         </div>
       </header>
       <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>

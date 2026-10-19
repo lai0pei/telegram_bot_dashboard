@@ -8,10 +8,10 @@ import { botApi } from "@/lib/botapi";
  * monitoring while a webhook is set, since Telegram won't deliver updates
  * through both getUpdates and a webhook at once.
  */
-export const PUT = withAuth(async (req: Request, ctx: { params: Promise<{ id: string }> }) => {
+export const PUT = withAuth(async (req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
   try {
     const { id } = await ctx.params;
-    const bot = getBotById(Number(id));
+    const bot = getBotById(Number(id), userId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
     const { enabled } = await req.json();

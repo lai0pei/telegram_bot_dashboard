@@ -4,13 +4,13 @@ import { revokeBotToken } from "@/lib/botfather";
 import { getBotById, saveBotToken } from "@/lib/bots";
 
 /** POST: revokes the current token via BotFather and stores the new one. */
-export const POST = withAuth(async (_req: Request, ctx: { params: Promise<{ id: string }> }) => {
+export const POST = withAuth(async (_req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
   try {
     const { id } = await ctx.params;
-    const bot = getBotById(Number(id));
+    const bot = getBotById(Number(id), userId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
-    const newToken = await revokeBotToken(bot.username);
+    const newToken = await revokeBotToken(userId, bot.username);
     saveBotToken(bot.id, newToken);
 
     return NextResponse.json({ ok: true, token: newToken });

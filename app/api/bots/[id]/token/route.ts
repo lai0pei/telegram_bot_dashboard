@@ -4,15 +4,15 @@ import { fetchBotToken } from "@/lib/botfather";
 import { getBotById, getBotToken, saveBotToken } from "@/lib/bots";
 
 /** GET: returns the full (unmasked) token, fetching it from BotFather first if not cached. */
-export const GET = withAuth(async (_req: Request, ctx: { params: Promise<{ id: string }> }) => {
+export const GET = withAuth(async (_req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
   try {
     const { id } = await ctx.params;
-    const bot = getBotById(Number(id));
+    const bot = getBotById(Number(id), userId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
     let token = getBotToken(bot);
     if (!token) {
-      token = await fetchBotToken(bot.username);
+      token = await fetchBotToken(userId, bot.username);
       saveBotToken(bot.id, token);
     }
 

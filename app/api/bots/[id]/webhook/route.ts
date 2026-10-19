@@ -4,10 +4,10 @@ import { getBotById, getBotToken } from "@/lib/bots";
 import { botApi } from "@/lib/botapi";
 
 /** PUT: sets or clears the bot's webhook. Body: { url: string | null, dropPendingUpdates?: boolean } */
-export const PUT = withAuth(async (req: Request, ctx: { params: Promise<{ id: string }> }) => {
+export const PUT = withAuth(async (req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
   try {
     const { id } = await ctx.params;
-    const bot = getBotById(Number(id));
+    const bot = getBotById(Number(id), userId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
     const token = getBotToken(bot);
     if (!token) return NextResponse.json({ error: "No token stored for this bot." }, { status: 400 });

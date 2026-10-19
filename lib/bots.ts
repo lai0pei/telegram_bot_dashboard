@@ -1,16 +1,21 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "./db";
 import { bots } from "./db/schema";
 import { decrypt, encrypt } from "./crypto";
 
 export type BotRow = typeof bots.$inferSelect;
 
-export function listBots(): BotRow[] {
-  return db.select().from(bots).all();
+export function listBots(ownerUserId: string): BotRow[] {
+  return db.select().from(bots).where(eq(bots.ownerUserId, ownerUserId)).all();
 }
 
-export function getBotById(id: number): BotRow | undefined {
-  return db.select().from(bots).where(eq(bots.id, id)).all()[0];
+/** Scoped to the owner, so a bot ID that belongs to someone else returns undefined (-> 404). */
+export function getBotById(id: number, ownerUserId: string): BotRow | undefined {
+  return db
+    .select()
+    .from(bots)
+    .where(and(eq(bots.id, id), eq(bots.ownerUserId, ownerUserId)))
+    .all()[0];
 }
 
 export function getBotToken(bot: BotRow): string | null {
@@ -18,12 +23,17 @@ export function getBotToken(bot: BotRow): string | null {
 }
 
 export function upsertBotFromTelegram(info: {
+  ownerUserId: string;
   telegramId: string;
   username: string;
   firstName: string;
 }): BotRow {
   const now = new Date();
-  const existing = db.select().from(bots).where(eq(bots.telegramId, info.telegramId)).all()[0];
+  const existing = db
+    .select()
+    .from(bots)
+    .where(and(eq(bots.ownerUserId, info.ownerUserId), eq(bots.telegramId, info.telegramId)))
+    .all()[0];
   if (existing) {
     db.update(bots)
       .set({ username: info.username, firstName: info.firstName, updatedAt: now })
@@ -34,6 +44,7 @@ export function upsertBotFromTelegram(info: {
   const result = db
     .insert(bots)
     .values({
+      ownerUserId: info.ownerUserId,
       telegramId: info.telegramId,
       username: info.username,
       firstName: info.firstName,
@@ -73,4 +84,9 @@ export function setLastUpdateId(id: number, updateId: number): void {
 
 export function deleteBotRow(id: number): void {
   db.delete(bots).where(eq(bots.id, id)).run();
+}
+
+/** Every monitored bot across all users — used only by the background poller. */
+export function listAllMonitoredBots(): BotRow[] {
+  return db.select().from(bots).where(eq(bots.monitorEnabled, true)).all();
 }

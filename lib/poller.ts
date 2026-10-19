@@ -1,5 +1,5 @@
 import { botApi } from "./botapi";
-import { getBotToken, listBots, setLastUpdateId } from "./bots";
+import { getBotToken, listAllMonitoredBots, setLastUpdateId } from "./bots";
 import { db } from "./db";
 import { botMessages, botUsers } from "./db/schema";
 import { eq, and } from "drizzle-orm";
@@ -20,7 +20,7 @@ export function startPoller() {
 
 async function loop() {
   while (running) {
-    const monitored = listBots().filter((b) => b.monitorEnabled && b.encryptedToken);
+    const monitored = listAllMonitoredBots().filter((b) => b.encryptedToken);
     if (monitored.length === 0) {
       await sleep(3000);
       continue;

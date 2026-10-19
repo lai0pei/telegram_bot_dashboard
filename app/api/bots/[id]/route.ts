@@ -4,10 +4,10 @@ import { deleteBot as botFatherDelete } from "@/lib/botfather";
 import { deleteBotRow, getBotById, getBotToken } from "@/lib/bots";
 import { botApi, type BotCommand } from "@/lib/botapi";
 
-export const GET = withAuth(async (_req: Request, ctx: { params: Promise<{ id: string }> }) => {
+export const GET = withAuth(async (_req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
   try {
     const { id } = await ctx.params;
-    const bot = getBotById(Number(id));
+    const bot = getBotById(Number(id), userId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
     const token = getBotToken(bot);
@@ -50,52 +50,56 @@ export const GET = withAuth(async (_req: Request, ctx: { params: Promise<{ id: s
 });
 
 /** PATCH: update one or more bot settings via the Bot API. Body is a sparse set of fields. */
-export const PATCH = withAuth(async (req: Request, ctx: { params: Promise<{ id: string }> }) => {
-  try {
-    const { id } = await ctx.params;
-    const bot = getBotById(Number(id));
-    if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
-    const token = getBotToken(bot);
-    if (!token) return NextResponse.json({ error: "No token stored for this bot." }, { status: 400 });
+export const PATCH = withAuth(
+  async (req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
+    try {
+      const { id } = await ctx.params;
+      const bot = getBotById(Number(id), userId);
+      if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
+      const token = getBotToken(bot);
+      if (!token) return NextResponse.json({ error: "No token stored for this bot." }, { status: 400 });
 
-    const body = await req.json();
-    const applied: string[] = [];
+      const body = await req.json();
+      const applied: string[] = [];
 
-    if (typeof body.name === "string") {
-      await botApi.setMyName(token, body.name);
-      applied.push("name");
-    }
-    if (typeof body.description === "string") {
-      await botApi.setMyDescription(token, body.description);
-      applied.push("description");
-    }
-    if (typeof body.shortDescription === "string") {
-      await botApi.setMyShortDescription(token, body.shortDescription);
-      applied.push("shortDescription");
-    }
-    if (Array.isArray(body.commands)) {
-      await botApi.setMyCommands(token, body.commands as BotCommand[]);
-      applied.push("commands");
-    }
+      if (typeof body.name === "string") {
+        await botApi.setMyName(token, body.name);
+        applied.push("name");
+      }
+      if (typeof body.description === "string") {
+        await botApi.setMyDescription(token, body.description);
+        applied.push("description");
+      }
+      if (typeof body.shortDescription === "string") {
+        await botApi.setMyShortDescription(token, body.shortDescription);
+        applied.push("shortDescription");
+      }
+      if (Array.isArray(body.commands)) {
+        await botApi.setMyCommands(token, body.commands as BotCommand[]);
+        applied.push("commands");
+      }
 
-    return NextResponse.json({ ok: true, applied });
-  } catch (err) {
-    return errorResponse(err, 400);
+      return NextResponse.json({ ok: true, applied });
+    } catch (err) {
+      return errorResponse(err, 400);
+    }
   }
-});
+);
 
 /** DELETE: deletes the bot through BotFather and removes local records. */
-export const DELETE = withAuth(async (_req: Request, ctx: { params: Promise<{ id: string }> }) => {
-  try {
-    const { id } = await ctx.params;
-    const bot = getBotById(Number(id));
-    if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
+export const DELETE = withAuth(
+  async (_req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
+    try {
+      const { id } = await ctx.params;
+      const bot = getBotById(Number(id), userId);
+      if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
-    await botFatherDelete(bot.username);
-    deleteBotRow(bot.id);
+      await botFatherDelete(userId, bot.username);
+      deleteBotRow(bot.id);
 
-    return NextResponse.json({ ok: true });
-  } catch (err) {
-    return errorResponse(err, 400);
+      return NextResponse.json({ ok: true });
+    } catch (err) {
+      return errorResponse(err, 400);
+    }
   }
-});
+);

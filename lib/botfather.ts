@@ -9,8 +9,9 @@ const POLL_INTERVAL_MS = 500;
 /**
  * Conversation engine for scripting @BotFather. All prompts/regexes BotFather
  * is expected to send live here, in one place, so they're easy to patch if
- * BotFather's wording changes. Every exported flow acquires `mutex` first so
- * two flows never interleave in the same chat.
+ * BotFather's wording changes. Every exported flow acquires that user's
+ * mutex first, so two flows never interleave in the same user's BotFather
+ * chat — but different users' flows run independently of each other.
  */
 class Mutex {
   private queue: Array<() => void> = [];
@@ -36,7 +37,19 @@ class Mutex {
   }
 }
 
-const mutex = new Mutex();
+declare global {
+  var __tgDashBotFatherMutexes: Map<string, Mutex> | undefined;
+}
+
+function getMutex(userId: string): Mutex {
+  const mutexes = (globalThis.__tgDashBotFatherMutexes ??= new Map());
+  let mutex = mutexes.get(userId);
+  if (!mutex) {
+    mutex = new Mutex();
+    mutexes.set(userId, mutex);
+  }
+  return mutex;
+}
 
 export class BotFatherError extends Error {}
 
@@ -70,10 +83,10 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function withClient<T>(fn: (client: TelegramClient) => Promise<T>): Promise<T> {
-  const client = await getClient();
+async function withClient<T>(userId: string, fn: (client: TelegramClient) => Promise<T>): Promise<T> {
+  const client = await getClient(userId);
   if (!client) throw new BotFatherError("Not logged in to Telegram.");
-  const release = await mutex.acquire();
+  const release = await getMutex(userId).acquire();
   try {
     return await fn(client);
   } finally {
@@ -88,8 +101,8 @@ export interface CreateBotResult {
   token: string;
 }
 
-export async function createBot(name: string, username: string): Promise<CreateBotResult> {
-  return withClient(async (client) => {
+export async function createBot(userId: string, name: string, username: string): Promise<CreateBotResult> {
+  return withClient(userId, async (client) => {
     let lastId = await getLastMessageId(client);
 
     let reply = await sendAndAwaitReply(client, "/newbot", lastId);
@@ -129,8 +142,8 @@ export async function createBot(name: string, username: string): Promise<CreateB
 
 // --- Delete -------------------------------------------------------------
 
-export async function deleteBot(username: string): Promise<void> {
-  return withClient(async (client) => {
+export async function deleteBot(userId: string, username: string): Promise<void> {
+  return withClient(userId, async (client) => {
     let lastId = await getLastMessageId(client);
 
     let reply = await sendAndAwaitReply(client, "/deletebot", lastId);
@@ -159,8 +172,8 @@ export async function deleteBot(username: string): Promise<void> {
  * Retrieves a bot's token via /mybots -> <bot> -> "API Token", clicking the
  * inline buttons BotFather sends rather than typing text.
  */
-export async function fetchBotToken(username: string): Promise<string> {
-  return withClient(async (client) => {
+export async function fetchBotToken(userId: string, username: string): Promise<string> {
+  return withClient(userId, async (client) => {
     let lastId = await getLastMessageId(client);
 
     let reply = await sendAndAwaitReply(client, "/mybots", lastId);
@@ -190,8 +203,8 @@ export async function fetchBotToken(username: string): Promise<string> {
 }
 
 /** Revokes a bot's token via /mybots -> <bot> -> "Revoke current token". */
-export async function revokeBotToken(username: string): Promise<string> {
-  return withClient(async (client) => {
+export async function revokeBotToken(userId: string, username: string): Promise<string> {
+  return withClient(userId, async (client) => {
     let lastId = await getLastMessageId(client);
 
     let reply = await sendAndAwaitReply(client, "/mybots", lastId);

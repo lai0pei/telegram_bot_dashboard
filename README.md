@@ -3,12 +3,15 @@
 A self-hosted web dashboard that logs in as **your Telegram user account**
 (over MTProto, the same protocol the Telegram apps use) so it can see,
 create, edit and delete every bot you own — all from a UI instead of a
-chat with [@BotFather](https://t.me/BotFather).
+chat with [@BotFather](https://t.me/BotFather). Supports multiple people
+sharing one deployment, each logging in with their own Telegram account and
+seeing only their own bots.
 
 ## What it does
 
 - **Log in with your Telegram account** (phone number + code, with 2FA
-  support) instead of the dashboard just trusting a static token.
+  support) instead of the dashboard just trusting a static token. Each
+  logged-in person only ever sees the bots they themselves own.
 - **See every bot you own** in one grid: username, name, token (masked,
   revealable), webhook status, monitoring status.
 - **See your own account info**: name, username, phone, and your Telegram
@@ -40,11 +43,11 @@ client) to list bots and script @BotFather, and calls the plain Bot API
 directly for everything a bot token can do on its own.
 
 **Security note:** the MTProto session string and every bot token are
-encrypted at rest (AES-256-GCM, keyed from `APP_SECRET`). Anyone who gets
-into the dashboard has full control of your Telegram account and all your
-bots — keep `DASHBOARD_PASSWORD` and `APP_SECRET` secret, and don't expose
-the port beyond `127.0.0.1` unless you put a reverse proxy with its own
-auth/TLS in front of it.
+encrypted at rest (AES-256-GCM, keyed from `APP_SECRET`). Anyone who logs in
+has full control of their own Telegram account and bots through the
+dashboard — keep `DASHBOARD_PASSWORD` and `APP_SECRET` secret, and don't
+expose the port beyond `127.0.0.1` unless you put a reverse proxy with its
+own TLS in front of it.
 
 ## Setup
 
@@ -66,6 +69,32 @@ auth/TLS in front of it.
 Data (your encrypted session, bot tokens, and monitored messages) persists
 in the `tgdash-data` Docker volume across restarts.
 
+## Multiple users
+
+Anyone who knows `DASHBOARD_PASSWORD` can reach the Telegram login steps and
+sign in with their own account. Once logged in, a user only ever sees,
+edits or deletes bots owned by that same Telegram account — every bot
+lookup is scoped to the logged-in user's ID, so one person can never read
+or touch another's bot token or settings.
+
+Two things worth knowing:
+
+- **Treat `DASHBOARD_PASSWORD` as an invite code.** Anyone who has it can
+  create a session with their own Telegram account (nothing to do with
+  yours). To restrict *which* Telegram accounts may log in, set
+  `ALLOWED_TELEGRAM_USER_IDS` in `.env` to a comma-separated list of
+  Telegram user IDs. Leave it empty to allow anyone with the password. A
+  rejected login shows the user their Telegram ID so they can send it to
+  you to add to the list.
+- **The host holds `APP_SECRET`.** Whoever runs this deployment can decrypt
+  every logged-in user's MTProto session string and bot tokens, since
+  that's the key used to encrypt them at rest. Only share a deployment with
+  people you'd trust with that.
+
+Exposing the dashboard beyond `127.0.0.1` (for people not on the same
+machine/network) is a normal deployment decision — set `HOST_BIND=0.0.0.0`
+in `.env` and put your own reverse proxy and TLS in front of it.
+
 ## Local development (without Docker)
 
 ```sh
@@ -77,13 +106,19 @@ npm run dev
 ## Project layout
 
 - `app/` — Next.js App Router pages and API routes.
-- `lib/mtproto.ts` — the MTProto login flow and client singleton.
+- `lib/auth.ts` — the dashboard-password gate cookie, the per-user session
+  cookie (carries the Telegram user ID), and the optional allowlist check.
+- `lib/mtproto.ts` — the MTProto login flow and per-user client map.
 - `lib/botfather.ts` — scripts @BotFather's chat for create/delete/token
   flows (clicks its inline buttons rather than parsing free text where
-  possible).
+  possible), with one lock per user so concurrent users never interleave.
 - `lib/botapi.ts` — a thin wrapper around the Bot API.
+- `lib/bots.ts` — every bot lookup here is scoped to an owner's Telegram
+  user ID; this is what keeps users' bots isolated from each other.
 - `lib/poller.ts` + `instrumentation.ts` — the background `getUpdates`
-  poller for bots with monitoring enabled.
+  poller for bots with monitoring enabled, across all users.
+- `lib/rate-limit.ts` — simple in-memory rate limiting for the login
+  endpoints.
 - `lib/db/` — SQLite schema and migrations (Drizzle ORM).
 
 ## Known limitations

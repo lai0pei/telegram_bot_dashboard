@@ -1,10 +1,9 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, uniqueIndex } from "drizzle-orm/sqlite-core";
 
-/** Singleton row (id always 1) holding the encrypted MTProto session string. */
+/** One row per logged-in Telegram user, keyed by their Telegram user ID. */
 export const session = sqliteTable("session", {
-  id: integer("id").primaryKey(),
+  userId: text("user_id").primaryKey(),
   encryptedSessionString: text("encrypted_session_string").notNull(),
-  userId: text("user_id").notNull(),
   username: text("username"),
   firstName: text("first_name"),
   lastName: text("last_name"),
@@ -13,18 +12,26 @@ export const session = sqliteTable("session", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
 
-export const bots = sqliteTable("bots", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  telegramId: text("telegram_id").notNull().unique(),
-  username: text("username").notNull().unique(),
-  firstName: text("first_name").notNull(),
-  encryptedToken: text("encrypted_token"),
-  tokenFetchedAt: integer("token_fetched_at", { mode: "timestamp_ms" }),
-  monitorEnabled: integer("monitor_enabled", { mode: "boolean" }).notNull().default(false),
-  lastUpdateId: integer("last_update_id"),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-});
+export const bots = sqliteTable(
+  "bots",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    ownerUserId: text("owner_user_id").notNull(),
+    telegramId: text("telegram_id").notNull(),
+    username: text("username").notNull(),
+    firstName: text("first_name").notNull(),
+    encryptedToken: text("encrypted_token"),
+    tokenFetchedAt: integer("token_fetched_at", { mode: "timestamp_ms" }),
+    monitorEnabled: integer("monitor_enabled", { mode: "boolean" }).notNull().default(false),
+    lastUpdateId: integer("last_update_id"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("bots_owner_telegram_id_unique").on(table.ownerUserId, table.telegramId),
+    uniqueIndex("bots_owner_username_unique").on(table.ownerUserId, table.username),
+  ]
+);
 
 export const botMessages = sqliteTable("bot_messages", {
   id: integer("id").primaryKey({ autoIncrement: true }),

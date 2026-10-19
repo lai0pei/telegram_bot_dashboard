@@ -4,14 +4,27 @@ import { Api } from "teleproto/tl";
 import { db, sqlite } from "./db";
 import { session as sessionTable } from "./db/schema";
 import { decrypt, encrypt } from "./crypto";
+import { isTelegramUserAllowed } from "./auth";
+import { eq } from "drizzle-orm";
 
 /**
- * Singleton GramJS client stored on globalThis so it survives Next.js dev
- * hot-reloads and route-handler module re-evaluation within one process.
+ * Per-user state stored on globalThis so it survives Next.js dev hot-reloads
+ * and route-handler module re-evaluation within one process. Keyed by
+ * Telegram user ID for connected clients, and by a random login ID (held in
+ * a short-lived cookie, see /api/auth/send-code) for logins in progress —
+ * that way two people logging in at once never clobber each other.
  */
 declare global {
-  var __tgDashClient: TelegramClient | undefined;
-  var __tgDashLoginState: LoginState | undefined;
+  var __tgDashClients: Map<string, TelegramClient> | undefined;
+  var __tgDashLoginStates: Map<string, LoginState> | undefined;
+}
+
+function getClientsMap(): Map<string, TelegramClient> {
+  return (globalThis.__tgDashClients ??= new Map());
+}
+
+function getLoginStatesMap(): Map<string, LoginState> {
+  return (globalThis.__tgDashLoginStates ??= new Map());
 }
 
 function getApiCreds() {
@@ -23,26 +36,38 @@ function getApiCreds() {
   return { apiId, apiHash };
 }
 
-/** In-memory state for the multi-step phone -> code -> 2FA login flow. */
+const LOGIN_STATE_TTL_MS = 10 * 60 * 1000;
+
+/** In-memory state for one browser's phone -> code -> 2FA login flow. */
 interface LoginState {
   client: TelegramClient;
   phoneNumber: string;
   phoneCodeHash: string;
+  expiresAt: number;
 }
 
-export function getPersistedSession(): string | null {
-  const row = db.select().from(sessionTable).limit(1).all()[0];
+function pruneExpiredLoginStates() {
+  const states = getLoginStatesMap();
+  const now = Date.now();
+  for (const [id, state] of states) {
+    if (state.expiresAt < now) {
+      state.client.destroy().catch(() => {});
+      states.delete(id);
+    }
+  }
+}
+
+export function getPersistedSession(userId: string): string | null {
+  const row = db.select().from(sessionTable).where(eq(sessionTable.userId, userId)).all()[0];
   if (!row) return null;
   return decrypt(row.encryptedSessionString);
 }
 
-function persistSession(sessionString: string, me: Api.User) {
+function persistSession(userId: string, sessionString: string, me: Api.User) {
   const now = new Date();
-  const existing = db.select().from(sessionTable).limit(1).all()[0];
-  const encrypted = encrypt(sessionString);
+  const existing = db.select().from(sessionTable).where(eq(sessionTable.userId, userId)).all()[0];
   const values = {
-    encryptedSessionString: encrypted,
-    userId: me.id.toString(),
+    encryptedSessionString: encrypt(sessionString),
     username: me.username ?? null,
     firstName: me.firstName ?? null,
     lastName: me.lastName ?? null,
@@ -50,30 +75,34 @@ function persistSession(sessionString: string, me: Api.User) {
     updatedAt: now,
   };
   if (existing) {
-    db.update(sessionTable).set(values).run();
+    db.update(sessionTable).set(values).where(eq(sessionTable.userId, userId)).run();
   } else {
     db.insert(sessionTable)
-      .values({ id: 1, ...values, createdAt: now })
+      .values({ userId, ...values, createdAt: now })
       .run();
   }
 }
 
-export function clearPersistedSession() {
-  sqlite.prepare("DELETE FROM session").run();
-  globalThis.__tgDashClient = undefined;
+export function clearPersistedSession(userId: string) {
+  sqlite.prepare("DELETE FROM session WHERE user_id = ?").run(userId);
+  const clients = getClientsMap();
+  clients.get(userId)?.destroy().catch(() => {});
+  clients.delete(userId);
 }
 
-export function isLoggedIn(): boolean {
-  return getPersistedSession() !== null;
+export function isLoggedIn(userId: string): boolean {
+  return getPersistedSession(userId) !== null;
 }
 
-/** Returns the connected, authorized client, or null if not logged in. */
-export async function getClient(): Promise<TelegramClient | null> {
-  const sessionString = getPersistedSession();
+/** Returns the connected, authorized client for this user, or null if not logged in. */
+export async function getClient(userId: string): Promise<TelegramClient | null> {
+  const sessionString = getPersistedSession(userId);
   if (!sessionString) return null;
 
-  if (globalThis.__tgDashClient?.connected) {
-    return globalThis.__tgDashClient;
+  const clients = getClientsMap();
+  const existing = clients.get(userId);
+  if (existing?.connected) {
+    return existing;
   }
 
   const { apiId, apiHash } = getApiCreds();
@@ -81,12 +110,14 @@ export async function getClient(): Promise<TelegramClient | null> {
     connectionRetries: 3,
   });
   await client.connect();
-  globalThis.__tgDashClient = client;
+  clients.set(userId, client);
   return client;
 }
 
-/** Step 1: send the login code to the given phone number. */
-export async function startLogin(phoneNumber: string): Promise<{ phoneCodeHash: string }> {
+/** Step 1: send the login code to the given phone number. Returns a loginId to carry through the remaining steps. */
+export async function startLogin(phoneNumber: string): Promise<{ loginId: string }> {
+  pruneExpiredLoginStates();
+
   const { apiId, apiHash } = getApiCreds();
   const client = new TelegramClient(new StringSession(""), apiId, apiHash, {
     connectionRetries: 3,
@@ -106,22 +137,25 @@ export async function startLogin(phoneNumber: string): Promise<{ phoneCodeHash: 
     throw new Error("Unexpected response from Telegram while sending the login code.");
   }
 
-  globalThis.__tgDashLoginState = {
+  const loginId = crypto.randomUUID();
+  getLoginStatesMap().set(loginId, {
     client,
     phoneNumber,
     phoneCodeHash: result.phoneCodeHash,
-  };
+    expiresAt: Date.now() + LOGIN_STATE_TTL_MS,
+  });
 
-  return { phoneCodeHash: result.phoneCodeHash };
+  return { loginId };
 }
 
 type SignInOutcome =
-  | { status: "logged_in" }
-  | { status: "password_required" };
+  | { status: "logged_in"; userId: string }
+  | { status: "password_required" }
+  | { status: "not_allowed"; userId: string };
 
-/** Step 2: submit the SMS/app code. */
-export async function submitLoginCode(code: string): Promise<SignInOutcome> {
-  const state = globalThis.__tgDashLoginState;
+/** Step 2: submit the SMS/app code for the given loginId. */
+export async function submitLoginCode(loginId: string, code: string): Promise<SignInOutcome> {
+  const state = getLoginStatesMap().get(loginId);
   if (!state) throw new Error("No login in progress. Request a new code first.");
 
   try {
@@ -134,8 +168,7 @@ export async function submitLoginCode(code: string): Promise<SignInOutcome> {
     );
 
     if (result instanceof Api.auth.Authorization) {
-      finishLogin(state.client, result.user as Api.User);
-      return { status: "logged_in" };
+      return finishLogin(loginId, state.client, result.user as Api.User);
     }
     throw new Error("Unexpected sign-in response.");
   } catch (err: unknown) {
@@ -147,12 +180,12 @@ export async function submitLoginCode(code: string): Promise<SignInOutcome> {
   }
 }
 
-/** Step 3 (only if 2FA is enabled): submit the cloud password. */
-export async function submitLoginPassword(password: string): Promise<void> {
-  const state = globalThis.__tgDashLoginState;
+/** Step 3 (only if 2FA is enabled): submit the cloud password for the given loginId. */
+export async function submitLoginPassword(loginId: string, password: string): Promise<SignInOutcome> {
+  const state = getLoginStatesMap().get(loginId);
   if (!state) throw new Error("No login in progress. Request a new code first.");
 
-  // GramJS exposes a high-level helper for the SRP password flow. onError
+  // teleproto exposes a high-level helper for the SRP password flow. onError
   // must return true to stop the retry loop (returning normally retries).
   const { client } = state;
   let lastError: Error | undefined;
@@ -171,18 +204,26 @@ export async function submitLoginPassword(password: string): Promise<void> {
     throw lastError ?? new Error("Incorrect 2FA password.");
   }
 
-  finishLogin(client, user as Api.User);
+  return finishLogin(loginId, client, user as Api.User);
 }
 
-function finishLogin(client: TelegramClient, me: Api.User) {
+function finishLogin(loginId: string, client: TelegramClient, me: Api.User): SignInOutcome {
+  const userId = me.id.toString();
+  getLoginStatesMap().delete(loginId);
+
+  if (!isTelegramUserAllowed(userId)) {
+    client.destroy().catch(() => {});
+    return { status: "not_allowed", userId };
+  }
+
   const sessionString = (client.session as StringSession).save();
-  persistSession(sessionString, me);
-  globalThis.__tgDashClient = client;
-  globalThis.__tgDashLoginState = undefined;
+  persistSession(userId, sessionString, me);
+  getClientsMap().set(userId, client);
+  return { status: "logged_in", userId };
 }
 
-export async function logout(): Promise<void> {
-  const client = await getClient();
+export async function logout(userId: string): Promise<void> {
+  const client = await getClient(userId);
   if (client) {
     try {
       await client.invoke(new Api.auth.LogOut());
@@ -191,5 +232,5 @@ export async function logout(): Promise<void> {
     }
     await client.destroy();
   }
-  clearPersistedSession();
+  clearPersistedSession(userId);
 }

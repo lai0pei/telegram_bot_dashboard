@@ -1,3 +1,10 @@
+/** Thrown by apiFetch on a non-2xx response. Carries the full JSON body so callers can read extra fields. */
+export class ApiError extends Error {
+  constructor(message: string, public body: Record<string, unknown>) {
+    super(message);
+  }
+}
+
 /** Thin fetch wrapper for client components: JSON body, throws on non-2xx with the server's error message. */
 export async function apiFetch<T = unknown>(
   url: string,
@@ -11,7 +18,7 @@ export async function apiFetch<T = unknown>(
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(json.error ?? `Request to ${url} failed with status ${res.status}`);
+    throw new ApiError(json.error ?? `Request to ${url} failed with status ${res.status}`, json);
   }
   return json as T;
 }

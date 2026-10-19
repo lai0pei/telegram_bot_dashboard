@@ -7,11 +7,11 @@ import { botMessages, botUsers } from "@/lib/db/schema";
 import { botApi } from "@/lib/botapi";
 
 /** GET: recent message feed + unique user count for this bot. */
-export const GET = withAuth(async (req: Request, ctx: { params: Promise<{ id: string }> }) => {
+export const GET = withAuth(async (req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
   try {
     const { id } = await ctx.params;
     const botId = Number(id);
-    const bot = getBotById(botId);
+    const bot = getBotById(botId, userId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
     const limit = Math.min(Number(new URL(req.url).searchParams.get("limit") ?? 100), 500);
@@ -33,10 +33,10 @@ export const GET = withAuth(async (req: Request, ctx: { params: Promise<{ id: st
 });
 
 /** POST: send a reply. Body: { chatId: string, text: string } */
-export const POST = withAuth(async (req: Request, ctx: { params: Promise<{ id: string }> }) => {
+export const POST = withAuth(async (req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
   try {
     const { id } = await ctx.params;
-    const bot = getBotById(Number(id));
+    const bot = getBotById(Number(id), userId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
     const token = getBotToken(bot);
     if (!token) return NextResponse.json({ error: "No token stored for this bot." }, { status: 400 });
