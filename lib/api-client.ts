@@ -75,6 +75,8 @@ export interface TelegramAccountSummary {
   revoked: boolean;
   digestFrequency: "off" | "daily" | "weekly";
   digestHour: number;
+  /** Usernames of bots added to this account by token: unbinding the account removes them from the dashboard too. */
+  tokenBots: string[];
 }
 
 let mePromise: Promise<Me> | null = null;

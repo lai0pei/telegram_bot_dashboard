@@ -10,6 +10,8 @@ export interface BotSummary {
   id: number;
   username: string;
   firstName: string;
+  /** "token": added by pasting someone else's bot token. */
+  source?: "owned" | "token";
   hasToken: boolean;
   maskedToken: string | null;
   monitorEnabled: boolean;
@@ -79,6 +81,7 @@ export const BotCard = memo(function BotCard({
             <div className="space-y-1 text-xs text-[var(--muted)]">
               <div>Token: {bot.maskedToken ?? "not fetched"}</div>
               <div>Webhook: {bot.webhook?.url ? "set" : "none"}</div>
+              {bot.source === "token" && <div>Added by token (not owned by this account)</div>}
               {bot.error && (
                 <div className="flex items-center gap-1 text-[var(--danger)]">
                   <AlertTriangle className="h-3 w-3 shrink-0" />

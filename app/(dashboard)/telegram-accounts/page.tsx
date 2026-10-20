@@ -191,6 +191,13 @@ export default function TelegramAccountsPage() {
                       Unbind this account? Its bots, channels/groups, and message history on this dashboard will be
                       deleted (the Telegram account itself is unaffected, except it will be logged out of this
                       dashboard).
+                      {account.tokenBots.length > 0 && (
+                        <>
+                          {" "}
+                          This also removes {account.tokenBots.length} bot{account.tokenBots.length === 1 ? "" : "s"} you added by token (
+                          {account.tokenBots.map((u) => `@${u}`).join(", ")}). Those bots keep working on Telegram.
+                        </>
+                      )}
                     </p>
                     <div className="flex gap-2">
                       <Button variant="outline" size="sm" onClick={() => setConfirmId(null)}>

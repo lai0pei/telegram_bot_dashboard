@@ -12,7 +12,7 @@ import { apiFetch } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import type { BotSummary } from "../../bot-card";
 import { MonitorToggle } from "./monitor-toggle";
-import { SECTIONS, SECTION_GROUPS, type SectionId } from "./sections";
+import { SECTIONS, sectionGroupsFor, type SectionId } from "./sections";
 import type { BotDetail } from "./types";
 
 const HEALTH_LABEL = { ok: "Healthy", warning: "Warning", error: "Needs attention" } as const;
@@ -46,6 +46,7 @@ export function BotShell({
   badges: Partial<Record<SectionId, string>>;
   children: React.ReactNode;
 }) {
+  const groups = sectionGroupsFor(bot.source);
   return (
     <div className="space-y-4">
       <BotHeader
@@ -56,6 +57,7 @@ export function BotShell({
         reloading={reloading}
         onFetchToken={onFetchToken}
         fetchingToken={fetchingToken}
+        onSection={onSection}
       />
 
       <div className="lg:hidden">
@@ -65,7 +67,7 @@ export function BotShell({
           aria-label="Section"
           className="w-full rounded-lg border border-[var(--card-border)] bg-[var(--card)] px-3 py-2 text-sm"
         >
-          {SECTION_GROUPS.map((g) => (
+          {groups.map((g) => (
             <optgroup key={g.label ?? "main"} label={g.label ?? "Bot"}>
               {g.sections.map((s) => (
                 <option key={s.id} value={s.id}>
@@ -78,7 +80,7 @@ export function BotShell({
       </div>
 
       <nav aria-label="Bot sections" className="hidden flex-wrap items-center gap-1 rounded-xl border border-[var(--card-border)] bg-[var(--card)] p-1 lg:flex">
-        {SECTION_GROUPS.map((g) => {
+        {groups.map((g) => {
           const inGroup = g.sections.some((s) => s.id === section);
           const groupBadge = g.sections.some((s) => badges[s.id]);
           // A group with one section (Overview, Token & danger) is a plain button; the others open a list.
@@ -130,6 +132,7 @@ function BotHeader({
   reloading,
   onFetchToken,
   fetchingToken,
+  onSection,
 }: {
   bot: BotDetail;
   section: SectionId;
@@ -138,6 +141,7 @@ function BotHeader({
   reloading: boolean;
   onFetchToken: () => void;
   fetchingToken: boolean;
+  onSection: (id: SectionId) => void;
 }) {
   const router = useRouter();
   const [bots, setBots] = useState<BotSummary[]>([]);
@@ -195,11 +199,24 @@ function BotHeader({
             </Badge>
           )}
           <Badge variant={webhookSet ? "primary" : "default"}>{webhookSet ? "Webhook" : "Polling"}</Badge>
+          {bot.source === "token" && (
+            <Badge variant="default" title="Added with its token. Photo, usernames and BotFather settings can only be changed by the bot's owner.">
+              Added by token
+            </Badge>
+          )}
           {bot.hasToken ? (
             <Badge variant="default">
               <KeyRound className="mr-1 h-3 w-3" aria-hidden />
               Token stored
             </Badge>
+          ) : bot.source === "token" ? (
+            <button
+              type="button"
+              onClick={() => onSection("advanced")}
+              className="rounded-full bg-[var(--danger)]/15 px-2 py-0.5 font-medium text-[var(--danger)] hover:underline"
+            >
+              No token — paste it
+            </button>
           ) : (
             <button
               type="button"

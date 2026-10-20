@@ -4,6 +4,7 @@ import { uploads } from "teleproto/client";
 import { Api } from "teleproto/tl";
 import { RPCError } from "teleproto/errors";
 import { db } from "./db";
+import { isUniqueViolation } from "./db/errors";
 import {
   autoReplies,
   botBusinessConnections,
@@ -20,9 +21,11 @@ import { decrypt, encrypt } from "./crypto";
 import { fetchBotToken } from "./botfather";
 import { getClient } from "./mtproto";
 import { asPhotoBuffer } from "./photos";
-import { BotApiError } from "./botapi";
+import { BotApiError, botApi } from "./botapi";
 import { recordSetup } from "./setup-cache";
 import { singleFlight } from "./single-flight";
+import { BotHeldByAnotherAccountError, TokenBotTokenError } from "./token-bot";
+import { validateBotToken } from "./validation";
 
 export type BotRow = typeof bots.$inferSelect;
 
@@ -47,6 +50,22 @@ export function getBotToken(bot: BotRow): string | null {
   return bot.encryptedToken ? decrypt(bot.encryptedToken) : null;
 }
 
+/** A bot added by token (`source: "token"`): the account has no BotFather relationship with it. */
+export const isTokenBot = (bot: Pick<BotRow, "source">): boolean => bot.source === "token";
+
+/** Throws `BotHeldByAnotherAccountError` if `err` is the global-uniqueness violation for a bot another account holds. */
+async function rethrowIfHeldElsewhere(err: unknown, ownerUserId: string, telegramId: string, username: string): Promise<never> {
+  if (isUniqueViolation(err)) {
+    const holder = (await db.select({ ownerUserId: bots.ownerUserId }).from(bots).where(eq(bots.telegramId, telegramId)))[0];
+    if (holder && holder.ownerUserId !== ownerUserId) throw new BotHeldByAnotherAccountError(username);
+  }
+  throw err;
+}
+
+/**
+ * Records a bot Telegram lists as administered by this account. On conflict the row becomes `owned`, so a bot that
+ * was first added by token turns into a normal one once the account really owns it.
+ */
 export async function upsertBotFromTelegram(info: {
   ownerUserId: string;
   telegramId: string;
@@ -54,24 +73,97 @@ export async function upsertBotFromTelegram(info: {
   firstName: string;
 }): Promise<BotRow> {
   const now = new Date();
-  // One statement, so two parallel bot-list syncs can't both pass a select and then collide on the unique index.
-  const result = await db
-    .insert(bots)
-    .values({
-      ownerUserId: info.ownerUserId,
-      telegramId: info.telegramId,
-      username: info.username,
-      firstName: info.firstName,
-      monitorEnabled: false,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: [bots.ownerUserId, bots.telegramId],
-      set: { username: info.username, firstName: info.firstName, updatedAt: now },
-    })
-    .returning();
-  return result[0];
+  try {
+    // One statement, so two parallel bot-list syncs can't both pass a select and then collide on the unique index.
+    const result = await db
+      .insert(bots)
+      .values({
+        ownerUserId: info.ownerUserId,
+        telegramId: info.telegramId,
+        username: info.username,
+        firstName: info.firstName,
+        source: "owned",
+        monitorEnabled: false,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [bots.ownerUserId, bots.telegramId],
+        set: { username: info.username, firstName: info.firstName, source: "owned", updatedAt: now },
+      })
+      .returning();
+    return result[0];
+  } catch (err) {
+    return await rethrowIfHeldElsewhere(err, info.ownerUserId, info.telegramId, info.username);
+  }
+}
+
+/** Turns the Bot API's rejection of a pasted token into something a person can act on (a bad token is a 401, a malformed one a 404). */
+async function getMeForPastedToken(token: string) {
+  try {
+    const me = await botApi.getMe(token);
+    if (!me.is_bot || !me.username) throw new TokenBotTokenError("That token doesn't belong to a bot.");
+    return { ...me, username: me.username };
+  } catch (err) {
+    if (err instanceof BotApiError && (err.errorCode === 401 || err.errorCode === 404)) {
+      throw new TokenBotTokenError("Telegram doesn't accept this token. Check it, or ask the bot's owner for the current one.");
+    }
+    throw err;
+  }
+}
+
+/**
+ * Adds a bot this account doesn't own, from its token. The token is verified with `getMe`, so the row's id, username
+ * and name come from Telegram, never from the caller. Rejects a bot any dashboard account already manages. Also
+ * reports the bot's webhook, since an owner's own server using it conflicts with monitoring (the dashboard polls).
+ */
+export async function addBotByToken(accountId: string, rawToken: string): Promise<{ bot: BotRow; webhookUrl: string | null }> {
+  const token = rawToken.trim();
+  const invalid = validateBotToken(token);
+  if (invalid) throw new TokenBotTokenError(invalid);
+  // Keyed by the bot id in the token, so a double click can't race two verifications into one insert.
+  return singleFlight(`add-token:${accountId}:${token.split(":")[0]}`, async () => {
+    const me = await getMeForPastedToken(token);
+    const telegramId = me.id.toString();
+    const existing = (await db.select({ ownerUserId: bots.ownerUserId }).from(bots).where(eq(bots.telegramId, telegramId)))[0];
+    if (existing) throw new BotHeldByAnotherAccountError(me.username, existing.ownerUserId === accountId);
+
+    const now = new Date();
+    let bot: BotRow;
+    try {
+      [bot] = await db
+        .insert(bots)
+        .values({
+          ownerUserId: accountId,
+          telegramId,
+          username: me.username,
+          firstName: me.first_name,
+          source: "token",
+          encryptedToken: encrypt(token),
+          tokenFetchedAt: now,
+          monitorEnabled: false,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning();
+    } catch (err) {
+      return await rethrowIfHeldElsewhere(err, accountId, telegramId, me.username);
+    }
+    const webhookUrl = (await botApi.getWebhookInfo(token).catch(() => null))?.url || null;
+    return { bot, webhookUrl };
+  });
+}
+
+/** Replaces a token-added bot's token (the owner rotated it). It must be the same bot: a token for a different bot is refused. */
+export async function replaceBotToken(bot: BotRow, rawToken: string): Promise<void> {
+  const token = rawToken.trim();
+  const invalid = validateBotToken(token);
+  if (invalid) throw new TokenBotTokenError(invalid);
+  const me = await getMeForPastedToken(token);
+  if (me.id.toString() !== bot.telegramId) throw new TokenBotTokenError(`That token belongs to @${me.username}, not @${bot.username}.`);
+  await db.update(bots)
+    .set({ encryptedToken: encrypt(token), tokenFetchedAt: new Date(), healthStatus: null, healthMessage: null, healthCheckedAt: null, updatedAt: new Date() })
+    .where(eq(bots.id, bot.id));
 }
 
 export async function saveBotToken(id: number, token: string): Promise<void> {
@@ -110,6 +202,8 @@ export async function withLiveBotToken<T>(
 ): Promise<{ result: T; token: string }> {
   const token = getBotToken(bot);
   if (!token) {
+    // A bot added by token has no BotFather chat to heal from: only its owner can hand over a new token.
+    if (isTokenBot(bot)) throw new TokenBotTokenError("No token is stored for this bot. Paste its current token with “Replace token”.");
     const fetched = await healToken(bot, userId);
     return { result: await fn(fetched), token: fetched };
   }
@@ -118,6 +212,10 @@ export async function withLiveBotToken<T>(
     return { result: await fn(token), token };
   } catch (err) {
     if (!(err instanceof BotApiError) || err.errorCode !== 401) throw err;
+    // Never heal (BotFather can't find a bot this account doesn't own) and never clear the stored token.
+    if (isTokenBot(bot)) {
+      throw new TokenBotTokenError("Telegram rejected this bot's token. Ask its owner for the current token and use “Replace token”.");
+    }
 
     const recentlyHealed = bot.tokenFetchedAt && Date.now() - bot.tokenFetchedAt.getTime() < HEAL_COOLDOWN_MS;
     if (recentlyHealed) throw err;
@@ -175,10 +273,13 @@ export async function deleteBotRow(id: number): Promise<void> {
   });
 }
 
-/** Removes local rows for bots Telegram no longer lists as owned by this user (e.g. deleted from a phone). */
+/**
+ * Removes local rows for bots Telegram no longer lists as owned by this user (e.g. deleted from a phone). Bots added
+ * by token were never in that list, so they are left alone.
+ */
 export async function pruneBotsNotIn(ownerUserId: string, telegramIds: Set<string>): Promise<void> {
   for (const bot of (await listBots(ownerUserId))) {
-    if (!telegramIds.has(bot.telegramId)) await deleteBotRow(bot.id);
+    if (!isTokenBot(bot) && !telegramIds.has(bot.telegramId)) await deleteBotRow(bot.id);
   }
 }
 

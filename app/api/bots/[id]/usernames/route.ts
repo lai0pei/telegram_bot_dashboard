@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ownedBotOnly } from "@/lib/token-bot";
 import { withAuth, errorResponse } from "@/lib/api-guard";
 import { BotUsernameError, getBotById, listBotUsernames, reorderBotUsernames, setBotUsernameActive } from "@/lib/bots";
 
@@ -12,6 +13,8 @@ export const GET = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId: s
   try {
     const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
+    const owned = ownedBotOnly(bot);
+    if (owned) return owned;
     return NextResponse.json({ usernames: await listBotUsernames(telegramAccountId, bot) });
   } catch (err) {
     return fail(err);
@@ -23,6 +26,8 @@ export const PATCH = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: 
   try {
     const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
+    const owned = ownedBotOnly(bot);
+    if (owned) return owned;
     const body = await req.json().catch(() => null);
     if (!body) return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
 

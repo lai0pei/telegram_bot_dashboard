@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Bot as BotIcon, CheckSquare, Plus, RefreshCw, SearchX } from "lucide-react";
+import { Bot as BotIcon, CheckSquare, KeyRound, Plus, RefreshCw, SearchX } from "lucide-react";
 import { motion } from "motion/react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-client";
@@ -15,6 +15,7 @@ import { BulkBar } from "../bulk-bar";
 import { CardGridSkeleton } from "../loading";
 import { FilterChips, SearchInput, matchesQuery, useSlashToSearch } from "../list-toolbar";
 import { NoActiveAccount, isNoActiveAccount } from "../no-active-account";
+import { AddTokenDialog } from "./add-token-dialog";
 
 type Filter = "all" | "monitoring" | "webhook" | "attention";
 
@@ -50,13 +51,17 @@ function BotsList() {
   const [query, setQuery] = useState("");
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<number[]>([]);
+  const [addingToken, setAddingToken] = useState(false);
+  // Bots this account owns that another dashboard account already manages (added there by token): not listed here.
+  const [skipped, setSkipped] = useState<string[]>([]);
   useSlashToSearch();
 
   async function load() {
     setLoading(true);
     try {
-      const result = await apiFetch<{ bots: BotSummary[] }>("/api/bots");
+      const result = await apiFetch<{ bots: BotSummary[]; skipped?: string[] }>("/api/bots");
       setBots(result.bots.slice().sort((a, b) => a.username.localeCompare(b.username)));
+      setSkipped(result.skipped ?? []);
     } catch (err) {
       if (isNoActiveAccount(err)) setNoActiveAccount(true);
       else toast.error(err instanceof Error ? err.message : "Failed to load bots.");
@@ -97,7 +102,7 @@ function BotsList() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-lg font-semibold">Bots</h1>
-          <p className="text-sm text-[var(--muted)]">Every bot this Telegram account owns, synced from BotFather.</p>
+          <p className="text-sm text-[var(--muted)]">Every bot this Telegram account owns, synced from BotFather, plus bots you added by token.</p>
         </div>
         <div className="flex gap-2">
           {bots && bots.length > 1 && (
@@ -117,6 +122,10 @@ function BotsList() {
             {!(loading && bots) && <RefreshCw className="h-3.5 w-3.5" />}
             Refresh
           </Button>
+          <Button variant="outline" size="sm" onClick={() => setAddingToken(true)}>
+            <KeyRound className="h-3.5 w-3.5" />
+            Add by token
+          </Button>
           <Button size="sm" asChild>
             <Link href="/bots/new">
               <Plus className="h-3.5 w-3.5" />
@@ -125,6 +134,15 @@ function BotsList() {
           </Button>
         </div>
       </div>
+
+      <AddTokenDialog open={addingToken} onOpenChange={setAddingToken} onAdded={() => void load()} />
+
+      {skipped.length > 0 && (
+        <Card className="text-sm text-[var(--muted)]">
+          {skipped.map((u) => `@${u}`).join(", ")} {skipped.length === 1 ? "is" : "are"} owned by this Telegram account but already managed by another account in this
+          dashboard (added there by token), so {skipped.length === 1 ? "it isn't" : "they aren't"} listed here. Remove {skipped.length === 1 ? "it" : "them"} there to manage {skipped.length === 1 ? "it" : "them"} here.
+        </Card>
+      )}
 
       {loading && !bots ? (
         <CardGridSkeleton />

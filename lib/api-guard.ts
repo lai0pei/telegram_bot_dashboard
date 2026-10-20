@@ -3,6 +3,7 @@ import { readSessionClaims } from "./auth";
 import { getTelegramAccountById, TelegramSessionRevokedError } from "./telegram-accounts";
 import { getUserById } from "./users";
 import { getClientIp, rateLimit } from "./rate-limit";
+import { BotHeldByAnotherAccountError, TokenBotTokenError } from "./token-bot";
 
 type RouteContext = { params: Promise<Record<string, string>> };
 
@@ -93,6 +94,10 @@ function sessionRevokedResponse(): Response {
 
 export function errorResponse(err: unknown, fallbackStatus = 500): Response {
   if (err instanceof TelegramSessionRevokedError) return sessionRevokedResponse();
+  // Token-added bots: a rejected token or a bot another account holds is something the person can fix, not a server error.
+  if (err instanceof TokenBotTokenError || err instanceof BotHeldByAnotherAccountError) {
+    return NextResponse.json({ error: err.message }, { status: 422 });
+  }
   const message = err instanceof Error ? err.message : String(err);
   console.error(err);
   return NextResponse.json({ error: message }, { status: fallbackStatus });

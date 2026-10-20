@@ -16,6 +16,7 @@ import { botApi } from "@/lib/botapi";
 import { maskSecret } from "@/lib/crypto";
 import { cachedProgress } from "@/lib/setup-progress";
 import { singleFlight } from "@/lib/single-flight";
+import { BotHeldByAnotherAccountError } from "@/lib/token-bot";
 import { validateBotName, validateBotUsername } from "@/lib/validation";
 
 /**
@@ -29,14 +30,21 @@ export const GET = withAuth(async (_req, _ctx, userId) => {
     if (!client) return NextResponse.json({ error: "Not logged in." }, { status: 401 });
 
     const adminedBots = (await client.invoke(new Api.bots.GetAdminedBots())) as Api.User[];
+    // Bots another dashboard account already manages (added there by token) can't be listed here too: say so, but don't fail the sync.
+    const skipped: string[] = [];
     for (const b of adminedBots) {
       if (!b.username) continue;
-      await upsertBotFromTelegram({
-        ownerUserId: userId,
-        telegramId: b.id.toString(),
-        username: b.username,
-        firstName: b.firstName ?? b.username,
-      });
+      try {
+        await upsertBotFromTelegram({
+          ownerUserId: userId,
+          telegramId: b.id.toString(),
+          username: b.username,
+          firstName: b.firstName ?? b.username,
+        });
+      } catch (err) {
+        if (!(err instanceof BotHeldByAnotherAccountError)) throw err;
+        skipped.push(b.username);
+      }
     }
     await pruneBotsNotIn(userId, new Set(adminedBots.map((b) => b.id.toString())));
 
@@ -49,6 +57,7 @@ export const GET = withAuth(async (_req, _ctx, userId) => {
           telegramId: bot.telegramId,
           username: bot.username,
           firstName: bot.firstName,
+          source: bot.source,
           monitorEnabled: bot.monitorEnabled,
           health: healthOf(bot),
           setup: cachedProgress(bot.setupProgress),
@@ -79,7 +88,7 @@ export const GET = withAuth(async (_req, _ctx, userId) => {
       })
     );
 
-    return NextResponse.json({ bots: results });
+    return NextResponse.json({ bots: results, skipped });
   } catch (err) {
     return errorResponse(err);
   }

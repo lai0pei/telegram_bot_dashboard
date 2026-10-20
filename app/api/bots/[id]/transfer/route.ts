@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ownedBotOnly } from "@/lib/token-bot";
 import { withAuth, errorResponse } from "@/lib/api-guard";
 import { BotFatherError } from "@/lib/botfather";
 import { transferBot } from "@/lib/botfather-apps";
@@ -18,6 +19,8 @@ export const POST = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: s
   try {
     const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
+    const owned = ownedBotOnly(bot);
+    if (owned) return owned;
     const body = await req.json().catch(() => null);
     const error = validateTelegramUsername(body?.recipient);
     if (error) return NextResponse.json({ error }, { status: 400 });

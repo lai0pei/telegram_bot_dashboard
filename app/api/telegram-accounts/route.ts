@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { withSession, errorResponse } from "@/lib/api-guard";
 import { createSessionCookie, readSessionClaims } from "@/lib/auth";
+import { isTokenBot, listBots } from "@/lib/bots";
 import { checkTelegramSession } from "@/lib/mtproto";
 import { getTelegramAccountById, listTelegramAccountsForUser, pickDefaultTelegramAccountId } from "@/lib/telegram-accounts";
 import { getUserById } from "@/lib/users";
@@ -42,7 +43,8 @@ export const GET = withSession(async (_req, _ctx, userId) => {
       // Tells the client the cookie was just re-pointed, so a page already
       // loaded as the old account must reload — even on the very first fetch.
       activeChanged,
-      accounts: accounts.map((a) => ({
+      accounts: await Promise.all(accounts.map(async (a) => ({
+        tokenBots: (await listBots(a.id)).filter(isTokenBot).map((b) => b.username),
         id: a.id,
         telegramId: a.telegramId,
         username: a.username,
@@ -53,7 +55,7 @@ export const GET = withSession(async (_req, _ctx, userId) => {
         revoked: !!a.revokedAt,
         digestFrequency: a.digestFrequency,
         digestHour: a.digestHour,
-      })),
+      }))),
     });
   } catch (err) {
     return errorResponse(err);

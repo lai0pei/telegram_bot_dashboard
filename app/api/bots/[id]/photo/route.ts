@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ownedBotOnly } from "@/lib/token-bot";
 import { withAuth, errorResponse } from "@/lib/api-guard";
 import { BotPhotoError, deleteBotPhoto, getBotById, getBotPhoto, setBotPhoto } from "@/lib/bots";
 import { getCachedPhoto, invalidatePhoto, photoKey, photoResponse } from "@/lib/photos";
@@ -27,6 +28,8 @@ export const PUT = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: st
   try {
     const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
+    const owned = ownedBotOnly(bot);
+    if (owned) return owned;
 
     const form = await req.formData().catch(() => null);
     const file = form?.get("file");
@@ -53,6 +56,8 @@ export const DELETE = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId
   try {
     const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
+    const owned = ownedBotOnly(bot);
+    if (owned) return owned;
     await deleteBotPhoto(telegramAccountId, bot);
     invalidatePhoto(photoKey(telegramAccountId, "bot", bot.id));
     await recordSetup(bot.id, { photo: false });

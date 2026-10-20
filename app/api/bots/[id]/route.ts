@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth, errorResponse } from "@/lib/api-guard";
 import { deleteBot as botFatherDelete } from "@/lib/botfather";
-import { deleteBotRow, getBotById, getBotToken, healthOf, setWebhookHealth, withLiveBotToken } from "@/lib/bots";
+import { deleteBotRow, getBotById, getBotToken, healthOf, isTokenBot, setWebhookHealth, withLiveBotToken } from "@/lib/bots";
 import { botApi, type BotCommand } from "@/lib/botapi";
 import { recordSetup } from "@/lib/setup-cache";
 import { singleFlight } from "@/lib/single-flight";
@@ -26,6 +26,7 @@ export const GET = withAuth(async (_req: Request, ctx: { params: Promise<{ id: s
         id: bot.id,
         username: bot.username,
         firstName: bot.firstName,
+        source: bot.source,
         hasToken: false,
         monitorEnabled: bot.monitorEnabled,
         health: healthOf(bot),
@@ -68,6 +69,7 @@ export const GET = withAuth(async (_req: Request, ctx: { params: Promise<{ id: s
       id: bot.id,
       username: bot.username,
       firstName: bot.firstName,
+      source: bot.source,
       hasToken: true,
       token: liveToken,
       monitorEnabled: bot.monitorEnabled,
@@ -139,7 +141,11 @@ export const PATCH = withAuth(
   }
 );
 
-/** DELETE: deletes the bot through BotFather and removes local records. */
+/**
+ * DELETE: deletes the bot through BotFather and removes local records. A bot added by token isn't this account's to
+ * delete, so for those it only removes the local records ("remove from dashboard"): the token stays valid and any
+ * webhook stays set, which the owner has to revoke/clear themselves.
+ */
 export const DELETE = withAuth(
   async (_req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
     try {
@@ -148,7 +154,7 @@ export const DELETE = withAuth(
       if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
       await singleFlight(`delete:${userId}:${bot.id}`, async () => {
-        await botFatherDelete(userId, bot.username);
+        if (!isTokenBot(bot)) await botFatherDelete(userId, bot.username);
         await deleteBotRow(bot.id);
       });
 

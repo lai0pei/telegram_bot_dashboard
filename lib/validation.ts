@@ -24,6 +24,14 @@ export function validateBotUsername(username: string): string | null {
   return null;
 }
 
+/** A BotFather token: the bot's numeric id, a colon, and a 35-ish character secret. Shared by the add dialog and the routes. */
+export function validateBotToken(value: string): string | null {
+  const token = value.trim();
+  if (!token) return "Paste the bot's token.";
+  if (!/^\d{6,}:[A-Za-z0-9_-]{30,}$/.test(token)) return "That doesn't look like a bot token. It looks like 123456789:AAH… and comes from @BotFather.";
+  return null;
+}
+
 export function validateShortDescription(value: string): string | null {
   if (value.length > 120) return "Short description must be at most 120 characters.";
   return null;
