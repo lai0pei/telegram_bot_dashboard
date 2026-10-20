@@ -1,6 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "./db";
 import { telegramAccounts } from "./db/schema";
+import { userNotSuspended } from "./suspension";
 import { getAttentionItems } from "./attention";
 import { getClient } from "./mtproto";
 import { singleFlight } from "./single-flight";
@@ -22,8 +23,9 @@ function isDue(account: TelegramAccountRow, now: Date): boolean {
 /** Checked once per poller tick: sends a Saved Messages digest to any account whose schedule is due. */
 export async function maybeSendDigests(): Promise<void> {
   const now = new Date();
-  const due = await db.select().from(telegramAccounts).where(eq(telegramAccounts.digestFrequency, "daily"));
-  const dueWeekly = await db.select().from(telegramAccounts).where(eq(telegramAccounts.digestFrequency, "weekly"));
+  const notSuspended = userNotSuspended(telegramAccounts.ownerUserId);
+  const due = await db.select().from(telegramAccounts).where(and(eq(telegramAccounts.digestFrequency, "daily"), notSuspended));
+  const dueWeekly = await db.select().from(telegramAccounts).where(and(eq(telegramAccounts.digestFrequency, "weekly"), notSuspended));
   for (const account of [...due, ...dueWeekly]) {
     if (!isDue(account, now)) continue;
     await singleFlight(`digest:${account.id}`, () => sendDigest(account)).catch((err) =>

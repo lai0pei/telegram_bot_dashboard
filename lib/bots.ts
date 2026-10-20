@@ -8,15 +8,21 @@ import { isUniqueViolation } from "./db/errors";
 import {
   autoReplies,
   botBusinessConnections,
+  botButtonTemplates,
   botChats,
+  botDeepLinks,
+  botGames,
   botJoinRequests,
   botMessages,
+  botMiniApps,
   botUsers,
   bots,
   broadcasts,
+  dailyStats,
   inlineResults,
   scheduledMessages,
 } from "./db/schema";
+import { botNotSuspended } from "./suspension";
 import { decrypt, encrypt } from "./crypto";
 import { fetchBotToken } from "./botfather";
 import { getClient } from "./mtproto";
@@ -258,8 +264,18 @@ export async function setWebhookHealth(id: number, lastError: string | null, pen
     .where(eq(bots.id, id));
 }
 
+/**
+ * Removes a bot and everything keyed by its ID. There are no foreign keys, so
+ * nothing cascades: **any new table with a `bot_id` column must be added here**
+ * (this also runs for unbinding an account and for the admin's delete-user).
+ */
 export async function deleteBotRow(id: number): Promise<void> {
   await db.transaction(async (tx) => {
+    await tx.delete(botDeepLinks).where(eq(botDeepLinks.botId, id));
+    await tx.delete(botButtonTemplates).where(eq(botButtonTemplates.botId, id));
+    await tx.delete(botGames).where(eq(botGames.botId, id));
+    await tx.delete(botMiniApps).where(eq(botMiniApps.botId, id));
+    await tx.delete(dailyStats).where(eq(dailyStats.botId, id));
     await tx.delete(botMessages).where(eq(botMessages.botId, id));
     await tx.delete(botUsers).where(eq(botUsers.botId, id));
     await tx.delete(botChats).where(eq(botChats.botId, id));
@@ -288,26 +304,30 @@ export async function getBotForJob(id: number): Promise<BotRow | undefined> {
   return (await db.select().from(bots).where(eq(bots.id, id)))[0];
 }
 
-/** Every bot that has a stored token, across all users — used only by the health check job. */
+/** Every bot that has a stored token, across all users except suspended ones (lib/suspension.ts) — used only by the health check job. */
 export async function listAllBotsWithToken(): Promise<BotRow[]> {
-  return await db.select().from(bots).where(isNotNull(bots.encryptedToken));
+  return await db.select().from(bots).where(and(isNotNull(bots.encryptedToken), botNotSuspended(bots.id)));
 }
 
 export async function saveBotHealth(id: number, status: "ok" | "warning" | "error", message: string | null): Promise<void> {
   await db.update(bots).set({ healthStatus: status, healthMessage: message, healthCheckedAt: new Date() }).where(eq(bots.id, id));
 }
 
-/** Every monitored bot across all users — used only by the background poller. */
+/** Every monitored bot across all users except suspended ones — used only by the background poller. */
 export async function listAllMonitoredBots(): Promise<BotRow[]> {
-  return await db.select().from(bots).where(eq(bots.monitorEnabled, true));
+  return await db.select().from(bots).where(and(eq(bots.monitorEnabled, true), botNotSuspended(bots.id)));
 }
 
-/** The bot's current row if monitoring is still on for it. Unscoped: for the background poller only, never for request handlers. */
+/**
+ * The bot's current row if monitoring is still on for it and its owner isn't suspended (a worker polling a bot whose
+ * owner was just suspended sees `undefined` and stops; the supervisor restarts it after unsuspend). Unscoped: for the
+ * background poller only, never for request handlers.
+ */
 export async function getMonitoredBot(id: number): Promise<BotRow | undefined> {
   return (await db
     .select()
     .from(bots)
-    .where(and(eq(bots.id, id), eq(bots.monitorEnabled, true))))[0];
+    .where(and(eq(bots.id, id), eq(bots.monitorEnabled, true), botNotSuspended(bots.id))))[0];
 }
 
 // --- Profile photo (MTProto, as the owning Telegram account: no bot token needed) ------------

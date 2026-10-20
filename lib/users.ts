@@ -22,6 +22,7 @@ export async function createUserForTelegram(me: Api.User): Promise<UserRow> {
     username: displayNameForTelegram(me),
     sessionVersion: 0,
     lastActiveAt: now,
+    suspendedAt: null,
     createdAt: now,
     updatedAt: now,
   };

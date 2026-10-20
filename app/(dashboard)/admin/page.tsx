@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -9,8 +9,10 @@ import { ApiError, apiFetch } from "@/lib/api-client";
 import { timeAgo } from "@/lib/time";
 import type { AdminUserRow, AdminUsersOverview } from "@/lib/admin-users";
 import { FilterChips, SearchInput, matchesQuery, useSlashToSearch } from "../list-toolbar";
+import { AuditLog } from "./audit-log";
+import { UserActions } from "./user-actions";
 
-type Filter = "all" | "active7d" | "inactive" | "revoked";
+type Filter = "all" | "active7d" | "inactive" | "revoked" | "suspended";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -28,11 +30,16 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  /** Bumped after every admin action so the audit log reloads together with the list. */
+  const [version, setVersion] = useState(0);
   useSlashToSearch();
 
-  useEffect(() => {
+  const load = useCallback(() => {
     apiFetch<AdminUsersOverview>("/api/admin/users")
-      .then(setOverview)
+      .then((o) => {
+        setOverview(o);
+        setError(null);
+      })
       .catch((err: unknown) => {
         // Only a definite "you are not the admin" leaves the page: a slow or failed load must not bounce a real admin.
         if (err instanceof ApiError && err.body.code === "NOT_ADMIN") router.replace("/");
@@ -40,12 +47,22 @@ export default function AdminPage() {
       });
   }, [router]);
 
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const onChanged = useCallback(() => {
+    load();
+    setVersion((v) => v + 1);
+  }, [load]);
+
   const rows = useMemo(() => {
     const matches: Record<Filter, (u: AdminUserRow) => boolean> = {
       all: () => true,
       active7d: (u) => isActiveWithin(u, 7 * DAY_MS),
       inactive: (u) => !isActiveWithin(u, 7 * DAY_MS),
       revoked: (u) => u.accounts.some((a) => a.revoked),
+      suspended: (u) => u.suspended,
     };
     return (overview?.users ?? []).filter(
       (u) => matches[filter](u) && matchesQuery(query, u.name, ...u.accounts.flatMap((a) => [a.username, a.firstName, a.telegramId]))
@@ -71,6 +88,7 @@ export default function AdminPage() {
     { value: "active7d", label: "Active 7d", count: totals.activeLast7d },
     { value: "inactive", label: "Inactive", count: users.length - totals.activeLast7d },
     { value: "revoked", label: "Revoked session", count: users.filter((u) => u.accounts.some((a) => a.revoked)).length },
+    { value: "suspended", label: "Suspended", count: users.filter((u) => u.suspended).length },
   ];
   const tiles: { label: string; value: number }[] = [
     { label: "Users", value: totals.users },
@@ -86,7 +104,7 @@ export default function AdminPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-lg font-semibold">Admin</h1>
-        <p className="text-sm text-[var(--muted)]">Everyone using this dashboard. Read-only.</p>
+        <p className="text-sm text-[var(--muted)]">Everyone using this dashboard. Every action below is recorded in the audit log.</p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
@@ -104,7 +122,7 @@ export default function AdminPage() {
       </div>
 
       <Card className="overflow-x-auto p-0">
-        <table className="w-full min-w-[720px] text-sm">
+        <table className="w-full min-w-[960px] text-sm">
           <thead>
             <tr className="border-b border-[var(--card-border)] text-left text-xs text-[var(--muted)]">
               <th className="px-4 py-3 font-medium">User</th>
@@ -113,6 +131,7 @@ export default function AdminPage() {
               <th className="px-4 py-3 text-right font-medium">Channels &amp; groups</th>
               <th className="px-4 py-3 font-medium">Last seen</th>
               <th className="px-4 py-3 font-medium">Joined</th>
+              <th className="px-4 py-3 text-right font-medium">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -122,6 +141,7 @@ export default function AdminPage() {
                   <div className="flex flex-wrap items-center gap-2 font-medium">
                     {u.name}
                     {u.isAdmin && <Badge variant="primary">Admin</Badge>}
+                    {u.suspended && <Badge variant="danger">Suspended</Badge>}
                   </div>
                 </td>
                 <td className="px-4 py-3">
@@ -146,11 +166,15 @@ export default function AdminPage() {
                 <td className="px-4 py-3 text-right tabular-nums">{u.chats}</td>
                 <td className="px-4 py-3 text-[var(--muted)]">{u.lastActiveAt ? timeAgo(u.lastActiveAt) : "Never"}</td>
                 <td className="px-4 py-3 text-[var(--muted)]">{new Date(u.createdAt).toLocaleDateString()}</td>
+                <td className="px-4 py-3">
+                  {/* The server refuses actions on a master admin or on yourself; hiding them just avoids offering a dead button. */}
+                  {!u.isAdmin && <UserActions user={u} onChanged={onChanged} />}
+                </td>
               </tr>
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-[var(--muted)]">
+                <td colSpan={7} className="px-4 py-8 text-center text-[var(--muted)]">
                   No users match.
                 </td>
               </tr>
@@ -158,6 +182,8 @@ export default function AdminPage() {
           </tbody>
         </table>
       </Card>
+
+      <AuditLog refreshKey={version} />
     </div>
   );
 }

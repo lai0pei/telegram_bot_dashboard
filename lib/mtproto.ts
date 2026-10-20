@@ -16,7 +16,7 @@ import {
   TelegramSessionRevokedError,
   type TelegramAccountRow,
 } from "./telegram-accounts";
-import { createUserForTelegram } from "./users";
+import { createUserForTelegram, getUserById } from "./users";
 
 /**
  * Per-account state stored on globalThis so it survives Next.js dev
@@ -367,7 +367,8 @@ type SignInOutcome =
   | { status: "password_required" }
   | { status: "not_allowed"; telegramId: string }
   | { status: "already_linked"; telegramId: string }
-  | { status: "registration_closed"; telegramId: string };
+  | { status: "registration_closed"; telegramId: string }
+  | { status: "suspended"; telegramId: string };
 
 /**
  * Looks up the login state for this loginId and checks it belongs to this
@@ -440,6 +441,11 @@ async function finishLogin(
       return { status: "already_linked", telegramId };
     }
   } else if (existing?.ownerUserId) {
+    // Checked before anything below touches the account: a suspended user's scan must not replace their stored session or end the previous one.
+    if ((await getUserById(existing.ownerUserId))?.suspendedAt) {
+      client.destroy().catch(() => {});
+      return { status: "suspended", telegramId };
+    }
     ownerUserId = existing.ownerUserId;
   } else if (process.env.REGISTRATION_ENABLED === "false") {
     client.destroy().catch(() => {});

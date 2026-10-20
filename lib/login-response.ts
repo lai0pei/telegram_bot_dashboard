@@ -34,6 +34,17 @@ export async function loginStatusResponse(result: QrLoginStatus): Promise<Respon
       { status: 409 }
     );
   }
+  if (result.status === "suspended") {
+    // telegramUserId makes the password step route this through QrLogin's handleLoginError (generic toast, back to "failed") instead of "wrong password, retry".
+    return NextResponse.json(
+      {
+        error: "This dashboard account has been suspended. Contact the dashboard admin.",
+        code: "ACCOUNT_SUSPENDED",
+        telegramUserId: result.telegramId,
+      },
+      { status: 403 }
+    );
+  }
   if (result.status === "registration_closed") {
     return NextResponse.json(
       {

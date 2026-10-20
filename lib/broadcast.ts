@@ -5,6 +5,7 @@ import { parseButtons } from "./auto-replies";
 import { db } from "./db";
 import { isUniqueViolation } from "./db/errors";
 import { botUsers, broadcasts } from "./db/schema";
+import { botNotSuspended } from "./suspension";
 
 export type BroadcastRow = typeof broadcasts.$inferSelect;
 
@@ -99,7 +100,8 @@ export async function activeBroadcastIds(now = Date.now()): Promise<number[]> {
   return (await db
     .select({ id: broadcasts.id })
     .from(broadcasts)
-    .where(inArray(broadcasts.status, ["queued", "running"]))
+    // A suspended user's broadcast is left as it is (not failed) and carries on from its cursor after an unsuspend.
+    .where(and(inArray(broadcasts.status, ["queued", "running"]), botNotSuspended(broadcasts.botId)))
     .orderBy(broadcasts.id))
     .map((r) => r.id)
     .filter((id) => (resumeAt().get(id) ?? 0) <= now);
