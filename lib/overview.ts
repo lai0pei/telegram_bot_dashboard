@@ -25,22 +25,21 @@ export interface OverviewStats {
  * and chat counts reflect the last sync — the Bots and Channels pages sync on
  * load.
  */
-export function getOverviewStats(telegramAccountId: string): OverviewStats {
-  const ownBots = db
+export async function getOverviewStats(telegramAccountId: string): Promise<OverviewStats> {
+  const ownBots = await db
     .select({ id: bots.id, username: bots.username, monitorEnabled: bots.monitorEnabled, healthStatus: bots.healthStatus })
     .from(bots)
-    .where(eq(bots.ownerUserId, telegramAccountId))
-    .all();
+    .where(eq(bots.ownerUserId, telegramAccountId));
   const botIds = ownBots.map((b) => b.id);
 
-  const chatRows = db.select({ kind: chats.kind }).from(chats).where(eq(chats.ownerUserId, telegramAccountId)).all();
+  const chatRows = await db.select({ kind: chats.kind }).from(chats).where(eq(chats.ownerUserId, telegramAccountId));
 
   let botUserCount = 0;
   let messagesToday = 0;
   if (botIds.length > 0) {
-    botUserCount = db.select({ n: count() }).from(botUsers).where(inArray(botUsers.botId, botIds)).all()[0]?.n ?? 0;
+    botUserCount = (await db.select({ n: count() }).from(botUsers).where(inArray(botUsers.botId, botIds)))[0]?.n ?? 0;
     messagesToday =
-      db
+      (await db
         .select({ n: count() })
         .from(botMessages)
         .where(
@@ -49,8 +48,7 @@ export function getOverviewStats(telegramAccountId: string): OverviewStats {
             eq(botMessages.direction, "in"),
             gt(botMessages.createdAt, new Date(Date.now() - DAY_MS))
           )
-        )
-        .all()[0]?.n ?? 0;
+        ))[0]?.n ?? 0;
   }
 
   return {
@@ -61,6 +59,6 @@ export function getOverviewStats(telegramAccountId: string): OverviewStats {
     botUsers: botUserCount,
     messagesToday,
     botsNeedingAttention: ownBots.filter((b) => b.healthStatus === "warning" || b.healthStatus === "error").length,
-    trend: getTrend(telegramAccountId, TREND_DAYS),
+    trend: (await getTrend(telegramAccountId, TREND_DAYS)),
   };
 }

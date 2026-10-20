@@ -13,13 +13,13 @@ type Ctx = { params: Promise<{ id: string; gameId: string }> };
 export const POST = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
     const { id, gameId } = await ctx.params;
-    const bot = getBotById(Number(id), telegramAccountId);
-    const game = bot && getGame(bot.id, Number(gameId));
+    const bot = await getBotById(Number(id), telegramAccountId);
+    const game = bot && (await getGame(bot.id, Number(gameId)));
     if (!bot || !game) return NextResponse.json({ error: "Game not found." }, { status: 404 });
     const body = await req.json().catch(() => null);
     if (typeof body?.chatId !== "string" || validateChatId(body.chatId)) return NextResponse.json({ error: "A valid chat ID is required." }, { status: 400 });
     const sent = await withLiveBotToken(bot, telegramAccountId, (token) => botApi.sendGame(token, body.chatId, game.shortName));
-    recordOutgoing(bot.id, sent.result);
+    await recordOutgoing(bot.id, sent.result);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return botApiErrorResponse(err) ?? errorResponse(err);

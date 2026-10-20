@@ -4,9 +4,9 @@ import { botMessages } from "./db/schema";
 import { describeMessage } from "./messages";
 
 /** Stores a message the bot just sent (from the dashboard, an auto-reply or a scheduled send) as an "out" row. */
-export function recordOutgoing(botId: number, sent: TelegramMessage, replyToMessageId?: number | null, businessConnectionId?: string | null) {
+export async function recordOutgoing(botId: number, sent: TelegramMessage, replyToMessageId?: number | null, businessConnectionId?: string | null) {
   const described = describeMessage(sent);
-  return db
+  return (await db
     .insert(botMessages)
     .values({
       botId,
@@ -23,6 +23,5 @@ export function recordOutgoing(botId: number, sent: TelegramMessage, replyToMess
       telegramMessageId: sent.message_id,
       createdAt: new Date(),
     })
-    .returning()
-    .get();
+    .returning())[0];
 }

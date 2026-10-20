@@ -51,13 +51,13 @@ export async function checkBotHealth(bot: BotRow): Promise<HealthResult | null> 
 /** Checks and saves one bot's health. Returns the result (null when Telegram was unreachable and nothing changed). */
 export async function refreshBotHealth(bot: BotRow): Promise<HealthResult | null> {
   const result = await checkBotHealth(bot);
-  if (result) saveBotHealth(bot.id, result.status, result.message);
+  if (result) await saveBotHealth(bot.id, result.status, result.message);
   return result;
 }
 
 /** Checks every bot with a token, one at a time so 20 bots don't become 40 simultaneous requests. */
 export async function refreshAllBotHealth(): Promise<void> {
-  for (const bot of listAllBotsWithToken()) {
+  for (const bot of (await listAllBotsWithToken())) {
     try {
       await refreshBotHealth(bot);
     } catch (err) {

@@ -29,7 +29,7 @@ export const GET = withAuth(async (_req: Request, ctx: BotChatParams, telegramAc
 
     const status = statusOf(result.me);
     const rights = rightsOf(result.me);
-    upsertBotChat(bot.id, {
+    await upsertBotChat(bot.id, {
       chatId: chat.chatId,
       type: chat.type,
       title: result.info.title ?? chat.title,
@@ -81,7 +81,7 @@ export const PATCH = withAuth(async (req: Request, ctx: BotChatParams, telegramA
       if (description !== undefined) await botApi.setChatDescription(token, chat.chatId, description);
     });
     if (title !== undefined) {
-      upsertBotChat(bot.id, { chatId: chat.chatId, type: chat.type, title, username: chat.username, status: chat.status, rights: parseRights(chat) });
+      await upsertBotChat(bot.id, { chatId: chat.chatId, type: chat.type, title, username: chat.username, status: chat.status, rights: parseRights(chat) });
     }
     return NextResponse.json({ ok: true });
   } catch (err) {

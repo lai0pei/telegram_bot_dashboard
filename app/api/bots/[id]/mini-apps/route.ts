@@ -11,9 +11,9 @@ type Ctx = { params: Promise<{ id: string }> };
 
 export const GET = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
-    const bot = getBotById(Number((await ctx.params).id), telegramAccountId);
+    const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
-    return NextResponse.json({ apps: listMiniApps(bot.id), botUsername: bot.username });
+    return NextResponse.json({ apps: (await listMiniApps(bot.id)), botUsername: bot.username });
   } catch (err) {
     return errorResponse(err);
   }
@@ -22,7 +22,7 @@ export const GET = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId: s
 /** POST multipart { title, description, shortName, url, photo (640×360 PNG/JPEG) }: creates a Mini App through @BotFather (/newapp). */
 export const POST = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
-    const bot = getBotById(Number((await ctx.params).id), telegramAccountId);
+    const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
     const form = await req.formData().catch(() => null);
     const title = form?.get("title");
@@ -41,7 +41,7 @@ export const POST = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: s
     await singleFlight(`newapp:${telegramAccountId}:${bot.id}:${app.shortName}`, () =>
       createMiniApp(telegramAccountId, bot.username, { ...app, photo: { name: photo.name || "app.png", data } })
     );
-    return NextResponse.json({ app: saveMiniApp(bot.id, app) });
+    return NextResponse.json({ app: (await saveMiniApp(bot.id, app)) });
   } catch (err) {
     return err instanceof BotFatherError ? NextResponse.json({ error: err.message }, { status: 502 }) : errorResponse(err);
   }

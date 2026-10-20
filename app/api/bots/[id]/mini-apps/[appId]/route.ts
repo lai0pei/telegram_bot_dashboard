@@ -12,12 +12,12 @@ type Ctx = { params: Promise<{ id: string; appId: string }> };
 export const DELETE = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
     const { id, appId } = await ctx.params;
-    const bot = getBotById(Number(id), telegramAccountId);
-    const app = bot && getMiniApp(bot.id, Number(appId));
+    const bot = await getBotById(Number(id), telegramAccountId);
+    const app = bot && (await getMiniApp(bot.id, Number(appId)));
     if (!bot || !app) return NextResponse.json({ error: "Mini App not found." }, { status: 404 });
     await singleFlight(`deleteapp:${telegramAccountId}:${app.id}`, async () => {
       await deleteMiniApp(telegramAccountId, bot.username, app);
-      removeMiniApp(bot.id, app.id);
+      await removeMiniApp(bot.id, app.id);
     });
     return NextResponse.json({ ok: true });
   } catch (err) {

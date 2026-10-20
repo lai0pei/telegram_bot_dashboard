@@ -9,7 +9,7 @@ import { validateLanguageCode } from "@/lib/validation";
 export const GET = withAuth(async (req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
   try {
     const { id } = await ctx.params;
-    const bot = getBotById(Number(id), userId);
+    const bot = await getBotById(Number(id), userId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
     const token = getBotToken(bot);
     if (!token) return NextResponse.json({ error: "No token stored for this bot." }, { status: 400 });

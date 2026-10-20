@@ -8,7 +8,7 @@ type Ctx = { params: Promise<{ id: string }> };
 export const GET = withAuth(async (_req: Request, ctx: Ctx, userId: string) => {
   try {
     const { id } = await ctx.params;
-    const chat = getChatById(Number(id), userId);
+    const chat = await getChatById(Number(id), userId);
     if (!chat) return NextResponse.json({ error: "Chat not found." }, { status: 404 });
 
     const { row, detail } = await getChatDetail(userId, chat);
@@ -31,7 +31,7 @@ export const GET = withAuth(async (_req: Request, ctx: Ctx, userId: string) => {
 export const PATCH = withAuth(async (req: Request, ctx: Ctx, userId: string) => {
   try {
     const { id } = await ctx.params;
-    const chat = getChatById(Number(id), userId);
+    const chat = await getChatById(Number(id), userId);
     if (!chat) return NextResponse.json({ error: "Chat not found." }, { status: 404 });
 
     const body = await req.json();
@@ -64,7 +64,7 @@ export const PATCH = withAuth(async (req: Request, ctx: Ctx, userId: string) => 
 export const DELETE = withAuth(async (_req: Request, ctx: Ctx, userId: string) => {
   try {
     const { id } = await ctx.params;
-    const chat = getChatById(Number(id), userId);
+    const chat = await getChatById(Number(id), userId);
     if (!chat) return NextResponse.json({ error: "Chat not found." }, { status: 404 });
 
     await deleteChat(userId, chat);

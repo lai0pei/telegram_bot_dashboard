@@ -16,50 +16,46 @@ export class ChatError extends Error {}
 
 // --- Local rows ---------------------------------------------------------
 
-export function listChats(ownerUserId: string): ChatRow[] {
-  return db.select().from(chats).where(eq(chats.ownerUserId, ownerUserId)).all();
+export async function listChats(ownerUserId: string): Promise<ChatRow[]> {
+  return await db.select().from(chats).where(eq(chats.ownerUserId, ownerUserId));
 }
 
 /** Scoped to the owner, so a chat ID that belongs to someone else returns undefined (-> 404). */
-export function getChatById(id: number, ownerUserId: string): ChatRow | undefined {
-  return db
+export async function getChatById(id: number, ownerUserId: string): Promise<ChatRow | undefined> {
+  return (await db
     .select()
     .from(chats)
-    .where(and(eq(chats.id, id), eq(chats.ownerUserId, ownerUserId)))
-    .all()[0];
+    .where(and(eq(chats.id, id), eq(chats.ownerUserId, ownerUserId))))[0];
 }
 
 type ChatInfo = Pick<ChatRow, "telegramId" | "kind" | "accessHash" | "title" | "username" | "isCreator">;
 
-export function upsertChatFromTelegram(ownerUserId: string, info: ChatInfo): ChatRow {
+export async function upsertChatFromTelegram(ownerUserId: string, info: ChatInfo): Promise<ChatRow> {
   const now = new Date();
-  const existing = db
+  const existing = (await db
     .select()
     .from(chats)
-    .where(and(eq(chats.ownerUserId, ownerUserId), eq(chats.telegramId, info.telegramId)))
-    .all()[0];
+    .where(and(eq(chats.ownerUserId, ownerUserId), eq(chats.telegramId, info.telegramId))))[0];
   if (existing) {
-    db.update(chats)
+    await db.update(chats)
       .set({ ...info, updatedAt: now })
-      .where(eq(chats.id, existing.id))
-      .run();
+      .where(eq(chats.id, existing.id));
     return { ...existing, ...info, updatedAt: now };
   }
-  return db
+  return (await db
     .insert(chats)
     .values({ ownerUserId, ...info, createdAt: now, updatedAt: now })
-    .returning()
-    .all()[0];
+    .returning())[0];
 }
 
-export function deleteChatRow(id: number): void {
-  db.delete(chats).where(eq(chats.id, id)).run();
+export async function deleteChatRow(id: number): Promise<void> {
+  await db.delete(chats).where(eq(chats.id, id));
 }
 
 /** Removes local rows for chats Telegram no longer lists as owned/admined by this user. */
-export function pruneChatsNotIn(ownerUserId: string, telegramIds: Set<string>): void {
-  for (const chat of listChats(ownerUserId)) {
-    if (!telegramIds.has(chat.telegramId)) deleteChatRow(chat.id);
+export async function pruneChatsNotIn(ownerUserId: string, telegramIds: Set<string>): Promise<void> {
+  for (const chat of (await listChats(ownerUserId))) {
+    if (!telegramIds.has(chat.telegramId)) await deleteChatRow(chat.id);
   }
 }
 
@@ -158,11 +154,11 @@ export function syncChats(userId: string): Promise<ChatRow[]> {
     for await (const dialog of client.iterDialogs({ ignoreMigrated: true })) {
       const info = chatInfoFromEntity(dialog.entity);
       if (!info) continue;
-      upsertChatFromTelegram(userId, info);
+      await upsertChatFromTelegram(userId, info);
       seen.add(info.telegramId);
     }
-    pruneChatsNotIn(userId, seen);
-    return listChats(userId);
+    await pruneChatsNotIn(userId, seen);
+    return await listChats(userId);
   });
 }
 
@@ -186,7 +182,7 @@ export async function createChat(
   const created = "chats" in updates ? updates.chats.find((c) => c instanceof Api.Channel) : undefined;
   const info = chatInfoFromEntity(created);
   if (!info) throw new ChatError("Telegram did not return the created chat.");
-  return upsertChatFromTelegram(userId, info);
+  return await upsertChatFromTelegram(userId, info);
 }
 
 export interface ChatDetail {
@@ -210,10 +206,10 @@ export async function getChatDetail(userId: string, row: ChatRow): Promise<{ row
   const info = chatInfoFromEntity(entity);
   if (!info) {
     // No longer owned/admined (left, demoted, migrated) — drop it so the list stays truthful.
-    deleteChatRow(row.id);
+    await deleteChatRow(row.id);
     throw new ChatError("You no longer manage this chat.");
   }
-  const refreshed = upsertChatFromTelegram(userId, info);
+  const refreshed = await upsertChatFromTelegram(userId, info);
 
   const rights = entity instanceof Api.Channel || entity instanceof Api.Chat ? entity.adminRights : undefined;
   const can = (right: keyof Api.ChatAdminRights) => refreshed.isCreator || !!rights?.[right];
@@ -353,7 +349,7 @@ export function deleteChat(userId: string, row: ChatRow): Promise<void> {
         ? new Api.messages.DeleteChat({ chatId: helpers.returnBigInt(row.telegramId) })
         : new Api.channels.DeleteChannel({ channel: inputChannel(row) });
     await client.invoke(request).catch(rethrowFriendly);
-    deleteChatRow(row.id);
+    await deleteChatRow(row.id);
   });
 }
 

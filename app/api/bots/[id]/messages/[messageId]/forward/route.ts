@@ -14,13 +14,12 @@ export const POST = withAuth(
   async (req: Request, ctx: { params: Promise<{ id: string; messageId: string }> }, userId: string) => {
     try {
       const { id, messageId } = await ctx.params;
-      const bot = getBotById(Number(id), userId);
+      const bot = await getBotById(Number(id), userId);
       if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
-      const row = db
+      const row = (await db
         .select()
         .from(botMessages)
-        .where(and(eq(botMessages.id, Number(messageId)), eq(botMessages.botId, bot.id)))
-        .all()[0];
+        .where(and(eq(botMessages.id, Number(messageId)), eq(botMessages.botId, bot.id))))[0];
       if (!row || row.telegramMessageId == null) return NextResponse.json({ error: "Message not found." }, { status: 404 });
       if (row.businessConnectionId) return NextResponse.json({ error: "That action isn't available for business chats." }, { status: 422 });
 
@@ -49,7 +48,7 @@ export const POST = withAuth(
         raw = JSON.stringify(result);
       }
 
-      const created = db
+      const created = (await db
         .insert(botMessages)
         .values({
           botId: bot.id,
@@ -64,8 +63,7 @@ export const POST = withAuth(
           telegramMessageId: newTelegramId,
           createdAt: new Date(),
         })
-        .returning()
-        .get();
+        .returning())[0];
       return NextResponse.json({ message: toMessageRow(created) });
     } catch (err) {
       return botApiErrorResponse(err) ?? errorResponse(err);

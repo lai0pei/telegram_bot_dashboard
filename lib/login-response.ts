@@ -14,7 +14,7 @@ import type { QrLoginStatus } from "./mtproto";
  */
 export async function loginStatusResponse(result: QrLoginStatus): Promise<Response> {
   if (result.status === "logged_in") {
-    const user = getUserById(result.userId);
+    const user = await getUserById(result.userId);
     await createSessionCookie(result.userId, user?.sessionVersion ?? 0, result.accountId);
     return NextResponse.json({ status: "logged_in" });
   }

@@ -14,23 +14,22 @@ export function utcDay(date: Date): string {
  * via the unique (account, day, metric, bot) index, so calling it again
  * after a restart doesn't double-count.
  */
-export function snapshotDailyStats(): void {
+export async function snapshotDailyStats(): Promise<void> {
   const now = new Date();
   const day = utcDay(now);
   const dayStart = new Date(`${day}T00:00:00.000Z`);
   const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
 
-  const allBots = db.select().from(bots).all();
+  const allBots = await db.select().from(bots);
   for (const bot of allBots) {
     const newUsers =
-      db
+      (await db
         .select()
         .from(botUsers)
-        .where(and(eq(botUsers.botId, bot.id), gte(botUsers.createdAt, dayStart), lt(botUsers.createdAt, dayEnd)))
-        .all().length;
+        .where(and(eq(botUsers.botId, bot.id), gte(botUsers.createdAt, dayStart), lt(botUsers.createdAt, dayEnd)))).length;
 
     const messagesIn =
-      db
+      (await db
         .select()
         .from(botMessages)
         .where(
@@ -40,28 +39,26 @@ export function snapshotDailyStats(): void {
             gte(botMessages.createdAt, dayStart),
             lt(botMessages.createdAt, dayEnd)
           )
-        )
-        .all().length;
+        )).length;
 
-    upsertDailyStat(bot.ownerUserId, day, "bot_users_new", bot.id, newUsers);
-    upsertDailyStat(bot.ownerUserId, day, "bot_messages_in", bot.id, messagesIn);
+    await upsertDailyStat(bot.ownerUserId, day, "bot_users_new", bot.id, newUsers);
+    await upsertDailyStat(bot.ownerUserId, day, "bot_messages_in", bot.id, messagesIn);
   }
 }
 
-function upsertDailyStat(
+async function upsertDailyStat(
   telegramAccountId: string,
   day: string,
   metric: "bot_users_new" | "bot_messages_in",
   botId: number,
   value: number
-): void {
-  db.insert(dailyStats)
+): Promise<void> {
+  await db.insert(dailyStats)
     .values({ telegramAccountId, day, metric, botId, value })
     .onConflictDoUpdate({
       target: [dailyStats.telegramAccountId, dailyStats.day, dailyStats.metric, dailyStats.botId],
       set: { value },
-    })
-    .run();
+    });
 }
 
 export interface TrendPoint {
@@ -71,8 +68,8 @@ export interface TrendPoint {
 }
 
 /** Last `days` days of account-wide totals (summed across the account's bots), oldest first, for a sparkline. */
-export function getTrend(telegramAccountId: string, days: number): TrendPoint[] {
-  const rows = db.select().from(dailyStats).where(eq(dailyStats.telegramAccountId, telegramAccountId)).all();
+export async function getTrend(telegramAccountId: string, days: number): Promise<TrendPoint[]> {
+  const rows = await db.select().from(dailyStats).where(eq(dailyStats.telegramAccountId, telegramAccountId));
 
   const byDay = new Map<string, TrendPoint>();
   for (const row of rows) {

@@ -10,7 +10,7 @@ const fail = (err: unknown) => (err instanceof BotUsernameError ? NextResponse.j
 
 export const GET = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
-    const bot = getBotById(Number((await ctx.params).id), telegramAccountId);
+    const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
     return NextResponse.json({ usernames: await listBotUsernames(telegramAccountId, bot) });
   } catch (err) {
@@ -21,7 +21,7 @@ export const GET = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId: s
 /** PATCH { username, active } switches a collectible username on/off; { order: string[] } reorders the active ones. */
 export const PATCH = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
-    const bot = getBotById(Number((await ctx.params).id), telegramAccountId);
+    const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
     const body = await req.json().catch(() => null);
     if (!body) return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });

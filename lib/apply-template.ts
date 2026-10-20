@@ -84,7 +84,7 @@ export async function applyTemplate(
 
   if (parts.includes("rules") && template.rules.length) {
     const r = start("rules");
-    const existing = new Set(listAutoReplies(bot.id).map((rule) => templateRuleKey(rule)));
+    const existing = new Set((await listAutoReplies(bot.id)).map((rule) => templateRuleKey(rule)));
     for (const rule of template.rules) {
       if (existing.has(templateRuleKey(rule))) {
         r.skipped++;
@@ -98,7 +98,7 @@ export async function applyTemplate(
         r.errors.push(`${rule.pattern}: ${invalid}`);
         continue;
       }
-      createAutoReply(bot.id, {
+      await createAutoReply(bot.id, {
         matchType: rule.matchType,
         pattern: rule.pattern,
         replyText: rule.replyText,
@@ -121,7 +121,7 @@ export async function applyTemplate(
         // Monitoring and a webhook exclude each other (same rule as PUT /monitor).
         if ((await botApi.getWebhookInfo(token)).url) r.errors.push("This bot has a webhook set. Remove it in Delivery before turning monitoring on.");
         else {
-          setMonitorEnabled(bot.id, true);
+          await setMonitorEnabled(bot.id, true);
           r.applied = 1;
         }
       } catch (err) {

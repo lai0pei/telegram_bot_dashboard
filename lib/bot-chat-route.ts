@@ -15,11 +15,11 @@ export async function loadBotChat(
   telegramAccountId: string
 ): Promise<{ bot: BotRow; chat: BotChatRow } | Response> {
   const { id, chatId } = await ctx.params;
-  const bot = getBotById(Number(id), telegramAccountId);
+  const bot = await getBotById(Number(id), telegramAccountId);
   if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
   const chatIdError = validateChatId(chatId);
   if (chatIdError) return NextResponse.json({ error: chatIdError }, { status: 400 });
-  const chat = getBotChat(bot.id, chatId);
+  const chat = await getBotChat(bot.id, chatId);
   if (!chat) return NextResponse.json({ error: "The bot isn't tracking that chat. Add it first." }, { status: 404 });
   return { bot, chat };
 }

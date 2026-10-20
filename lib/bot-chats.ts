@@ -52,20 +52,19 @@ export function trackedType(type: string): BotChatType | null {
   return type === "group" || type === "supergroup" || type === "channel" ? type : null;
 }
 
-export function listBotChats(botId: number): BotChatRow[] {
-  return db.select().from(botChats).where(eq(botChats.botId, botId)).all();
+export async function listBotChats(botId: number): Promise<BotChatRow[]> {
+  return await db.select().from(botChats).where(eq(botChats.botId, botId));
 }
 
 /** Scoped to the bot, so a chat that belongs to another bot returns undefined (-> 404). */
-export function getBotChat(botId: number, chatId: string): BotChatRow | undefined {
-  return db
+export async function getBotChat(botId: number, chatId: string): Promise<BotChatRow | undefined> {
+  return (await db
     .select()
     .from(botChats)
-    .where(and(eq(botChats.botId, botId), eq(botChats.chatId, chatId)))
-    .all()[0];
+    .where(and(eq(botChats.botId, botId), eq(botChats.chatId, chatId))))[0];
 }
 
-export function upsertBotChat(
+export async function upsertBotChat(
   botId: number,
   info: {
     chatId: string;
@@ -75,7 +74,7 @@ export function upsertBotChat(
     status: BotChatStatus;
     rights?: BotRights | null;
   }
-): void {
+): Promise<void> {
   const now = new Date();
   const values = {
     type: info.type,
@@ -85,24 +84,23 @@ export function upsertBotChat(
     rights: info.rights ? JSON.stringify(info.rights) : null,
     updatedAt: now,
   };
-  db.insert(botChats)
+  await db.insert(botChats)
     .values({ botId, chatId: info.chatId, ...values })
-    .onConflictDoUpdate({ target: [botChats.botId, botChats.chatId], set: values })
-    .run();
+    .onConflictDoUpdate({ target: [botChats.botId, botChats.chatId], set: values });
 }
 
 /** A group/channel message proves the bot is in that chat; record it without overriding a known status/rights. */
-export function noteBotChatFromMessage(botId: number, chat: { id: number; type: string; title?: string; username?: string }): void {
+export async function noteBotChatFromMessage(botId: number, chat: { id: number; type: string; title?: string; username?: string }): Promise<void> {
   const type = trackedType(chat.type);
   if (!type) return;
-  const existing = getBotChat(botId, String(chat.id));
+  const existing = await getBotChat(botId, String(chat.id));
   if (existing && (existing.status === "member" || existing.status === "administrator")) {
     if (chat.title && chat.title !== existing.title) {
-      db.update(botChats).set({ title: chat.title, updatedAt: new Date() }).where(eq(botChats.id, existing.id)).run();
+      await db.update(botChats).set({ title: chat.title, updatedAt: new Date() }).where(eq(botChats.id, existing.id));
     }
     return;
   }
-  upsertBotChat(botId, {
+  await upsertBotChat(botId, {
     chatId: String(chat.id),
     type,
     title: chat.title ?? String(chat.id),
@@ -129,7 +127,7 @@ export async function refreshBotChat(bot: BotRow, telegramAccountId: string, cha
   if (!type) throw new NotAChatError("That's a private chat. Private chats are listed under the Messages tab.");
   const status = statusOf(result.member);
   if (status === "left" || status === "kicked") return null;
-  upsertBotChat(bot.id, {
+  await upsertBotChat(bot.id, {
     chatId: String(result.chat.id),
     type,
     title: result.chat.title ?? String(result.chat.id),
@@ -137,5 +135,5 @@ export async function refreshBotChat(bot: BotRow, telegramAccountId: string, cha
     status,
     rights: rightsOf(result.member),
   });
-  return getBotChat(bot.id, String(result.chat.id)) ?? null;
+  return (await getBotChat(bot.id, String(result.chat.id))) ?? null;
 }

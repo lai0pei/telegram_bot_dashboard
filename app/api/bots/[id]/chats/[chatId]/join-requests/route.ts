@@ -12,7 +12,7 @@ export const GET = withAuth(async (_req: Request, ctx: BotChatParams, telegramAc
   try {
     const loaded = await loadBotChat(ctx, telegramAccountId);
     if (loaded instanceof Response) return loaded;
-    const requests = listPendingJoinRequests(loaded.bot.id, loaded.chat.chatId).map((r) => ({
+    const requests = (await listPendingJoinRequests(loaded.bot.id, loaded.chat.chatId)).map((r) => ({
       userId: r.userId,
       username: r.username,
       firstName: r.firstName,
@@ -51,12 +51,12 @@ export const POST = withAuth(async (req: Request, ctx: BotChatParams, telegramAc
     } catch (err) {
       // Someone (or the user, by cancelling) already handled it: drop it from the pending list too.
       if (err instanceof BotApiError && /HIDE_REQUESTER_MISSING|USER_ALREADY_PARTICIPANT/i.test(err.description)) {
-        setJoinRequestStatus(bot.id, chat.chatId, userIdText, status);
+        await setJoinRequestStatus(bot.id, chat.chatId, userIdText, status);
         return NextResponse.json({ error: "That request was already handled or withdrawn." }, { status: 422 });
       }
       throw err;
     }
-    setJoinRequestStatus(bot.id, chat.chatId, userIdText, status);
+    await setJoinRequestStatus(bot.id, chat.chatId, userIdText, status);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return botApiErrorResponse(err) ?? errorResponse(err);

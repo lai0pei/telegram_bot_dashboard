@@ -15,11 +15,11 @@ type Ctx = { params: Promise<{ id: string }> };
  */
 export const POST = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
-    const bot = getBotById(Number((await ctx.params).id), telegramAccountId);
+    const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
     const body = await req.json().catch(() => null);
-    const template = typeof body?.templateId === "string" ? resolveTemplate(telegramAccountId, body.templateId) : undefined;
+    const template = typeof body?.templateId === "string" ? (await resolveTemplate(telegramAccountId, body.templateId)) : undefined;
     if (!template) return NextResponse.json({ error: "Unknown template." }, { status: 400 });
 
     const parts = Array.isArray(body?.parts) ? (body.parts as unknown[]) : [];
@@ -42,10 +42,10 @@ export const POST = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: s
  */
 export const DELETE = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
-    const bot = getBotById(Number((await ctx.params).id), telegramAccountId);
+    const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
     const body = await req.json().catch(() => null);
-    const template = typeof body?.templateId === "string" ? resolveTemplate(telegramAccountId, body.templateId) : undefined;
+    const template = typeof body?.templateId === "string" ? (await resolveTemplate(telegramAccountId, body.templateId)) : undefined;
     if (!template) return NextResponse.json({ error: "Unknown template." }, { status: 400 });
     const results = await removeTemplate({ id: bot.id, token: getBotToken(bot) }, template);
     return NextResponse.json({ results });

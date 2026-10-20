@@ -8,7 +8,7 @@ type Ctx = { params: Promise<{ templateId: string }> };
 export const DELETE = withSession(async (_req: Request, ctx: Ctx, userId: string) => {
   try {
     const n = Number((await ctx.params).templateId);
-    if (!Number.isInteger(n) || !deleteCustomTemplate(userId, n)) return NextResponse.json({ error: "Template not found." }, { status: 404 });
+    if (!Number.isInteger(n) || !(await deleteCustomTemplate(userId, n))) return NextResponse.json({ error: "Template not found." }, { status: 404 });
     return NextResponse.json({ ok: true });
   } catch (err) {
     return errorResponse(err);

@@ -11,15 +11,15 @@ type Ctx = { params: Promise<{ id: string; resultId: string }> };
 export const PATCH = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
     const { id, resultId } = await ctx.params;
-    const bot = getBotById(Number(id), telegramAccountId);
+    const bot = await getBotById(Number(id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
-    const existing = getInlineResult(bot.id, Number(resultId));
+    const existing = await getInlineResult(bot.id, Number(resultId));
     if (!existing) return NextResponse.json({ error: "Result not found." }, { status: 404 });
 
     const body = await req.json().catch(() => null);
     if (!body) return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
     if (body.move === "up" || body.move === "down") {
-      moveInlineResult(bot.id, existing.id, body.move);
+      await moveInlineResult(bot.id, existing.id, body.move);
       return NextResponse.json({ ok: true });
     }
 
@@ -35,7 +35,7 @@ export const PATCH = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: 
     const error = validateInlineResult(merged);
     if (error) return NextResponse.json({ error }, { status: 400 });
 
-    const row = updateInlineResult(bot.id, existing.id, {
+    const row = await updateInlineResult(bot.id, existing.id, {
       ...merged,
       description: typeof merged.description === "string" ? merged.description : null,
       buttons: normalizeInlineButtons(merged.buttons),
@@ -49,9 +49,9 @@ export const PATCH = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: 
 export const DELETE = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
     const { id, resultId } = await ctx.params;
-    const bot = getBotById(Number(id), telegramAccountId);
+    const bot = await getBotById(Number(id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
-    if (!deleteInlineResult(bot.id, Number(resultId))) return NextResponse.json({ error: "Result not found." }, { status: 404 });
+    if (!(await deleteInlineResult(bot.id, Number(resultId)))) return NextResponse.json({ error: "Result not found." }, { status: 404 });
     return NextResponse.json({ ok: true });
   } catch (err) {
     return errorResponse(err);

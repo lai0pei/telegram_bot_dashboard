@@ -5,8 +5,8 @@ import type { Api } from "teleproto/tl";
 
 export type UserRow = typeof users.$inferSelect;
 
-export function getUserById(id: string): UserRow | undefined {
-  return db.select().from(users).where(eq(users.id, id)).all()[0];
+export async function getUserById(id: string): Promise<UserRow | undefined> {
+  return (await db.select().from(users).where(eq(users.id, id)))[0];
 }
 
 /** Display name shown in the sidebar — not a login credential, since sign-in is by Telegram QR scan. */
@@ -15,7 +15,7 @@ function displayNameForTelegram(me: Api.User): string {
 }
 
 /** Creates a new dashboard user for a Telegram account seen for the first time at sign-in. */
-export function createUserForTelegram(me: Api.User): UserRow {
+export async function createUserForTelegram(me: Api.User): Promise<UserRow> {
   const now = new Date();
   const row: UserRow = {
     id: crypto.randomUUID(),
@@ -24,16 +24,16 @@ export function createUserForTelegram(me: Api.User): UserRow {
     createdAt: now,
     updatedAt: now,
   };
-  db.insert(users).values(row).run();
+  await db.insert(users).values(row);
   return row;
 }
 
 /** Bumps sessionVersion, invalidating every other signed-in browser's session cookie. */
-export function signOutOtherSessions(userId: string): number {
+export async function signOutOtherSessions(userId: string): Promise<number> {
   const now = new Date();
-  const user = getUserById(userId);
+  const user = await getUserById(userId);
   if (!user) throw new Error("User not found.");
   const sessionVersion = user.sessionVersion + 1;
-  db.update(users).set({ sessionVersion, updatedAt: now }).where(eq(users.id, userId)).run();
+  await db.update(users).set({ sessionVersion, updatedAt: now }).where(eq(users.id, userId));
   return sessionVersion;
 }

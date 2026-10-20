@@ -20,7 +20,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  */
 export const PATCH = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
-    const bot = getBotById(Number((await ctx.params).id), telegramAccountId);
+    const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
     const parsed = parseSettingRequest(await req.json().catch(() => null));

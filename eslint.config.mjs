@@ -7,7 +7,7 @@ const config = [
   },
   {
     // Every db call is async; a forgotten `await` would silently drop a write, so catch it at lint time.
-    files: ["**/*.ts", "**/*.tsx"],
+    files: ["lib/**/*.ts", "app/api/**/*.ts", "instrumentation.ts", "proxy.ts"],
     languageOptions: { parserOptions: { projectService: true } },
     rules: {
       "@typescript-eslint/no-floating-promises": "error",

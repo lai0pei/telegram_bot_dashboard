@@ -13,26 +13,26 @@ export class TelegramSessionRevokedError extends Error {
   }
 }
 
-export function markTelegramAccountRevoked(id: string): void {
-  db.update(telegramAccounts).set({ revokedAt: new Date() }).where(eq(telegramAccounts.id, id)).run();
+export async function markTelegramAccountRevoked(id: string): Promise<void> {
+  await db.update(telegramAccounts).set({ revokedAt: new Date() }).where(eq(telegramAccounts.id, id));
 }
 
-export function getTelegramAccountById(id: string): TelegramAccountRow | undefined {
-  return db.select().from(telegramAccounts).where(eq(telegramAccounts.id, id)).all()[0];
+export async function getTelegramAccountById(id: string): Promise<TelegramAccountRow | undefined> {
+  return (await db.select().from(telegramAccounts).where(eq(telegramAccounts.id, id)))[0];
 }
 
-export function getTelegramAccountByTelegramId(telegramId: string): TelegramAccountRow | undefined {
-  return db.select().from(telegramAccounts).where(eq(telegramAccounts.telegramId, telegramId)).all()[0];
+export async function getTelegramAccountByTelegramId(telegramId: string): Promise<TelegramAccountRow | undefined> {
+  return (await db.select().from(telegramAccounts).where(eq(telegramAccounts.telegramId, telegramId)))[0];
 }
 
-export function listTelegramAccountsForUser(ownerUserId: string): TelegramAccountRow[] {
-  return db.select().from(telegramAccounts).where(eq(telegramAccounts.ownerUserId, ownerUserId)).all();
+export async function listTelegramAccountsForUser(ownerUserId: string): Promise<TelegramAccountRow[]> {
+  return await db.select().from(telegramAccounts).where(eq(telegramAccounts.ownerUserId, ownerUserId));
 }
 
 /** The account a session should fall back to: the most recently updated one whose session is still alive. */
-export function pickDefaultTelegramAccountId(ownerUserId: string, excludeId?: string): string | null {
+export async function pickDefaultTelegramAccountId(ownerUserId: string, excludeId?: string): Promise<string | null> {
   return (
-    listTelegramAccountsForUser(ownerUserId)
+    (await listTelegramAccountsForUser(ownerUserId))
       .filter((a) => !a.revokedAt && a.id !== excludeId)
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0]?.id ?? null
   );
@@ -46,14 +46,14 @@ export function pickDefaultTelegramAccountId(ownerUserId: string, excludeId?: st
  * Caller (lib/mtproto.ts finishLogin) must already have checked that an
  * *owned* row with this telegramId, if any, belongs to this same owner.
  */
-export function upsertTelegramAccount(info: {
+export async function upsertTelegramAccount(info: {
   ownerUserId: string;
   telegramId: string;
   sessionString: string;
   me: Api.User;
-}): string {
+}): Promise<string> {
   const now = new Date();
-  const existing = getTelegramAccountByTelegramId(info.telegramId);
+  const existing = await getTelegramAccountByTelegramId(info.telegramId);
   const values = {
     encryptedSessionString: encrypt(info.sessionString),
     username: info.me.username ?? null,
@@ -64,35 +64,32 @@ export function upsertTelegramAccount(info: {
     updatedAt: now,
   };
   if (existing) {
-    db.update(telegramAccounts)
+    await db.update(telegramAccounts)
       .set({ ...values, ownerUserId: info.ownerUserId })
-      .where(eq(telegramAccounts.id, existing.id))
-      .run();
+      .where(eq(telegramAccounts.id, existing.id));
     return existing.id;
   }
   const id = crypto.randomUUID();
-  db.insert(telegramAccounts)
-    .values({ id, ownerUserId: info.ownerUserId, telegramId: info.telegramId, ...values, createdAt: now })
-    .run();
+  await db.insert(telegramAccounts)
+    .values({ id, ownerUserId: info.ownerUserId, telegramId: info.telegramId, ...values, createdAt: now });
   return id;
 }
 
-export function deleteTelegramAccount(id: string): void {
-  db.delete(telegramAccounts).where(eq(telegramAccounts.id, id)).run();
+export async function deleteTelegramAccount(id: string): Promise<void> {
+  await db.delete(telegramAccounts).where(eq(telegramAccounts.id, id));
 }
 
 /** True if this Telegram ID is already linked to a *different* dashboard user. */
-export function isTelegramAccountLinkedToAnotherUser(telegramId: string, ownerUserId: string): boolean {
-  const existing = getTelegramAccountByTelegramId(telegramId);
+export async function isTelegramAccountLinkedToAnotherUser(telegramId: string, ownerUserId: string): Promise<boolean> {
+  const existing = await getTelegramAccountByTelegramId(telegramId);
   return !!existing && existing.ownerUserId !== null && existing.ownerUserId !== ownerUserId;
 }
 
-export function setDigestSettings(
+export async function setDigestSettings(
   id: string,
   settings: { digestFrequency: "off" | "daily" | "weekly"; digestHour: number }
-): void {
-  db.update(telegramAccounts)
+): Promise<void> {
+  await db.update(telegramAccounts)
     .set({ ...settings, updatedAt: new Date() })
-    .where(eq(telegramAccounts.id, id))
-    .run();
+    .where(eq(telegramAccounts.id, id));
 }

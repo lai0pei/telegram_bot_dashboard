@@ -95,17 +95,15 @@ function fetchLimits(accountId: string): Promise<Limits> {
 export async function getAccountLimits(accountId: string): Promise<AccountLimits> {
   const limits = await fetchLimits(accountId);
 
-  const botCount = db.select({ id: bots.id }).from(bots).where(eq(bots.ownerUserId, accountId)).all().length;
-  const rows = db
+  const botCount = (await db.select({ id: bots.id }).from(bots).where(eq(bots.ownerUserId, accountId))).length;
+  const rows = await db
     .select({ kind: chats.kind })
     .from(chats)
-    .where(eq(chats.ownerUserId, accountId))
-    .all();
-  const publicCount = db
+    .where(eq(chats.ownerUserId, accountId));
+  const publicCount = (await db
     .select({ id: chats.id })
     .from(chats)
-    .where(and(eq(chats.ownerUserId, accountId), eq(chats.isCreator, true), isNotNull(chats.username)))
-    .all().length;
+    .where(and(eq(chats.ownerUserId, accountId), eq(chats.isCreator, true), isNotNull(chats.username)))).length;
 
   return {
     premium: limits.premium,

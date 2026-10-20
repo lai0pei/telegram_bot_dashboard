@@ -13,16 +13,16 @@ type Ctx = { params: Promise<{ id: string; ruleId: string }> };
 export const PATCH = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
     const { id, ruleId } = await ctx.params;
-    const bot = getBotById(Number(id), telegramAccountId);
+    const bot = await getBotById(Number(id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
-    const existing = getAutoReply(bot.id, Number(ruleId));
+    const existing = await getAutoReply(bot.id, Number(ruleId));
     if (!existing) return NextResponse.json({ error: "Rule not found." }, { status: 404 });
 
     const body = await req.json().catch(() => null);
     if (!body) return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
 
     if (body.move === "up" || body.move === "down") {
-      moveAutoReply(bot.id, existing.id, body.move);
+      await moveAutoReply(bot.id, existing.id, body.move);
       return NextResponse.json({ ok: true });
     }
 
@@ -40,7 +40,7 @@ export const PATCH = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: 
     const error = validateAutoReply(merged);
     if (error) return NextResponse.json({ error }, { status: 400 });
 
-    const rule = updateAutoReply(bot.id, existing.id, {
+    const rule = await updateAutoReply(bot.id, existing.id, {
       ...merged,
       buttons: normalizeInlineButtons(merged.buttons) as InlineButton[][] | null,
       replyKeyboard: normalizeReplyKeyboard(merged.replyKeyboard),
@@ -55,9 +55,9 @@ export const PATCH = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: 
 export const DELETE = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
     const { id, ruleId } = await ctx.params;
-    const bot = getBotById(Number(id), telegramAccountId);
+    const bot = await getBotById(Number(id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
-    if (!deleteAutoReply(bot.id, Number(ruleId))) return NextResponse.json({ error: "Rule not found." }, { status: 404 });
+    if (!(await deleteAutoReply(bot.id, Number(ruleId)))) return NextResponse.json({ error: "Rule not found." }, { status: 404 });
     return NextResponse.json({ ok: true });
   } catch (err) {
     return errorResponse(err);

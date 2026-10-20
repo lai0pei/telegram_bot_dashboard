@@ -2,6 +2,7 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { botApi, buttonsForChat, replyKeyboardForChat, type InlineButton, type ReplyKeyboard, type TelegramCallbackQuery, type TelegramMessage } from "./botapi";
 import { findCallbackRule } from "./callback-match";
 import { db } from "./db";
+import { isUniqueViolation } from "./db/errors";
 import { autoReplies, botMessages } from "./db/schema";
 import { matchMessageRule, startPayloadOf } from "./match-message";
 import { describeMessage } from "./messages";
@@ -81,21 +82,19 @@ function columnsFor(input: AutoReplyInput) {
   };
 }
 
-export function listAutoReplies(botId: number): AutoReplyRow[] {
-  return db
+export async function listAutoReplies(botId: number): Promise<AutoReplyRow[]> {
+  return await db
     .select()
     .from(autoReplies)
     .where(eq(autoReplies.botId, botId))
-    .orderBy(asc(autoReplies.position), asc(autoReplies.id))
-    .all();
+    .orderBy(asc(autoReplies.position), asc(autoReplies.id));
 }
 
-export function getAutoReply(botId: number, id: number): AutoReplyRow | undefined {
-  return db
+export async function getAutoReply(botId: number, id: number): Promise<AutoReplyRow | undefined> {
+  return (await db
     .select()
     .from(autoReplies)
-    .where(and(eq(autoReplies.botId, botId), eq(autoReplies.id, id)))
-    .all()[0];
+    .where(and(eq(autoReplies.botId, botId), eq(autoReplies.id, id))))[0];
 }
 
 /** Thrown when a bot would get a second "anything else" rule; routes answer 422. */
@@ -105,66 +104,77 @@ export class DuplicateFallbackError extends Error {
   }
 }
 
-/** A bot has at most one fallback rule: enforced here (not in the route) so clones and templates can't add a second. */
-function assertSingleFallback(botId: number, input: Pick<AutoReplyInput, "matchType">, exceptId?: number): void {
-  if (input.matchType !== "fallback") return;
-  if (listAutoReplies(botId).some((r) => r.matchType === "fallback" && r.id !== exceptId)) throw new DuplicateFallbackError();
+/** The partial unique index `auto_replies_one_fallback_unique` is the real guard; this makes a lost race read like the pre-check. */
+async function mapFallbackConflict<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    if (isUniqueViolation(err)) throw new DuplicateFallbackError();
+    throw err;
+  }
 }
 
-export function createAutoReply(botId: number, input: AutoReplyInput): AutoReplyRow {
-  assertSingleFallback(botId, input);
-  const last = db
+/** A bot has at most one fallback rule: enforced here (not in the route) so clones and templates can't add a second. */
+async function assertSingleFallback(botId: number, input: Pick<AutoReplyInput, "matchType">, exceptId?: number): Promise<void> {
+  if (input.matchType !== "fallback") return;
+  if ((await listAutoReplies(botId)).some((r) => r.matchType === "fallback" && r.id !== exceptId)) throw new DuplicateFallbackError();
+}
+
+export async function createAutoReply(botId: number, input: AutoReplyInput): Promise<AutoReplyRow> {
+  await assertSingleFallback(botId, input);
+  const last = (await db
     .select({ position: autoReplies.position })
     .from(autoReplies)
     .where(eq(autoReplies.botId, botId))
     .orderBy(desc(autoReplies.position))
-    .limit(1)
-    .all()[0];
-  const created = db
-    .insert(autoReplies)
-    .values({ botId, ...columnsFor(input), position: (last?.position ?? -1) + 1, createdAt: new Date() })
-    .returning()
-    .get();
-  noteStartRule(botId);
+    .limit(1))[0];
+  const created = (await mapFallbackConflict(() =>
+    db
+      .insert(autoReplies)
+      .values({ botId, ...columnsFor(input), position: (last?.position ?? -1) + 1, createdAt: new Date() })
+      .returning()
+  ))[0];
+  await noteStartRule(botId);
   return created;
 }
 
 /** Keeps the cached "has a welcome message" fact (the bot cards' setup figure) in step with the rules. */
-export function noteStartRule(botId: number): void {
-  recordSetup(botId, { welcome: listAutoReplies(botId).some((r) => r.enabled && r.matchType === "command" && r.pattern === "start") });
+export async function noteStartRule(botId: number): Promise<void> {
+  await recordSetup(botId, { welcome: (await listAutoReplies(botId)).some((r) => r.enabled && r.matchType === "command" && r.pattern === "start") });
 }
 
-export function updateAutoReply(botId: number, id: number, input: AutoReplyInput): AutoReplyRow | undefined {
-  assertSingleFallback(botId, input, id);
-  const updated = db
-    .update(autoReplies)
-    .set(columnsFor(input))
-    .where(and(eq(autoReplies.botId, botId), eq(autoReplies.id, id)))
-    .returning()
-    .get();
-  noteStartRule(botId);
+export async function updateAutoReply(botId: number, id: number, input: AutoReplyInput): Promise<AutoReplyRow | undefined> {
+  await assertSingleFallback(botId, input, id);
+  const updated = (await mapFallbackConflict(() =>
+    db
+      .update(autoReplies)
+      .set(columnsFor(input))
+      .where(and(eq(autoReplies.botId, botId), eq(autoReplies.id, id)))
+      .returning()
+  ))[0];
+  await noteStartRule(botId);
   return updated;
 }
 
-export function deleteAutoReply(botId: number, id: number): boolean {
-  const deleted = db.delete(autoReplies).where(and(eq(autoReplies.botId, botId), eq(autoReplies.id, id))).run().changes > 0;
-  noteStartRule(botId);
+export async function deleteAutoReply(botId: number, id: number): Promise<boolean> {
+  const deleted = (await db.delete(autoReplies).where(and(eq(autoReplies.botId, botId), eq(autoReplies.id, id)))).count > 0;
+  await noteStartRule(botId);
   return deleted;
 }
 
 /** Swaps a rule with its neighbour in list order. */
-export function moveAutoReply(botId: number, id: number, direction: "up" | "down"): void {
-  const rules = listAutoReplies(botId);
+export async function moveAutoReply(botId: number, id: number, direction: "up" | "down"): Promise<void> {
+  const rules = await listAutoReplies(botId);
   const index = rules.findIndex((r) => r.id === id);
   const other = rules[direction === "up" ? index - 1 : index + 1];
   if (index < 0 || !other) return;
-  db.transaction((tx) => {
+  await db.transaction(async (tx) => {
     // Positions can tie (default 0), so assign the whole order explicitly.
     const order = rules.map((r) => r.id);
     [order[index], order[order.indexOf(other.id)]] = [other.id, id];
-    order.forEach((ruleId, position) => {
-      tx.update(autoReplies).set({ position }).where(and(eq(autoReplies.botId, botId), eq(autoReplies.id, ruleId))).run();
-    });
+    for (const [position, ruleId] of order.entries()) {
+      await tx.update(autoReplies).set({ position }).where(and(eq(autoReplies.botId, botId), eq(autoReplies.id, ruleId)));
+    }
   });
 }
 
@@ -173,21 +183,20 @@ export type { MediaKind } from "./match-message";
 export { mediaKindOf, startPayloadOf } from "./match-message";
 
 /** The first enabled message rule that fits `message` (see `matchMessageRule`, which the dashboard's test chat shares). */
-export function matchAutoReply(botId: number, botUsername: string, message: TelegramMessage): AutoReplyRow | undefined {
-  return matchMessageRule(listAutoReplies(botId), botUsername, message);
+export async function matchAutoReply(botId: number, botUsername: string, message: TelegramMessage): Promise<AutoReplyRow | undefined> {
+  return matchMessageRule((await listAutoReplies(botId)), botUsername, message);
 }
 
 /** The first enabled rule answering a pressed button with this callback data (exact data or a data prefix). */
-export function matchCallbackRule(botId: number, data: string): AutoReplyRow | undefined {
-  return findCallbackRule(listAutoReplies(botId), data);
+export async function matchCallbackRule(botId: number, data: string): Promise<AutoReplyRow | undefined> {
+  return findCallbackRule((await listAutoReplies(botId)), data);
 }
 
 /** Counts a rule firing. Called when its reply is sent (after the update's writes), not when it is matched. */
-function bumpHits(ruleId: number): void {
-  db.update(autoReplies)
+async function bumpHits(ruleId: number): Promise<void> {
+  await db.update(autoReplies)
     .set({ hits: sql`${autoReplies.hits} + 1`, lastHitAt: new Date() })
-    .where(eq(autoReplies.id, ruleId))
-    .run();
+    .where(eq(autoReplies.id, ruleId));
 }
 
 /** The sender-specific values a rule's `{placeholders}` are filled with. */
@@ -211,8 +220,8 @@ function templateContext(token: string, sender: TelegramMessage["from"], payload
  * token) is logged so the update still counts as handled. Call it after the update's database writes, so a
  * SQLite retry of the update can't reply twice.
  */
-export function sendAutoReply(botId: number, token: string, rule: AutoReplyRow, message: TelegramMessage, botUsername = ""): void {
-  bumpHits(rule.id);
+export async function sendAutoReply(botId: number, token: string, rule: AutoReplyRow, message: TelegramMessage, botUsername = ""): Promise<void> {
+  await bumpHits(rule.id);
   deliverRuleReply(botId, token, rule, message.chat.id, message.from, startPayloadOf(message, botUsername)).catch((err) =>
     console.error(`[auto-reply] bot ${botId} rule ${rule.id} failed:`, err instanceof Error ? err.message : err)
   );
@@ -233,16 +242,15 @@ async function deliverRuleReply(
     buttons: buttonsForChat(parseButtons(rule.buttons), chatId),
     replyKeyboard: replyKeyboardForChat(parseReplyKeyboard(rule.replyKeyboard), chatId),
   });
-  recordOutgoing(botId, sent);
+  await recordOutgoing(botId, sent);
 }
 
 /** Updates the stored copy of a message the bot just edited. Does nothing when it was never stored (it predates monitoring). */
-function updateStoredMessage(botId: number, message: TelegramMessage): void {
+async function updateStoredMessage(botId: number, message: TelegramMessage): Promise<void> {
   const { text, mediaType } = describeMessage(message);
-  db.update(botMessages)
+  await db.update(botMessages)
     .set({ text, mediaType, raw: JSON.stringify(message), editedAt: new Date((message.edit_date ?? message.date) * 1000) })
-    .where(and(eq(botMessages.botId, botId), eq(botMessages.chatId, String(message.chat.id)), eq(botMessages.telegramMessageId, message.message_id)))
-    .run();
+    .where(and(eq(botMessages.botId, botId), eq(botMessages.chatId, String(message.chat.id)), eq(botMessages.telegramMessageId, message.message_id)));
 }
 
 const isNotModified = (err: unknown) => err instanceof Error && /message is not modified/i.test(err.message);
@@ -253,8 +261,8 @@ const isNotModified = (err: unknown) => err instanceof Error && /message is not 
  * An edit falls back to a new message when the original can't be edited (too old, not the bot's); a button on an
  * inline-mode message has no chat to message, so those only get the toast.
  */
-export function answerCallbackWithRule(botId: number, token: string, rule: AutoReplyRow, query: TelegramCallbackQuery): void {
-  bumpHits(rule.id);
+export async function answerCallbackWithRule(botId: number, token: string, rule: AutoReplyRow, query: TelegramCallbackQuery): Promise<void> {
+  await bumpHits(rule.id);
   const chat = query.message?.chat;
   const toast = rule.callbackAction === "toast" || !chat;
   const answer = botApi
@@ -274,7 +282,7 @@ export function answerCallbackWithRule(botId: number, token: string, rule: AutoR
         const edited = hasText
           ? await botApi.editMessageText(token, chat.id, message.message_id, text, { parseMode: rule.parseMode ?? undefined, buttons })
           : await botApi.editMessageCaption(token, chat.id, message.message_id, text, { parseMode: rule.parseMode ?? undefined, buttons });
-        if (edited !== true) updateStoredMessage(botId, edited);
+        if (edited !== true) await updateStoredMessage(botId, edited);
         return;
       } catch (err) {
         if (isNotModified(err)) return;
@@ -286,6 +294,6 @@ export function answerCallbackWithRule(botId: number, token: string, rule: AutoR
       buttons,
       replyKeyboard: replyKeyboardForChat(parseReplyKeyboard(rule.replyKeyboard), chat.id),
     });
-    recordOutgoing(botId, sent);
+    await recordOutgoing(botId, sent);
   })().catch((err) => console.error(`[auto-reply] bot ${botId} button rule ${rule.id} failed:`, err instanceof Error ? err.message : err));
 }

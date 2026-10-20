@@ -34,7 +34,7 @@ export const POST = withAuth(async (req: Request, _ctx: unknown, telegramAccount
     let source: { id: number; token: string } | null = null;
     let include: CloneSection[] = [];
     if (action === "copy") {
-      const sourceBot = getBotById(Number(body.sourceBotId), telegramAccountId);
+      const sourceBot = await getBotById(Number(body.sourceBotId), telegramAccountId);
       const token = sourceBot && getBotToken(sourceBot);
       if (!sourceBot || !token) return NextResponse.json({ error: "The source bot needs a stored token." }, { status: 400 });
       include = Array.isArray(body.include) ? body.include : [];
@@ -45,7 +45,7 @@ export const POST = withAuth(async (req: Request, _ctx: unknown, telegramAccount
     const results: BulkResult[] = [];
     for (const id of new Set<number>(ids)) {
       // Scoped lookup: an ID that isn't this account's bot is reported, never acted on.
-      const bot = getBotById(id, telegramAccountId);
+      const bot = await getBotById(id, telegramAccountId);
       if (!bot) {
         results.push({ botId: id, username: String(id), ok: false, message: "Bot not found." });
         continue;
@@ -54,14 +54,14 @@ export const POST = withAuth(async (req: Request, _ctx: unknown, telegramAccount
       try {
         const token = getBotToken(bot);
         if (action === "monitor_off") {
-          setMonitorEnabled(bot.id, false);
+          await setMonitorEnabled(bot.id, false);
           report(true, "Monitoring off.");
         } else if (!token) {
           report(false, "No token stored; fetch it from the bot's Info tab.");
         } else if (action === "monitor_on") {
           if ((await botApi.getWebhookInfo(token)).url) report(false, "Has a webhook; remove it first.");
           else {
-            setMonitorEnabled(bot.id, true);
+            await setMonitorEnabled(bot.id, true);
             report(true, "Monitoring on.");
           }
         } else if (action === "health") {

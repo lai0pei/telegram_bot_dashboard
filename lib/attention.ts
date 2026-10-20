@@ -1,5 +1,5 @@
-import { eq } from "drizzle-orm";
-import { db, sqlite } from "./db";
+import { eq, sql } from "drizzle-orm";
+import { db } from "./db";
 import { bots } from "./db/schema";
 import { listTelegramAccountsForUser } from "./telegram-accounts";
 
@@ -28,8 +28,8 @@ export type AttentionItem = {
  * only (webhookLastError/webhookPendingCount are populated separately, by
  * whichever request last fetched that bot's getWebhookInfo).
  */
-export function getAttentionItems(dashboardUserId: string): AttentionItem[] {
-  const accounts = listTelegramAccountsForUser(dashboardUserId);
+export async function getAttentionItems(dashboardUserId: string): Promise<AttentionItem[]> {
+  const accounts = await listTelegramAccountsForUser(dashboardUserId);
   const items: AttentionItem[] = [];
 
   for (const account of accounts) {
@@ -48,7 +48,7 @@ export function getAttentionItems(dashboardUserId: string): AttentionItem[] {
       continue; // bots/chats under a revoked account aren't actionable until it's relinked
     }
 
-    const accountBots = db.select().from(bots).where(eq(bots.ownerUserId, account.id)).all();
+    const accountBots = await db.select().from(bots).where(eq(bots.ownerUserId, account.id));
 
     for (const bot of accountBots) {
       const botHref = `/bots/${bot.id}`;
@@ -101,7 +101,7 @@ export function getAttentionItems(dashboardUserId: string): AttentionItem[] {
       }
     }
 
-    for (const row of unansweredConversations(account.id, accountBots)) {
+    for (const row of await unansweredConversations(account.id, accountBots)) {
       items.push({ ...row, accountLabel: label });
     }
   }
@@ -116,33 +116,30 @@ type BotLite = Pick<(typeof bots)["$inferSelect"], "id" | "username">;
  * after it — i.e. still waiting on the owner. One row per pair, oldest wait
  * first, capped at UNANSWERED_LIMIT across the account's bots.
  */
-function unansweredConversations(accountId: string, accountBots: BotLite[]): Omit<AttentionItem, "accountLabel">[] {
+async function unansweredConversations(accountId: string, accountBots: BotLite[]): Promise<Omit<AttentionItem, "accountLabel">[]> {
   const botIds = accountBots.map((b) => b.id);
   if (botIds.length === 0) return [];
   const usernames = new Map(accountBots.map((b) => [b.id, b.username]));
-  const placeholders = botIds.map(() => "?").join(",");
+  const botIdList = sql.join(botIds.map((id) => sql`${id}`), sql`, `);
 
   // Latest message per (botId, chatId), kept only when that latest message
   // is incoming — i.e. nothing was sent back after it.
-  const rows = sqlite
-    .prepare(
-      `SELECT bm.bot_id as botId, bm.chat_id as chatId, bm.direction, bm.created_at as createdAt,
-              bm.from_first_name as fromFirstName, bm.from_username as fromUsername
-       FROM bot_messages bm
-       WHERE bm.id IN (
-         SELECT MAX(id) FROM bot_messages WHERE bot_id IN (${placeholders}) GROUP BY bot_id, chat_id
-       )
-       AND bm.direction = 'in'
-       ORDER BY bm.created_at ASC
-       LIMIT ?`
-    )
-    .all(...botIds, UNANSWERED_LIMIT) as {
+  const rows = await db.execute<{
     botId: number;
     chatId: string;
-    createdAt: number;
+    createdAt: number; // epoch ms: raw execute() returns timestamps as strings, so convert in SQL
     fromFirstName: string | null;
     fromUsername: string | null;
-  }[];
+  }>(sql`
+    SELECT bm.bot_id AS "botId", bm.chat_id AS "chatId", bm.direction, (floor(extract(epoch FROM bm.created_at) * 1000))::float8 AS "createdAt",
+           bm.from_first_name AS "fromFirstName", bm.from_username AS "fromUsername"
+    FROM bot_messages bm
+    WHERE bm.id IN (
+      SELECT MAX(id) FROM bot_messages WHERE bot_id IN (${botIdList}) GROUP BY bot_id, chat_id
+    )
+    AND bm.direction = 'in'
+    ORDER BY bm.created_at ASC
+    LIMIT ${UNANSWERED_LIMIT}`);
 
   return rows.map((row) => ({
     kind: "unanswered" as const,

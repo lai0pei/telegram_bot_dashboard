@@ -9,10 +9,10 @@ type Ctx = { params: Promise<{ id: string }> };
 
 export const GET = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
-    const bot = getBotById(Number((await ctx.params).id), telegramAccountId);
+    const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
-    noteStartRule(bot.id);
-    return NextResponse.json({ rules: listAutoReplies(bot.id).map(toAutoReplyDto), monitorEnabled: bot.monitorEnabled });
+    await noteStartRule(bot.id);
+    return NextResponse.json({ rules: (await listAutoReplies(bot.id)).map(toAutoReplyDto), monitorEnabled: bot.monitorEnabled });
   } catch (err) {
     return errorResponse(err);
   }
@@ -21,13 +21,13 @@ export const GET = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId: s
 /** POST { matchType, pattern, replyText, parseMode?, buttons?, replyKeyboard?, showAlert?, callbackAction?, enabled? } */
 export const POST = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
-    const bot = getBotById(Number((await ctx.params).id), telegramAccountId);
+    const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
     const body = await req.json().catch(() => null);
     const error = body ? validateAutoReply(body) : "Invalid JSON body.";
     if (error) return NextResponse.json({ error }, { status: 400 });
 
-    const rule = createAutoReply(bot.id, {
+    const rule = await createAutoReply(bot.id, {
       matchType: body.matchType,
       pattern: body.pattern,
       replyText: body.replyText,

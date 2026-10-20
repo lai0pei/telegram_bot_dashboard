@@ -16,7 +16,7 @@ type Ctx = { params: Promise<{ id: string }> };
  */
 export const POST = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
-    const bot = getBotById(Number((await ctx.params).id), telegramAccountId);
+    const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
     const body = await req.json().catch(() => null);
     const error = validateTelegramUsername(body?.recipient);
@@ -26,7 +26,7 @@ export const POST = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: s
 
     await singleFlight(`transfer:${telegramAccountId}:${bot.id}`, async () => {
       await transferBot(telegramAccountId, bot.username, body.recipient.trim(), body.password);
-      deleteBotRow(bot.id);
+      await deleteBotRow(bot.id);
     });
     return NextResponse.json({ ok: true });
   } catch (err) {

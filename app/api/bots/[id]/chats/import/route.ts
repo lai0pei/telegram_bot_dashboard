@@ -14,10 +14,10 @@ const MAX_CHATS = 150;
  */
 export const POST = withAuth(async (_req: Request, ctx: { params: Promise<{ id: string }> }, telegramAccountId: string) => {
   try {
-    const bot = getBotById(Number((await ctx.params).id), telegramAccountId);
+    const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
-    const candidates = listChats(telegramAccountId);
+    const candidates = await listChats(telegramAccountId);
     const toCheck = candidates.slice(0, MAX_CHATS);
     let found = 0;
     let stoppedEarly: string | null = null;

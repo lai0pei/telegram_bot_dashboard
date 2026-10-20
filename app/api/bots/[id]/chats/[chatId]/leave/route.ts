@@ -14,7 +14,7 @@ export const POST = withAuth(async (_req: Request, ctx: BotChatParams, telegramA
     const { bot, chat } = loaded;
 
     await withLiveBotToken(bot, telegramAccountId, (token) => botApi.leaveChat(token, chat.chatId));
-    upsertBotChat(bot.id, { chatId: chat.chatId, type: chat.type, title: chat.title, username: chat.username, status: "left", rights: null });
+    await upsertBotChat(bot.id, { chatId: chat.chatId, type: chat.type, title: chat.title, username: chat.username, status: "left", rights: null });
     return NextResponse.json({ ok: true });
   } catch (err) {
     return botApiErrorResponse(err) ?? errorResponse(err);

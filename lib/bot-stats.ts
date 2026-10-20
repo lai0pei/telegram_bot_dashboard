@@ -14,55 +14,50 @@ export interface BotStats {
 }
 
 /** Aggregates over the local mirror only (bot_users, bot_messages, bot_chats). Callers must scope `botId` to the owner. */
-export function getBotStats(botId: number, now = Date.now()): BotStats {
+export async function getBotStats(botId: number, now = Date.now()): Promise<BotStats> {
   const weekAgo = new Date(now - 7 * DAY_MS);
 
   // bot_users has no unique index, so count distinct chats rather than rows.
-  const users = db
+  const users = (await db
     .select({
-      total: sql<number>`count(distinct ${botUsers.chatId})`,
-      newLast7d: sql<number>`count(distinct case when ${botUsers.createdAt} >= ${weekAgo.getTime()} then ${botUsers.chatId} end)`,
-      activeLast7d: sql<number>`count(distinct case when ${botUsers.lastSeenAt} >= ${weekAgo.getTime()} then ${botUsers.chatId} end)`,
+      total: sql<number>`count(distinct ${botUsers.chatId})::int`,
+      newLast7d: sql<number>`count(distinct case when ${botUsers.createdAt} >= ${weekAgo.toISOString()}::timestamptz then ${botUsers.chatId} end)::int`,
+      activeLast7d: sql<number>`count(distinct case when ${botUsers.lastSeenAt} >= ${weekAgo.toISOString()}::timestamptz then ${botUsers.chatId} end)::int`,
     })
     .from(botUsers)
-    .where(eq(botUsers.botId, botId))
-    .all()[0];
+    .where(eq(botUsers.botId, botId)))[0];
 
-  const totals = db
+  const totals = (await db
     .select({
-      incoming: sql<number>`coalesce(sum(case when ${botMessages.direction} = 'in' then 1 else 0 end), 0)`,
-      outgoing: sql<number>`coalesce(sum(case when ${botMessages.direction} = 'out' then 1 else 0 end), 0)`,
+      incoming: sql<number>`coalesce(sum(case when ${botMessages.direction} = 'in' then 1 else 0 end), 0)::int`,
+      outgoing: sql<number>`coalesce(sum(case when ${botMessages.direction} = 'out' then 1 else 0 end), 0)::int`,
     })
     .from(botMessages)
-    .where(eq(botMessages.botId, botId))
-    .all()[0];
+    .where(eq(botMessages.botId, botId)))[0];
 
-  const activeChats = db
-    .select({ n: sql<number>`count(distinct ${botMessages.chatId})` })
+  const activeChats = (await db
+    .select({ n: sql<number>`count(distinct ${botMessages.chatId})::int` })
     .from(botMessages)
-    .where(and(eq(botMessages.botId, botId), gte(botMessages.createdAt, weekAgo)))
-    .all()[0];
+    .where(and(eq(botMessages.botId, botId), gte(botMessages.createdAt, weekAgo))))[0];
 
-  const chatCounts = db
-    .select({ status: botChats.status, n: sql<number>`count(*)` })
+  const chatCounts = await db
+    .select({ status: botChats.status, n: sql<number>`count(*)::int` })
     .from(botChats)
     .where(eq(botChats.botId, botId))
-    .groupBy(botChats.status)
-    .all();
+    .groupBy(botChats.status);
 
   // Day buckets are UTC so the chart doesn't shift with the server's timezone.
   const today = Math.floor(now / DAY_MS) * DAY_MS;
   const start = today - (CHART_DAYS - 1) * DAY_MS;
-  const rows = db
+  const rows = await db
     .select({
-      date: sql<string>`strftime('%Y-%m-%d', ${botMessages.createdAt} / 1000, 'unixepoch')`,
+      date: sql<string>`to_char(${botMessages.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
       direction: botMessages.direction,
-      n: sql<number>`count(*)`,
+      n: sql<number>`count(*)::int`,
     })
     .from(botMessages)
     .where(and(eq(botMessages.botId, botId), gte(botMessages.createdAt, new Date(start))))
-    .groupBy(sql`1`, botMessages.direction)
-    .all();
+    .groupBy(sql`1`, botMessages.direction);
 
   const perDay = Array.from({ length: CHART_DAYS }, (_, i) => ({
     date: new Date(start + i * DAY_MS).toISOString().slice(0, 10),

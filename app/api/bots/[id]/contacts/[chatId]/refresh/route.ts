@@ -13,14 +13,14 @@ type Ctx = { params: Promise<{ id: string; chatId: string }> };
 export const POST = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
     const { id, chatId } = await ctx.params;
-    const bot = getBotById(Number(id), telegramAccountId);
+    const bot = await getBotById(Number(id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
     const chatIdError = validateChatId(chatId);
     if (chatIdError) return NextResponse.json({ error: chatIdError }, { status: 400 });
 
     const { result: chat } = await withLiveBotToken(bot, telegramAccountId, (token) => botApi.getChat(token, chatId));
     const name = chat.type === "private" ? chat.first_name ?? null : chat.title ?? null;
-    upsertBotUser(bot.id, chatId, { username: chat.username ?? null, firstName: name, touch: false });
+    await upsertBotUser(bot.id, chatId, { username: chat.username ?? null, firstName: name, touch: false });
     invalidatePhoto(photoKey(telegramAccountId, "bot-chat", `${bot.id}:${chatId}`));
 
     return NextResponse.json({ chatId, name: botApiChatName(chat) ?? chatId, username: chat.username ?? null });

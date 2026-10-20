@@ -8,12 +8,12 @@ import { singleFlight } from "@/lib/single-flight";
 export const POST = withAuth(async (_req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
   try {
     const { id } = await ctx.params;
-    const bot = getBotById(Number(id), userId);
+    const bot = await getBotById(Number(id), userId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
     const newToken = await singleFlight(`revoke:${userId}:${bot.id}`, async () => {
       const revoked = await revokeBotToken(userId, bot.username);
-      saveBotToken(bot.id, revoked);
+      await saveBotToken(bot.id, revoked);
       return revoked;
     });
 

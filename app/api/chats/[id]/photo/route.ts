@@ -9,7 +9,7 @@ type Ctx = { params: Promise<{ id: string }> };
 /** GET: the chat's small photo (JPEG), or 404 if it has none. Cached server-side and privately in the browser. */
 export const GET = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
-    const chat = getChatById(Number((await ctx.params).id), telegramAccountId);
+    const chat = await getChatById(Number((await ctx.params).id), telegramAccountId);
     if (!chat) return NextResponse.json({ error: "Chat not found." }, { status: 404 });
     const photo = await getCachedPhoto(photoKey(telegramAccountId, "chat", chat.id), () =>
       getChatPhoto(telegramAccountId, chat)
@@ -23,7 +23,7 @@ export const GET = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: st
 /** PUT multipart/form-data { file }: sets the chat's photo (needs the "Change info" admin right). */
 export const PUT = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
-    const chat = getChatById(Number((await ctx.params).id), telegramAccountId);
+    const chat = await getChatById(Number((await ctx.params).id), telegramAccountId);
     if (!chat) return NextResponse.json({ error: "Chat not found." }, { status: 404 });
 
     const form = await req.formData().catch(() => null);
@@ -43,7 +43,7 @@ export const PUT = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: st
 /** DELETE: removes the chat's photo. */
 export const DELETE = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
-    const chat = getChatById(Number((await ctx.params).id), telegramAccountId);
+    const chat = await getChatById(Number((await ctx.params).id), telegramAccountId);
     if (!chat) return NextResponse.json({ error: "Chat not found." }, { status: 404 });
     await deleteChatPhoto(telegramAccountId, chat);
     invalidatePhoto(photoKey(telegramAccountId, "chat", chat.id));
