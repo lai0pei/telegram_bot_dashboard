@@ -22,6 +22,11 @@ export const PART_LABELS: Record<TemplatePart, string> = {
 /** Every part of a template; the new-bot page and the quick start use this, the Templates section lets people untick. */
 export const ALL_PARTS: TemplatePart[] = ["profile", "commands", "rules", "monitoring"];
 
+/** The parts that can be sent to this bot: monitoring is only offered when it is off and no webhook blocks it. */
+export function availableParts(bot: { monitorEnabled: boolean; webhook?: { url?: string | null } | null }): TemplatePart[] {
+  return ALL_PARTS.filter((p) => p !== "monitoring" || (!bot.monitorEnabled && !bot.webhook?.url));
+}
+
 /** POSTs a template to a bot. Only the template's ID and the chosen parts travel; the server owns the content. */
 export async function applyTemplateToBot(botId: number, templateId: string, parts: TemplatePart[], overwriteProfile = false): Promise<PartResult[]> {
   const r = await apiFetch<{ results: PartResult[] }>(`/api/bots/${botId}/templates`, { body: { templateId, parts, overwriteProfile } });
@@ -33,13 +38,13 @@ export function useApplyTemplate(botId: number, onApplied?: () => void) {
   const [applying, setApplying] = useState(false);
   const [results, setResults] = useState<{ templateId: string; items: PartResult[] } | null>(null);
 
-  async function apply(template: BotTemplate, parts: TemplatePart[], overwriteProfile = false): Promise<PartResult[] | null> {
+  async function apply(template: BotTemplate, parts: TemplatePart[], overwriteProfile = false, errorHint = "see the list"): Promise<PartResult[] | null> {
     setApplying(true);
     try {
       const items = await applyTemplateToBot(botId, template.id, parts, overwriteProfile);
       setResults({ templateId: template.id, items });
       onApplied?.();
-      if (items.some((x) => x.errors.length)) toast.error("Some parts could not be added — see the list.");
+      if (items.some((x) => x.errors.length)) toast.error(`Some parts could not be added — ${errorHint}.`);
       else toast.success(`${template.title} added.`);
       return items;
     } catch (err) {
@@ -74,20 +79,24 @@ export function useTemplates() {
   return { templates: [...BOT_TEMPLATES, ...custom], loaded, reload };
 }
 
-export function TemplateCard({ template, selected, onSelect }: { template: BotTemplate; selected: boolean; onSelect: () => void }) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      onClick={onSelect}
-      className={`card flex flex-col gap-1 p-4 text-left transition-shadow hover:shadow-md ${selected ? "ring-2 ring-[var(--primary)]" : ""}`}
-    >
+/** Per-card extras for the Templates tab: an "Added" badge and a row of buttons under the clickable card. */
+export interface CardExtras {
+  status?: "added" | null;
+  actions?: React.ReactNode;
+}
+
+export function TemplateCard({ template, selected, onSelect, status, actions }: { template: BotTemplate; selected: boolean; onSelect: () => void } & CardExtras) {
+  // Buttons can't nest inside a button, so with actions the card becomes a div holding the clickable area and the action row.
+  const body = (
+    <>
       <span className="flex items-start justify-between gap-2">
         <span className="text-2xl" aria-hidden>
           {template.emoji}
         </span>
-        {template.featured && <span className="rounded-full bg-[var(--primary)]/10 px-2 py-0.5 text-[11px] font-medium text-[var(--primary)]">Start here</span>}
+        <span className="flex flex-wrap justify-end gap-1">
+          {status === "added" && <span className="rounded-full bg-[var(--success)]/10 px-2 py-0.5 text-[11px] font-medium text-[var(--success)]">✓ Added</span>}
+          {template.featured && <span className="rounded-full bg-[var(--primary)]/10 px-2 py-0.5 text-[11px] font-medium text-[var(--primary)]">Start here</span>}
+        </span>
       </span>
       <span className="font-medium">{template.title}</span>
       <span className="text-xs text-[var(--muted)]">{template.blurb}</span>
@@ -101,7 +110,23 @@ export function TemplateCard({ template, selected, onSelect }: { template: BotTe
       <span className="mt-1 text-xs text-[var(--muted)]">
         {template.rules.length} repl{template.rules.length === 1 ? "y" : "ies"} · {template.commands.length} command{template.commands.length === 1 ? "" : "s"}
       </span>
-    </button>
+    </>
+  );
+  const ring = selected ? "ring-2 ring-[var(--primary)]" : "";
+  if (!actions) {
+    return (
+      <button type="button" role="radio" aria-checked={selected} onClick={onSelect} className={`card flex flex-col gap-1 p-4 text-left transition-shadow hover:shadow-md ${ring}`}>
+        {body}
+      </button>
+    );
+  }
+  return (
+    <div className={`card flex flex-col transition-shadow hover:shadow-md ${ring}`}>
+      <button type="button" role="radio" aria-checked={selected} onClick={onSelect} className="flex flex-1 flex-col gap-1 p-4 text-left">
+        {body}
+      </button>
+      <div className="flex flex-wrap gap-2 px-4 pb-4">{actions}</div>
+    </div>
   );
 }
 
@@ -116,6 +141,7 @@ export function TemplatePicker({
   compact = false,
   onMore,
   templates = BOT_TEMPLATES,
+  renderCard,
 }: {
   selectedId: string | null;
   onSelect: (template: BotTemplate) => void;
@@ -124,6 +150,8 @@ export function TemplatePicker({
   onMore?: () => void;
   /** Defaults to the built-in ones; the Templates section passes in the saved ones too. */
   templates?: BotTemplate[];
+  /** Adds a status badge and action buttons to a card (the Templates tab); without it the cards are plain. */
+  renderCard?: (template: BotTemplate) => CardExtras;
 }) {
   const [category, setCategory] = useState<TemplateCategory | typeof CUSTOM_CATEGORY | "All">("All");
   const hasCustom = templates.some((t) => t.custom);
@@ -147,7 +175,7 @@ export function TemplatePicker({
       )}
       <div className={className} role="radiogroup" aria-label="Templates">
         {shown.map((t) => (
-          <TemplateCard key={t.id} template={t} selected={t.id === selectedId} onSelect={() => onSelect(t)} />
+          <TemplateCard key={t.id} template={t} selected={t.id === selectedId} onSelect={() => onSelect(t)} {...renderCard?.(t)} />
         ))}
       </div>
       {compact && onMore && (

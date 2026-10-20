@@ -51,11 +51,12 @@ export interface SectionGroup {
 
 export const SECTION_GROUPS: SectionGroup[] = [
   { label: null, sections: [{ id: "overview", label: "Overview", icon: LayoutDashboard }] },
+  // Labelled (unlike Overview) so its React key and the mobile <optgroup> don't collide with the "main" group.
+  { label: "Templates", sections: [{ id: "templates", label: "Templates", icon: LayoutTemplate }] },
   {
     label: "Build",
     sections: [
       { id: "builder", label: "Conversation builder", icon: GitBranch },
-      { id: "templates", label: "Templates", icon: LayoutTemplate },
       { id: "automation", label: "All rules", icon: Zap },
       { id: "commands", label: "Commands", icon: Slash },
       { id: "menu", label: "Menu button", icon: Menu },

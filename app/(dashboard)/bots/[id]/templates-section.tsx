@@ -11,7 +11,7 @@ import { apiFetch } from "@/lib/api-client";
 import { planRemoval, templateRuleKey, type BotTemplate, type TemplatePart } from "@/lib/bot-templates";
 import { emptySim, simulatePress, simulateSend, type SimRule } from "@/lib/simulate";
 import type { SectionId } from "./sections";
-import { PART_LABELS, TemplatePicker, useApplyTemplate, useTemplates } from "./template-picker";
+import { PART_LABELS, TemplatePicker, availableParts, useApplyTemplate, useTemplates } from "./template-picker";
 import { TelegramPreview } from "./telegram-preview";
 import type { AutoReplyRule, BotDetail } from "./types";
 
@@ -33,7 +33,11 @@ export function TemplatesSection({ bot, photoSrc, initialTemplateId, onChange, o
   const [parts, setParts] = useState<Record<TemplatePart, boolean>>({ profile: true, commands: true, rules: true, monitoring: true });
   const [overwriteProfile, setOverwriteProfile] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
-  const [confirm, setConfirm] = useState<"remove" | "delete" | null>(null);
+  const [confirm, setConfirm] = useState<"delete" | null>(null);
+  // The template whose "remove" confirm is open; the gallery cards and the detail screen share this one dialog.
+  const [removeTarget, setRemoveTarget] = useState<BotTemplate | null>(null);
+  // The card whose quick Apply is running, so only its button shows a spinner.
+  const [pendingId, setPendingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [removed, setRemoved] = useState<{ templateId: string; items: RemoveResult[] } | null>(null);
   // Bumped after applying or removing, so the "already there" counts below refresh.
@@ -62,6 +66,40 @@ export function TemplatesSection({ bot, photoSrc, initialTemplateId, onChange, o
 
   const template = selectedId ? templates.find((t) => t.id === selectedId) : undefined;
 
+  // What "remove" would delete: only rules and commands that are still exactly as the template made them.
+  // null while the rules load, so nothing is decided on stale data.
+  const planFor = (t: BotTemplate) => (rules === null ? null : planRemoval(t, rules, bot.commands ?? []));
+  const removePlan = removeTarget ? planFor(removeTarget) : null;
+
+  async function remove(t: BotTemplate) {
+    setBusy(true);
+    try {
+      const r = await apiFetch<{ results: RemoveResult[] }>(`/api/bots/${bot.id}/templates`, { method: "DELETE", body: { templateId: t.id } });
+      setRemoved({ templateId: t.id, items: r.results });
+      clearResults();
+      setVersion((v) => v + 1);
+      onChange();
+      toast.success(`${t.title} removed.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to remove the template.");
+    } finally {
+      setBusy(false);
+      setRemoveTarget(null);
+    }
+  }
+
+  async function quickApply(t: BotTemplate) {
+    setPendingId(t.id);
+    try {
+      // Never overwrites profile texts; the detail screen is where that is chosen.
+      await applyTemplate(t, availableParts(bot), false, "open Details to see which");
+    } finally {
+      setPendingId(null);
+    }
+  }
+
+  const removeDialog = <RemoveDialog template={removeTarget} plan={removePlan} busy={busy} onCancel={() => setRemoveTarget(null)} onConfirm={() => removeTarget && void remove(removeTarget)} />;
+
   if (!template) {
     return (
       <div className="space-y-4">
@@ -76,7 +114,36 @@ export function TemplatesSection({ bot, photoSrc, initialTemplateId, onChange, o
           </Button>
         </div>
         {selectedId && !loaded && <p className="text-sm text-[var(--muted)]">Loading your templates…</p>}
-        <TemplatePicker selectedId={null} templates={templates} onSelect={(t) => open(t.id)} />
+        <TemplatePicker
+          selectedId={null}
+          templates={templates}
+          onSelect={(t) => open(t.id)}
+          renderCard={(t) => {
+            const plan = planFor(t);
+            const added = plan ? plan.rules.length + plan.commands.length > 0 : false;
+            const locked = plan === null || busy || pendingId !== null;
+            return {
+              status: added ? "added" : null,
+              actions: (
+                <>
+                  {added ? (
+                    <Button variant="outline" size="sm" className="text-[var(--danger)]" onClick={() => setRemoveTarget(t)} disabled={locked}>
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden /> Remove
+                    </Button>
+                  ) : (
+                    <Button size="sm" onClick={() => void quickApply(t)} loading={pendingId === t.id} disabled={locked}>
+                      Apply
+                    </Button>
+                  )}
+                  <Button variant="ghost" size="sm" onClick={() => open(t.id)}>
+                    Details
+                  </Button>
+                </>
+              ),
+            };
+          }}
+        />
+        {removeDialog}
         <SaveDialog
           open={saveOpen}
           onOpenChange={setSaveOpen}
@@ -100,31 +167,13 @@ export function TemplatesSection({ bot, photoSrc, initialTemplateId, onChange, o
     { label: "description", value: template.profile?.description, current: bot.description },
   ].filter((f) => f.value);
   const profileKept = profileFields.filter((f) => f.current?.trim()).length;
-  // What "remove" would delete: only rules and commands that are still exactly as the template made them.
-  const plan = rules === null ? null : planRemoval(template, rules, bot.commands ?? []);
+  const plan = planFor(template);
   const removable = plan ? plan.rules.length + plan.commands.length : 0;
 
   // Monitoring is only offered (and sent) when it is off and no webhook blocks it.
-  const chosen = (Object.keys(parts) as TemplatePart[]).filter((p) => parts[p] && (p !== "monitoring" || (!listening && !bot.webhook?.url)));
+  const chosen = availableParts(bot).filter((p) => parts[p]);
   const toggle = (p: TemplatePart) => setParts((prev) => ({ ...prev, [p]: !prev[p] }));
   const apply = () => applyTemplate(template, chosen, overwriteProfile);
-
-  async function remove() {
-    setBusy(true);
-    try {
-      const r = await apiFetch<{ results: RemoveResult[] }>(`/api/bots/${bot.id}/templates`, { method: "DELETE", body: { templateId: template!.id } });
-      setRemoved({ templateId: template!.id, items: r.results });
-      clearResults();
-      setVersion((v) => v + 1);
-      onChange();
-      toast.success(`${template!.title} removed.`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to remove the template.");
-    } finally {
-      setBusy(false);
-      setConfirm(null);
-    }
-  }
 
   async function deleteSaved() {
     setBusy(true);
@@ -264,7 +313,7 @@ export function TemplatesSection({ bot, photoSrc, initialTemplateId, onChange, o
                     {plan.commands.length ? ` and ${plan.commands.length} command${plan.commands.length === 1 ? "" : "s"}` : ""} on this bot are still exactly as this template made them.
                     {plan.keptRules.length + plan.keptCommands.length > 0 && " Ones you changed are kept."}
                   </p>
-                  <Button variant="outline" className="mt-3 text-[var(--danger)]" onClick={() => setConfirm("remove")}>
+                  <Button variant="outline" className="mt-3 text-[var(--danger)]" onClick={() => setRemoveTarget(template)}>
                     <Trash2 className="h-4 w-4" aria-hidden /> Remove this template
                   </Button>
                 </>
@@ -294,23 +343,7 @@ export function TemplatesSection({ bot, photoSrc, initialTemplateId, onChange, o
         <PreviewCard key={template.id} template={template} bot={bot} photoSrc={photoSrc} extraCommands={newCommands} />
       </div>
 
-      <Dialog open={confirm === "remove"} onOpenChange={(o) => !o && !busy && setConfirm(null)}>
-        <DialogContent>
-          <DialogTitle>Remove “{template.title}”?</DialogTitle>
-          <DialogDescription>
-            This deletes {plan?.rules.length ?? 0} repl{plan?.rules.length === 1 ? "y" : "ies"}
-            {plan?.commands.length ? ` and ${plan.commands.length} command${plan.commands.length === 1 ? "" : "s"}` : ""} that are still exactly as the template made them. Anything you changed is kept. Your profile texts and the listening switch stay as they are.
-          </DialogDescription>
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setConfirm(null)} disabled={busy}>
-              Cancel
-            </Button>
-            <Button variant="danger" onClick={() => void remove()} loading={busy}>
-              Remove
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {removeDialog}
 
       <Dialog open={confirm === "delete"} onOpenChange={(o) => !o && !busy && setConfirm(null)}>
         <DialogContent>
@@ -327,6 +360,29 @@ export function TemplatesSection({ bot, photoSrc, initialTemplateId, onChange, o
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/** Confirm for "remove this template from the bot", shared by the gallery cards and the detail screen. */
+function RemoveDialog({ template, plan, busy, onCancel, onConfirm }: { template: BotTemplate | null; plan: ReturnType<typeof planRemoval> | null; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <Dialog open={template !== null} onOpenChange={(o) => !o && !busy && onCancel()}>
+      <DialogContent>
+        <DialogTitle>Remove “{template?.title}”?</DialogTitle>
+        <DialogDescription>
+          This deletes {plan?.rules.length ?? 0} repl{plan?.rules.length === 1 ? "y" : "ies"}
+          {plan?.commands.length ? ` and ${plan.commands.length} command${plan.commands.length === 1 ? "" : "s"}` : ""} that are still exactly as the template made them. Anything you changed is kept. Your profile texts and the listening switch stay as they are.
+        </DialogDescription>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onCancel} disabled={busy}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={onConfirm} loading={busy}>
+            Remove
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
