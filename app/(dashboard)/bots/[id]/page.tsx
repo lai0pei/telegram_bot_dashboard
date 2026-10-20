@@ -11,18 +11,18 @@ import { BotShell } from "./bot-shell";
 import { OverviewSection } from "./overview-section";
 import { resolveSection, type SectionId } from "./sections";
 import { HealthCard, BusinessCard, CapabilitiesCard, TokenCard } from "./info-tab";
-import { SettingsTab } from "./settings-tab";
-import { ProfilePhotoCard } from "../../profile-photo-card";
+import { ProfileSection } from "./profile-section";
 import { CommandsTab } from "./commands-tab";
 import { WebhookTab } from "./webhook-tab";
 import { MessagesTab } from "./messages-tab";
 import { ChatsTab } from "./chats-tab";
 import { AutomationTab } from "./automation-tab";
+import { BuilderSection } from "./builder-section";
+import { TemplatesSection } from "./templates-section";
 import { OutboxTab } from "./outbox-tab";
 import { StatsTab } from "./stats-tab";
 import { RevenueTab } from "./revenue-tab";
 import { StickersTab } from "./stickers-tab";
-import { UsernamesCard } from "./usernames-card";
 import { AppsTab } from "./apps-tab";
 import { MenuButtonCard } from "./menu-button-card";
 import { AdminRightsCard } from "./admin-rights-card";
@@ -118,24 +118,14 @@ export default function BotDetailPage() {
         badges={badges}
       >
         {section === "overview" && <OverviewSection bot={bot} photoSrc={photoSrc} onChange={load} onOpen={openSection} />}
+        {section === "builder" && <BuilderSection bot={bot} photoSrc={photoSrc} onOpen={openSection} />}
+        {section === "templates" && <TemplatesSection bot={bot} photoSrc={photoSrc} onChange={load} onOpen={openSection} />}
         {section === "messages" && <MessagesTab bot={bot} onChange={load} />}
         {section === "chats" && <ChatsTab bot={bot} />}
         {section === "automation" && <AutomationTab bot={bot} />}
         {section === "outbox" && <OutboxTab bot={bot} />}
         {section === "profile" && (
-          <div className="grid items-start gap-4 xl:grid-cols-2">
-            <div className="space-y-4">
-              <ProfilePhotoCard
-                endpoint={`/api/bots/${bot.id}/photo`}
-                name={bot.username}
-                photoSrc={photoSrc}
-                onChanged={() => setPhotoVersion((v) => v + 1)}
-                allowVideo
-              />
-              <UsernamesCard bot={bot} />
-            </div>
-            <SettingsTab bot={bot} onSaved={load} />
-          </div>
+          <ProfileSection bot={bot} photoSrc={photoSrc} onPhotoChanged={() => setPhotoVersion((v) => v + 1)} onSaved={load} />
         )}
         {section === "commands" && (
           <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">

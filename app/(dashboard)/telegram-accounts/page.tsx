@@ -2,14 +2,97 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Plus, QrCode, Trash2 } from "lucide-react";
+import { Plus, QrCode, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { apiFetch } from "@/lib/api-client";
+import { Label } from "@/components/ui/label";
+import { apiFetch, type TelegramAccountSummary } from "@/lib/api-client";
 import { FadeIn } from "@/components/motion";
 import { accountLabel, useAccounts } from "../accounts-context";
+
+const HOURS = Array.from({ length: 24 }, (_, h) => h);
+
+function DigestSettings({ account }: { account: TelegramAccountSummary }) {
+  const { reload } = useAccounts();
+  const [frequency, setFrequency] = useState(account.digestFrequency);
+  const [hour, setHour] = useState(account.digestHour);
+  const [saving, setSaving] = useState(false);
+  const [sending, setSending] = useState(false);
+
+  async function save(next: { digestFrequency: typeof frequency; digestHour: number }) {
+    setSaving(true);
+    try {
+      await apiFetch(`/api/telegram-accounts/${account.id}`, { method: "PATCH", body: next });
+      await reload();
+      toast.success("Digest schedule updated.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update digest schedule.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function sendTest() {
+    setSending(true);
+    try {
+      await apiFetch(`/api/telegram-accounts/${account.id}/digest`, { method: "POST" });
+      toast.success("Digest sent to Saved Messages.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to send digest.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 border-t border-[var(--card-border)] pt-4">
+      <Label className="mb-2 block text-xs text-[var(--muted)]">Saved Messages digest</Label>
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          value={frequency}
+          disabled={saving || account.revoked}
+          onChange={(e) => {
+            const value = e.target.value as typeof frequency;
+            setFrequency(value);
+            save({ digestFrequency: value, digestHour: hour });
+          }}
+          className="h-9 rounded-lg border border-[var(--card-border)] bg-[var(--card)] px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
+        >
+          <option value="off">Off</option>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+        </select>
+        {frequency !== "off" && (
+          <select
+            value={hour}
+            disabled={saving || account.revoked}
+            onChange={(e) => {
+              const value = Number(e.target.value);
+              setHour(value);
+              save({ digestFrequency: frequency, digestHour: value });
+            }}
+            className="h-9 rounded-lg border border-[var(--card-border)] bg-[var(--card)] px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
+          >
+            {HOURS.map((h) => (
+              <option key={h} value={h}>
+                {String(h).padStart(2, "0")}:00 UTC
+              </option>
+            ))}
+          </select>
+        )}
+        <Button variant="outline" size="sm" loading={sending} disabled={account.revoked} onClick={sendTest}>
+          <Send className="h-3.5 w-3.5" />
+          Send test
+        </Button>
+      </div>
+      <p className="mt-2 text-xs text-[var(--muted)]">
+        A summary of what needs attention, sent to this account&apos;s own Saved Messages.
+      </p>
+    </div>
+  );
+}
 
 export default function TelegramAccountsPage() {
   const { accounts, reload } = useAccounts();
@@ -99,6 +182,8 @@ export default function TelegramAccountsPage() {
                     <dd>{account.phone ? `+${account.phone}` : "—"}</dd>
                   </div>
                 </dl>
+
+                {!account.revoked && <DigestSettings account={account} />}
 
                 {confirmId === account.id ? (
                   <div className="flex flex-wrap items-center gap-2">

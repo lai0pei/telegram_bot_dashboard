@@ -29,6 +29,14 @@ import { AccountCardSkeleton } from "./loading";
 import { LimitsCard } from "./limits-card";
 import { useAccounts } from "./accounts-context";
 import { NoActiveAccount, isNoActiveAccount } from "./no-active-account";
+import { AttentionPanel } from "./attention-panel";
+import { Sparkline } from "./sparkline";
+
+interface TrendPoint {
+  day: string;
+  botUsersNew: number;
+  botMessagesIn: number;
+}
 
 interface OverviewStats {
   bots: number;
@@ -37,7 +45,19 @@ interface OverviewStats {
   groups: number;
   botUsers: number;
   messagesToday: number;
+<<<<<<< HEAD
   botsNeedingAttention: number;
+=======
+  trend: TrendPoint[];
+  recentMessages: {
+    id: number;
+    botId: number;
+    botUsername: string;
+    fromName: string;
+    text: string | null;
+    createdAt: number;
+  }[];
+>>>>>>> a05ef6cc882ff2f00a1a66315cd22f35b5d75cda
 }
 
 const compact = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
@@ -90,6 +110,8 @@ export default function OverviewPage() {
       </FadeIn>
 
       {me ? <ProfileCard me={me} /> : <AccountCardSkeleton />}
+
+      <AttentionPanel />
 
       <StatTiles stats={stats} />
 
@@ -178,14 +200,34 @@ function ProfileCard({ me }: { me: Me }) {
   );
 }
 
+/** Sum of the last `n` days of a trend metric, used for the "+N this week" deltas. */
+function sumLast(trend: TrendPoint[], n: number, pick: (p: TrendPoint) => number): number {
+  return trend.slice(-n).reduce((total, p) => total + pick(p), 0);
+}
+
 function StatTiles({ stats }: { stats: OverviewStats | null }) {
+  const trend = stats?.trend;
   const tiles = [
     { label: "Bots", value: stats?.bots, href: "/bots", icon: BotIcon },
     { label: "Monitoring", value: stats?.monitoredBots, href: "/bots?filter=monitoring", icon: Radio },
     { label: "Channels", value: stats?.channels, href: "/chats?filter=channel", icon: Megaphone },
     { label: "Groups", value: stats?.groups, href: "/chats?filter=group", icon: Users },
-    { label: "Bot users", value: stats?.botUsers, href: "/bots?filter=monitoring", icon: Activity },
-    { label: "Messages today", value: stats?.messagesToday, href: "/bots?filter=monitoring", icon: MessageSquare },
+    {
+      label: "Bot users",
+      value: stats?.botUsers,
+      href: "/bots?filter=monitoring",
+      icon: Activity,
+      sparkline: trend?.map((p) => p.botUsersNew),
+      delta: trend ? sumLast(trend, 7, (p) => p.botUsersNew) : undefined,
+    },
+    {
+      label: "Messages today",
+      value: stats?.messagesToday,
+      href: "/bots?filter=monitoring",
+      icon: MessageSquare,
+      sparkline: trend?.map((p) => p.botMessagesIn),
+      delta: trend ? sumLast(trend, 7, (p) => p.botMessagesIn) : undefined,
+    },
   ];
 
   return (
@@ -200,7 +242,7 @@ function StatTiles({ stats }: { stats: OverviewStats | null }) {
       </Link>
     )}
     <Stagger className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-      {tiles.map(({ label, value, href, icon: Icon }) => (
+      {tiles.map(({ label, value, href, icon: Icon, sparkline, delta }) => (
         <StaggerItem key={label}>
           <Link href={href}>
             <InteractiveCard className="h-full p-4">
@@ -211,7 +253,15 @@ function StatTiles({ stats }: { stats: OverviewStats | null }) {
               {value === undefined ? (
                 <Skeleton className="h-7 w-10" />
               ) : (
-                <div className="text-2xl font-semibold">{compact.format(value)}</div>
+                <>
+                  <div className="text-2xl font-semibold">{compact.format(value)}</div>
+                  {delta !== undefined && (
+                    <div className="mt-1 text-xs text-[var(--muted)]">+{compact.format(delta)} this week</div>
+                  )}
+                  {sparkline && sparkline.some((v) => v > 0) && (
+                    <Sparkline values={sparkline} className="mt-2" />
+                  )}
+                </>
               )}
             </InteractiveCard>
           </Link>

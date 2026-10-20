@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api-client";
+import { buttonIdFrom } from "@/lib/button-id";
 import { isPrivateChatId, type ButtonStyle, type InlineButton } from "@/lib/botapi";
 import { validateInlineButtons } from "@/lib/validation";
 
@@ -25,6 +26,11 @@ export interface ButtonDraft {
   allow?: ChatKind[];
   /** `login` buttons: ask for permission to message the user. */
   writeAccess?: boolean;
+  /**
+   * `callback` buttons created in this editor: the ID follows the label until the user edits the ID. Never set on
+   * buttons loaded from a saved rule, so renaming a saved button can't silently change (and so unlink) its ID.
+   */
+  idAuto?: boolean;
 }
 
 export const emptyButtonDraft = (): ButtonDraft => ({ text: "", kind: "url", value: "", style: "", sameRow: false });
@@ -33,10 +39,10 @@ const MAX_DRAFTS = 8;
 const MAX_PER_ROW = 4;
 
 const KIND_LABELS: Record<ButtonKind, string> = {
-  url: "Link",
-  callback: "Callback",
-  copy: "Copy text",
-  web_app: "Mini App",
+  url: "Opens a link",
+  callback: "Triggers a reply",
+  copy: "Copies text",
+  web_app: "Opens a Mini App",
   inline: "Inline query (pick chat)",
   inline_here: "Inline query (this chat)",
   login: "Telegram Login",
@@ -45,7 +51,7 @@ const KIND_LABELS: Record<ButtonKind, string> = {
 
 const PLACEHOLDERS: Record<ButtonKind, string> = {
   url: "https://…",
-  callback: "callback data, e.g. ok",
+  callback: "Button ID (hidden), e.g. about",
   copy: "text copied to the clipboard",
   web_app: "https://… (Mini App)",
   inline: "inline query (may be empty)",
@@ -276,7 +282,7 @@ export function ButtonsEditor({
           )}
           <input
             value={b.text}
-            onChange={(e) => update(i, { text: e.target.value })}
+            onChange={(e) => update(i, b.kind === "callback" && b.idAuto ? { text: e.target.value, value: buttonIdFrom(e.target.value) } : { text: e.target.value })}
             placeholder="Button text"
             maxLength={64}
             aria-label="Button text"
@@ -284,7 +290,10 @@ export function ButtonsEditor({
           />
           <select
             value={b.kind}
-            onChange={(e) => update(i, { kind: e.target.value as ButtonKind, value: "" })}
+            onChange={(e) => {
+              const kind = e.target.value as ButtonKind;
+              update(i, kind === "callback" ? { kind, value: buttonIdFrom(b.text), idAuto: true } : { kind, value: "", idAuto: false });
+            }}
             aria-label="Button type"
             className={field}
           >
@@ -296,8 +305,9 @@ export function ButtonsEditor({
           </select>
           <input
             value={b.value}
-            onChange={(e) => update(i, { value: e.target.value })}
+            onChange={(e) => update(i, { value: e.target.value, idAuto: false })}
             placeholder={PLACEHOLDERS[b.kind]}
+            title={b.kind === "callback" ? "A hidden ID that links this button to a \u201cSomeone presses a button\u201d rule. It is never shown to people." : undefined}
             aria-label={KIND_LABELS[b.kind]}
             className={`${field} min-w-0 flex-1`}
           />
@@ -349,7 +359,7 @@ export function ButtonsEditor({
       </Button>
       {drafts.some((d) => d.kind === "callback" && isFilled(d)) && (
         <p className="text-xs text-[var(--muted)]">
-          Callback presses are only noticed while monitoring is on. Add a matching &ldquo;Button answer&rdquo; rule in Automation to reply to them.
+          Button presses are only noticed while monitoring is on. A button only does something once a &ldquo;Someone presses a button&rdquo; rule has the same ID (the Conversation builder creates it for you).
         </p>
       )}
       {usesInline && (

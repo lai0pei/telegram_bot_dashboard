@@ -2,7 +2,9 @@ import {
   BarChart3,
   Boxes,
   Coins,
+  GitBranch,
   LayoutDashboard,
+  LayoutTemplate,
   MessageSquare,
   MessagesSquare,
   Radio,
@@ -18,6 +20,8 @@ import {
 
 export type SectionId =
   | "overview"
+  | "builder"
+  | "templates"
   | "messages"
   | "chats"
   | "automation"
@@ -46,6 +50,13 @@ export interface SectionGroup {
 export const SECTION_GROUPS: SectionGroup[] = [
   { label: null, sections: [{ id: "overview", label: "Overview", icon: LayoutDashboard }] },
   {
+    label: "Build",
+    sections: [
+      { id: "builder", label: "Conversation builder", icon: GitBranch },
+      { id: "templates", label: "Templates", icon: LayoutTemplate },
+    ],
+  },
+  {
     label: "Conversations",
     sections: [
       { id: "messages", label: "Messages", icon: MessageSquare },
@@ -55,7 +66,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
   {
     label: "Engage",
     sections: [
-      { id: "automation", label: "Automation", icon: Zap },
+      { id: "automation", label: "All rules", icon: Zap },
       { id: "outbox", label: "Outbox", icon: Send },
     ],
   },

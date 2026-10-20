@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { botApi, buttonsForChat, replyKeyboardForChat, type InlineButton, type ReplyKeyboard, type TelegramCallbackQuery, type TelegramMessage } from "./botapi";
+import { findCallbackRule } from "./callback-match";
 import { db } from "./db";
 import { autoReplies, botMessages } from "./db/schema";
 import { describeMessage } from "./messages";
@@ -220,9 +221,7 @@ export function matchAutoReply(botId: number, botUsername: string, message: Tele
 
 /** The first enabled rule answering a pressed button with this callback data (exact data or a data prefix). */
 export function matchCallbackRule(botId: number, data: string): AutoReplyRow | undefined {
-  return listAutoReplies(botId).find(
-    (r) => r.enabled && ((r.matchType === "callback" && r.pattern === data) || (r.matchType === "callback_prefix" && data.startsWith(r.pattern)))
-  );
+  return findCallbackRule(listAutoReplies(botId), data);
 }
 
 /** Counts a rule firing. Called when its reply is sent (after the update's writes), not when it is matched. */

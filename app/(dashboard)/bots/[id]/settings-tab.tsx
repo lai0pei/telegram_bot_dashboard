@@ -12,7 +12,13 @@ import { FieldError } from "@/components/ui/field-error";
 import { LanguageSelect } from "./language-select";
 import type { BotDetail } from "./types";
 
-export function SettingsTab({ bot, onSaved }: { bot: BotDetail; onSaved: () => void }) {
+export interface ProfileDraft {
+  name: string;
+  shortDescription: string;
+  description: string;
+}
+
+export function SettingsTab({ bot, onSaved, onDraftChange }: { bot: BotDetail; onSaved: () => void; onDraftChange?: (draft: ProfileDraft) => void }) {
   const [name, setName] = useState(bot.name ?? bot.firstName);
   const [shortDescription, setShortDescription] = useState(bot.shortDescription ?? "");
   const [description, setDescription] = useState(bot.description ?? "");
@@ -21,6 +27,15 @@ export function SettingsTab({ bot, onSaved }: { bot: BotDetail; onSaved: () => v
   const [loadingLang, setLoadingLang] = useState(false);
   // Ignores a slow response for a language the user has already switched away from.
   const langRequest = useRef(0);
+
+  // Reports the fields as they are being typed (called from the handlers, not an effect) so a preview can follow along.
+  function edit(patch: Partial<ProfileDraft>) {
+    const next = { name, shortDescription, description, ...patch };
+    if (patch.name !== undefined) setName(patch.name);
+    if (patch.shortDescription !== undefined) setShortDescription(patch.shortDescription);
+    if (patch.description !== undefined) setDescription(patch.description);
+    onDraftChange?.(next);
+  }
 
   // For a specific language an empty name is allowed: it removes that language's override.
   const nameError = lang && !name ? null : validateBotName(name);
@@ -31,9 +46,7 @@ export function SettingsTab({ bot, onSaved }: { bot: BotDetail; onSaved: () => v
     setLang(code);
     const request = ++langRequest.current;
     if (code === "") {
-      setName(bot.name ?? bot.firstName);
-      setShortDescription(bot.shortDescription ?? "");
-      setDescription(bot.description ?? "");
+      edit({ name: bot.name ?? bot.firstName, shortDescription: bot.shortDescription ?? "", description: bot.description ?? "" });
       return;
     }
     setLoadingLang(true);
@@ -42,9 +55,7 @@ export function SettingsTab({ bot, onSaved }: { bot: BotDetail; onSaved: () => v
         `/api/bots/${bot.id}/profile?lang=${code}`
       );
       if (request !== langRequest.current) return;
-      setName(p.name);
-      setShortDescription(p.shortDescription);
-      setDescription(p.description);
+      edit({ name: p.name, shortDescription: p.shortDescription, description: p.description });
     } catch (err) {
       if (request === langRequest.current) toast.error(err instanceof Error ? err.message : "Failed to load language.");
     } finally {
@@ -84,7 +95,7 @@ export function SettingsTab({ bot, onSaved }: { bot: BotDetail; onSaved: () => v
       <form onSubmit={handleSave} className="space-y-4">
         <div className="space-y-1.5">
           <Label htmlFor="name">Name</Label>
-          <Input id="name" value={name} onChange={(e) => setName(e.target.value)} maxLength={64} />
+          <Input id="name" value={name} onChange={(e) => edit({ name: e.target.value })} maxLength={64} />
           <FieldError error={nameError} />
         </div>
         <div className="space-y-1.5">
@@ -92,7 +103,7 @@ export function SettingsTab({ bot, onSaved }: { bot: BotDetail; onSaved: () => v
           <Input
             id="shortDesc"
             value={shortDescription}
-            onChange={(e) => setShortDescription(e.target.value)}
+            onChange={(e) => edit({ shortDescription: e.target.value })}
             maxLength={120}
           />
           {shortDescriptionError ? (
@@ -109,7 +120,7 @@ export function SettingsTab({ bot, onSaved }: { bot: BotDetail; onSaved: () => v
             rows={4}
             maxLength={512}
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => edit({ description: e.target.value })}
           />
           {descriptionError ? (
             <p className="text-xs text-[var(--danger)]">{descriptionError}</p>

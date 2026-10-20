@@ -1,5 +1,6 @@
 import { BotApiError, botApi, type BotCommandScopeType } from "./botapi";
 import { createAutoReply, listAutoReplies, parseButtons, parseReplyKeyboard } from "./auto-replies";
+import { withRetry as attempt } from "./bot-api-retry";
 import { COMMON_LANGUAGES } from "./languages";
 
 export const CLONE_SECTIONS = ["profile", "commands", "menuButton", "adminRights", "autoReplies"] as const;
@@ -13,20 +14,6 @@ export interface CloneResult {
 
 const SCOPES: BotCommandScopeType[] = ["default", "all_private_chats", "all_group_chats", "all_chat_administrators"];
 const LANGUAGES = ["", ...COMMON_LANGUAGES];
-const MAX_RETRY_WAIT_S = 10;
-
-/** One Bot API call, retried once if Telegram asks for a short wait. */
-async function attempt<T>(fn: () => Promise<T>): Promise<T> {
-  try {
-    return await fn();
-  } catch (err) {
-    if (err instanceof BotApiError && err.errorCode === 429 && (err.retryAfter ?? 1) <= MAX_RETRY_WAIT_S) {
-      await new Promise((resolve) => setTimeout(resolve, (err.retryAfter ?? 1) * 1000));
-      return fn();
-    }
-    throw err;
-  }
-}
 
 function message(err: unknown): string {
   return err instanceof BotApiError ? err.description : err instanceof Error ? err.message : String(err);

@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/api-client";
 import { validateMenuButton, validatePrivateChatId } from "@/lib/validation";
 import type { MenuButton } from "@/lib/botapi";
+import { TelegramPreview } from "./telegram-preview";
 import type { BotDetail } from "./types";
 
 type Kind = MenuButton["type"];
@@ -178,6 +179,21 @@ export function MenuButtonCard({ bot }: { bot: BotDetail }) {
           </div>
         </div>
       )}
+      <div className="mt-4 space-y-1.5">
+        <p className="text-xs text-[var(--muted)]">
+          Preview{kind === "web_app" ? "" : " — the list shows your saved commands"}
+        </p>
+        <TelegramPreview
+          mode="chat"
+          botName={bot.name ?? bot.firstName}
+          username={bot.username}
+          photoSrc={`/api/bots/${bot.id}/photo`}
+          messages={[{ from: "bot", text: "Tap the menu button to see what I can do." }]}
+          menuButton={{ type: kind, text: text.trim() }}
+          commands={bot.commands}
+          showCommands={kind !== "web_app"}
+        />
+      </div>
       <div className="mt-4">
         <Button size="sm" onClick={save} loading={saving} disabled={invalid}>
           Save menu button

@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { withAuth, errorResponse } from "@/lib/api-guard";
+<<<<<<< HEAD
 import { botApiErrorResponse } from "@/lib/bot-api-errors";
 import { getBotById, getBotToken, setMonitorEnabled } from "@/lib/bots";
+=======
+import { getBotById, getBotToken, setWebhookHealth } from "@/lib/bots";
+>>>>>>> a05ef6cc882ff2f00a1a66315cd22f35b5d75cda
 import { botApi } from "@/lib/botapi";
 import {
   validateAllowedUpdates,
@@ -45,6 +49,7 @@ export const PUT = withAuth(async (req: Request, ctx: { params: Promise<{ id: st
     }
 
     const webhook = await botApi.getWebhookInfo(token);
+    setWebhookHealth(bot.id, webhook.last_error_message ?? null, webhook.pending_update_count ?? null);
     return NextResponse.json({ ok: true, webhook });
   } catch (err) {
     return botApiErrorResponse(err) ?? errorResponse(err, 400);

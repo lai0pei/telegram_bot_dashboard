@@ -73,6 +73,8 @@ export interface TelegramAccountSummary {
   isActive: boolean;
   /** The Telegram session was ended elsewhere (e.g. from the phone); re-link by QR to restore it. */
   revoked: boolean;
+  digestFrequency: "off" | "daily" | "weekly";
+  digestHour: number;
 }
 
 let mePromise: Promise<Me> | null = null;

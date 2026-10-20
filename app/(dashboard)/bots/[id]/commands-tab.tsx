@@ -13,6 +13,7 @@ import { CHAT_COMMAND_SCOPES, validateCommand, validateCommandDescription, valid
 import { spring } from "@/components/motion";
 import { LanguageSelect } from "./language-select";
 import type { BotCommand, BotDetail } from "./types";
+import { ESSENTIAL_COMMANDS } from "./essential-commands";
 
 // Stable per-row IDs so AnimatePresence can animate removal correctly (array index shifts on delete).
 // A module-level counter (not a ref) since it's only ever read/written in event handlers, never during render.
@@ -136,11 +137,7 @@ export function CommandsTab({ bot, onSaved }: { bot: BotDetail; onSaved: () => v
 
   /** Telegram's three global commands; only the ones the list doesn't have yet are added (still unsaved). */
   function addEssentials() {
-    const essentials: BotCommand[] = [
-      { command: "start", description: "Start the bot" },
-      { command: "help", description: "Show help and the available commands" },
-      { command: "settings", description: "View or change your settings" },
-    ];
+    const essentials = ESSENTIAL_COMMANDS;
     setCommands((prev) => {
       const have = new Set(prev.map((c) => c.command.trim().toLowerCase()));
       const missing = essentials.filter((c) => !have.has(c.command));

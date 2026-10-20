@@ -9,12 +9,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/api-client";
 import { timeAgo } from "@/lib/time";
 import { HealthCard } from "./info-tab";
+import { SetupChecklist } from "./setup-checklist";
 import type { SectionId } from "./sections";
 import type { AutoReplyRule, BotConversation, BotDetail, BotStatsData } from "./types";
 
 type Load<T> = { state: "loading" } | { state: "error" } | { state: "ok"; data: T };
 
-function useLoad<T>(url: string): Load<T> {
+/** Fetches `url` on mount (and again whenever `version` is bumped, to refresh after an edit made elsewhere on the page). */
+function useLoad<T>(url: string, version = 0): Load<T> {
   const [result, setResult] = useState<Load<T>>({ state: "loading" });
   useEffect(() => {
     let live = true;
@@ -24,7 +26,7 @@ function useLoad<T>(url: string): Load<T> {
     return () => {
       live = false;
     };
-  }, [url]);
+  }, [url, version]);
   return result;
 }
 
@@ -65,12 +67,24 @@ export function OverviewSection({
   onOpen: (section: SectionId, chat?: string) => void;
 }) {
   const stats = useLoad<BotStatsData>(`/api/bots/${bot.id}/stats`);
-  const rules = useLoad<{ rules: AutoReplyRule[] }>(`/api/bots/${bot.id}/auto-replies`);
+  // Bumped when the setup checklist changes a rule, so the automation card and the checklist agree.
+  const [rulesVersion, setRulesVersion] = useState(0);
+  const rules = useLoad<{ rules: AutoReplyRule[] }>(`/api/bots/${bot.id}/auto-replies`, rulesVersion);
   const messages = useLoad<{ conversations: BotConversation[] }>(`/api/bots/${bot.id}/messages`);
   const open = (section: SectionId) => onOpen(section);
 
   return (
     <div className="grid gap-4 lg:grid-cols-3">
+      <div className="lg:col-span-3">
+        <SetupChecklist
+          bot={bot}
+          photoSrc={photoSrc}
+          rules={rules.state === "ok" ? rules.data.rules : null}
+          onReload={onChange}
+          onRulesChanged={() => setRulesVersion((v) => v + 1)}
+          onOpen={open}
+        />
+      </div>
       <Card>
         <CardHeader>
           <CardTitle>Profile</CardTitle>

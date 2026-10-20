@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import {
   botApi,
   type TelegramCallbackQuery,
@@ -27,6 +28,22 @@ import { getBusinessConnection, markBusinessMessagesDeleted, upsertBusinessConne
  * sockets cost almost nothing) and one slow or failing bot never delays the
  * others. Each bot keeps its own offset (lastUpdateId), so restarts don't
  * re-fetch old updates.
+=======
+import { botApi } from "./botapi";
+import { getBotToken, listAllMonitoredBots, setLastUpdateId, setPollHealth } from "./bots";
+import { db } from "./db";
+import { botMessages, botUsers } from "./db/schema";
+import { eq, and } from "drizzle-orm";
+import { snapshotDailyStats, utcDay } from "./stats";
+import { maybeSendDigests } from "./digest";
+
+/**
+ * Background long-poll loop for every bot with monitoring enabled. Started
+ * once per process from instrumentation.ts. Each bot is polled with its own
+ * offset (lastUpdateId) so restarts don't re-fetch old updates. Also drives
+ * the once-a-day stats snapshot and digest check, since this is the only
+ * long-running loop in the process.
+>>>>>>> a05ef6cc882ff2f00a1a66315cd22f35b5d75cda
  */
 const POLL_TIMEOUT_SECONDS = 15;
 const SUPERVISOR_INTERVAL_MS = 3000;
@@ -34,6 +51,7 @@ const MIN_BACKOFF_MS = 5000;
 const MAX_BACKOFF_MS = 60_000;
 
 declare global {
+<<<<<<< HEAD
   var __tgDashPollerRunning: boolean | undefined;
   /** Bot IDs that currently have a worker, so hot-reload can't start a second one. */
   var __tgDashPollerWorkers: Set<number> | undefined;
@@ -66,6 +84,26 @@ async function supervise() {
       pollBot(bot.id)
         .catch((err) => console.error(`[poller] worker for bot ${bot.username} crashed:`, err))
         .finally(() => workers.delete(bot.id));
+=======
+  var __tgDashLastSnapshotDay: string | undefined;
+}
+
+export function startPoller() {
+  if (running) return;
+  running = true;
+  loop().catch((err) => console.error("[poller] fatal error, stopped:", err));
+}
+
+async function loop() {
+  while (running) {
+    maybeSnapshotDailyStats();
+    maybeSendDigests().catch((err) => console.error("[poller] digest check failed:", err));
+
+    const monitored = listAllMonitoredBots().filter((b) => b.encryptedToken);
+    if (monitored.length === 0) {
+      await sleep(3000);
+      continue;
+>>>>>>> a05ef6cc882ff2f00a1a66315cd22f35b5d75cda
     }
     await sleep(SUPERVISOR_INTERVAL_MS);
   }
@@ -95,7 +133,16 @@ async function pollBot(botId: number) {
           if (isDatabaseError(err)) throw err;
           console.error(`[poller] bot ${bot.username} skipped update ${update.update_id}:`, err);
         }
+<<<<<<< HEAD
         setLastUpdateId(bot.id, update.update_id);
+=======
+        setPollHealth(bot.id, null);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`[poller] bot ${bot.username} getUpdates failed:`, err);
+        setPollHealth(bot.id, message);
+        await sleep(5000);
+>>>>>>> a05ef6cc882ff2f00a1a66315cd22f35b5d75cda
       }
     } catch (err) {
       console.error(`[poller] bot ${bot.username} getUpdates failed:`, err);
@@ -107,6 +154,7 @@ async function pollBot(botId: number) {
   }
 }
 
+<<<<<<< HEAD
 function isDatabaseError(err: unknown): boolean {
   const code = (err as { code?: unknown } | null)?.code;
   return typeof code === "string" && code.startsWith("SQLITE_");
@@ -243,6 +291,24 @@ function recordCallback(botId: number, token: string, query: TelegramCallbackQue
 }
 
 function recordIncomingMessage(botId: number, botUsername: string, token: string, message: TelegramMessage, autoReply = true) {
+=======
+/** Runs the stats snapshot at most once per UTC day per process (each poller cycle, this is a cheap no-op check). */
+function maybeSnapshotDailyStats() {
+  const today = utcDay(new Date());
+  if (globalThis.__tgDashLastSnapshotDay === today) return;
+  globalThis.__tgDashLastSnapshotDay = today;
+  try {
+    snapshotDailyStats();
+  } catch (err) {
+    console.error("[poller] daily stats snapshot failed:", err);
+  }
+}
+
+function recordIncomingMessage(
+  botId: number,
+  message: NonNullable<Awaited<ReturnType<typeof botApi.getUpdates>>[number]["message"]>
+) {
+>>>>>>> a05ef6cc882ff2f00a1a66315cd22f35b5d75cda
   const now = new Date();
   const described = describeMessage(message);
   // A business chat belongs to the business owner, not to the bot. The owner's own messages in it arrive as business
