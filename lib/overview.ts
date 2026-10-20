@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gt, inArray } from "drizzle-orm";
+import { and, count, eq, gt, inArray } from "drizzle-orm";
 import { db } from "./db";
 import { botMessages, botUsers, bots, chats } from "./db/schema";
 
@@ -11,14 +11,8 @@ export interface OverviewStats {
   groups: number;
   botUsers: number;
   messagesToday: number;
-  recentMessages: {
-    id: number;
-    botId: number;
-    botUsername: string;
-    fromName: string;
-    text: string | null;
-    createdAt: number;
-  }[];
+  /** Bots whose last health check found a problem (see lib/health.ts). */
+  botsNeedingAttention: number;
 }
 
 /**
@@ -29,7 +23,7 @@ export interface OverviewStats {
  */
 export function getOverviewStats(telegramAccountId: string): OverviewStats {
   const ownBots = db
-    .select({ id: bots.id, username: bots.username, monitorEnabled: bots.monitorEnabled })
+    .select({ id: bots.id, username: bots.username, monitorEnabled: bots.monitorEnabled, healthStatus: bots.healthStatus })
     .from(bots)
     .where(eq(bots.ownerUserId, telegramAccountId))
     .all();
@@ -39,7 +33,6 @@ export function getOverviewStats(telegramAccountId: string): OverviewStats {
 
   let botUserCount = 0;
   let messagesToday = 0;
-  let recentMessages: OverviewStats["recentMessages"] = [];
   if (botIds.length > 0) {
     botUserCount = db.select({ n: count() }).from(botUsers).where(inArray(botUsers.botId, botIds)).all()[0]?.n ?? 0;
     messagesToday =
@@ -54,23 +47,6 @@ export function getOverviewStats(telegramAccountId: string): OverviewStats {
           )
         )
         .all()[0]?.n ?? 0;
-
-    const usernames = new Map(ownBots.map((b) => [b.id, b.username]));
-    recentMessages = db
-      .select()
-      .from(botMessages)
-      .where(and(inArray(botMessages.botId, botIds), eq(botMessages.direction, "in")))
-      .orderBy(desc(botMessages.createdAt))
-      .limit(8)
-      .all()
-      .map((m) => ({
-        id: m.id,
-        botId: m.botId,
-        botUsername: usernames.get(m.botId) ?? "",
-        fromName: m.fromFirstName || (m.fromUsername ? `@${m.fromUsername}` : m.chatId),
-        text: m.text,
-        createdAt: m.createdAt.getTime(),
-      }));
   }
 
   return {
@@ -80,6 +56,6 @@ export function getOverviewStats(telegramAccountId: string): OverviewStats {
     groups: chatRows.filter((c) => c.kind !== "channel").length,
     botUsers: botUserCount,
     messagesToday,
-    recentMessages,
+    botsNeedingAttention: ownBots.filter((b) => b.healthStatus === "warning" || b.healthStatus === "error").length,
   };
 }

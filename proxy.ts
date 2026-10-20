@@ -38,5 +38,8 @@ export async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // /api/ is excluded: API routes enforce auth themselves (see above), and matching them would make Next clone
+  // and buffer each request body in memory, truncating anything over 10 MB (proxyClientMaxBodySize) — which
+  // would corrupt file uploads such as profile photos and bot media.
+  matcher: ["/((?!api/|_next/static|_next/image|favicon.ico).*)"],
 };

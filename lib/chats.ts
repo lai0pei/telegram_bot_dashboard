@@ -1,11 +1,13 @@
 import { and, eq } from "drizzle-orm";
 import { helpers, type TelegramClient } from "teleproto";
+import { uploads } from "teleproto/client";
 import { Api } from "teleproto/tl";
 import { RPCError } from "teleproto/errors";
 import { db } from "./db";
 import { chats } from "./db/schema";
 import { getClient } from "./mtproto";
 import { singleFlight } from "./single-flight";
+import { asPhotoBuffer } from "./photos";
 
 export type ChatRow = typeof chats.$inferSelect;
 export type ChatKind = ChatRow["kind"];
@@ -132,6 +134,10 @@ const FRIENDLY_ERRORS: Record<string, string> = {
   BOT_GROUPS_BLOCKED: "This bot can't be added to groups (enable it with BotFather's /setjoingroups).",
   USER_PRIVACY_RESTRICTED: "This user's privacy settings prevent adding them.",
   RIGHT_FORBIDDEN: "You can't grant those admin rights.",
+  PHOTO_INVALID: "Telegram rejected that image.",
+  PHOTO_CROP_SIZE_SMALL: "That image is too small. Use at least 160×160 pixels.",
+  PHOTO_EXT_INVALID: "Telegram doesn't accept that image format.",
+  CHAT_NOT_MODIFIED: "The photo is already that.",
 };
 
 /** Re-throws Telegram RPC errors with a readable message where we know one. */
@@ -349,4 +355,35 @@ export function deleteChat(userId: string, row: ChatRow): Promise<void> {
     await client.invoke(request).catch(rethrowFriendly);
     deleteChatRow(row.id);
   });
+}
+
+// --- Profile photo ---------------------------------------------------------
+
+/** The chat's current small photo, or null if it has none. */
+export async function getChatPhoto(userId: string, row: ChatRow): Promise<Buffer | null> {
+  const client = await requireClient(userId);
+  const entity = await client.getEntity(inputPeer(row));
+  return asPhotoBuffer(await client.downloadProfilePhoto(entity, { isBig: false }));
+}
+
+async function applyChatPhoto(userId: string, row: ChatRow, photo: Api.TypeInputChatPhoto): Promise<void> {
+  const client = await requireClient(userId);
+  const request =
+    row.kind === "group"
+      ? new Api.messages.EditChatPhoto({ chatId: helpers.returnBigInt(row.telegramId), photo })
+      : new Api.channels.EditPhoto({ channel: inputChannel(row), photo });
+  await client.invoke(request).catch(rethrowFriendly);
+}
+
+export async function setChatPhoto(userId: string, row: ChatRow, file: { name: string; data: Buffer }): Promise<void> {
+  const client = await requireClient(userId);
+  const uploaded = await client.uploadFile({
+    file: new uploads.CustomFile(file.name, file.data.length, "", file.data),
+    workers: 1,
+  });
+  await applyChatPhoto(userId, row, new Api.InputChatUploadedPhoto({ file: uploaded }));
+}
+
+export function deleteChatPhoto(userId: string, row: ChatRow): Promise<void> {
+  return applyChatPhoto(userId, row, new Api.InputChatPhotoEmpty());
 }

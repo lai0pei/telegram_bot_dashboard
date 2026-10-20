@@ -10,6 +10,7 @@ import { DetailHeader } from "../../detail-header";
 import { KIND_LABELS, type ChatDetail } from "./types";
 import { InfoTab } from "./info-tab";
 import { SettingsTab } from "./settings-tab";
+import { ProfilePhotoCard } from "../../profile-photo-card";
 import { BotsTab } from "./bots-tab";
 import { DangerTab } from "./danger-tab";
 import ChatDetailLoading from "./loading";
@@ -19,6 +20,8 @@ export default function ChatDetailPage() {
   const router = useRouter();
   const [chat, setChat] = useState<ChatDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  // Bumped after a photo upload/removal so every avatar of this chat refetches.
+  const [photoVersion, setPhotoVersion] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -49,6 +52,7 @@ export default function ChatDetailPage() {
         }`}
         backHref="/chats"
         backLabel="Channels & groups"
+        photoSrc={`/api/chats/${chat.id}/photo?v=${photoVersion}`}
       />
 
       <Tabs defaultValue="info">
@@ -63,7 +67,18 @@ export default function ChatDetailPage() {
           <InfoTab chat={chat} onChange={load} />
         </TabsContent>
         <TabsContent value="settings">
-          <SettingsTab key={`${chat.title}|${chat.about}|${chat.username}`} chat={chat} onSaved={load} />
+          <div className="space-y-4">
+            <ProfilePhotoCard
+              endpoint={`/api/chats/${chat.id}/photo`}
+              name={chat.title}
+              photoSrc={`/api/chats/${chat.id}/photo?v=${photoVersion}`}
+              disabledReason={
+                chat.canChangeInfo ? undefined : 'You don\'t have the "Change info" admin right here, so the photo is read-only.'
+              }
+              onChanged={() => setPhotoVersion((v) => v + 1)}
+            />
+            <SettingsTab key={`${chat.title}|${chat.about}|${chat.username}`} chat={chat} onSaved={load} />
+          </div>
         </TabsContent>
         <TabsContent value="bots">
           <BotsTab chat={chat} />

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Activity,
+  AlertTriangle,
   Bot as BotIcon,
   ExternalLink,
   Eye,
@@ -18,13 +19,14 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardHeader, CardTitle, InteractiveCard } from "@/components/ui/card";
+import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch, getMe, type Me } from "@/lib/api-client";
 import { FadeIn, Stagger, StaggerItem } from "@/components/motion";
 import { AccountCardSkeleton } from "./loading";
+import { LimitsCard } from "./limits-card";
 import { useAccounts } from "./accounts-context";
 import { NoActiveAccount, isNoActiveAccount } from "./no-active-account";
 
@@ -35,31 +37,10 @@ interface OverviewStats {
   groups: number;
   botUsers: number;
   messagesToday: number;
-  recentMessages: {
-    id: number;
-    botId: number;
-    botUsername: string;
-    fromName: string;
-    text: string | null;
-    createdAt: number;
-  }[];
+  botsNeedingAttention: number;
 }
 
 const compact = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
-const relative = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
-
-function timeAgo(ms: number): string {
-  const seconds = Math.round((ms - Date.now()) / 1000);
-  const units: [Intl.RelativeTimeFormatUnit, number][] = [
-    ["day", 86400],
-    ["hour", 3600],
-    ["minute", 60],
-  ];
-  for (const [unit, size] of units) {
-    if (Math.abs(seconds) >= size) return relative.format(Math.round(seconds / size), unit);
-  }
-  return "just now";
-}
 
 function greeting(): string {
   const hour = new Date().getHours();
@@ -112,21 +93,18 @@ export default function OverviewPage() {
 
       <StatTiles stats={stats} />
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <RecentMessages stats={stats} className="lg:col-span-2" />
-        <QuickActions />
-      </div>
+      <LimitsCard />
+
+      <QuickActions />
     </div>
   );
 }
 
 function ProfileCard({ me }: { me: Me }) {
   const { active, accounts } = useAccounts();
-  const [photoFailed, setPhotoFailed] = useState(false);
   const [showPhone, setShowPhone] = useState(false);
 
   const name = [me.firstName, me.lastName].filter(Boolean).join(" ") || "—";
-  const initial = (me.firstName || me.username || "?").charAt(0).toUpperCase();
   const linkedCount = accounts?.filter((a) => !a.revoked).length ?? 0;
 
   return (
@@ -134,19 +112,7 @@ function ProfileCard({ me }: { me: Me }) {
       <Card>
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
           <div className="flex items-center gap-4">
-            {active && !photoFailed ? (
-              // eslint-disable-next-line @next/next/no-img-element -- authenticated, per-account image from our own API
-              <img
-                src={`/api/me/photo?a=${active.id}`}
-                alt=""
-                className="h-16 w-16 shrink-0 rounded-full object-cover"
-                onError={() => setPhotoFailed(true)}
-              />
-            ) : (
-              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-[var(--primary)]/10 text-xl font-semibold text-[var(--primary)]">
-                {initial}
-              </div>
-            )}
+            <Avatar src={active ? `/api/me/photo?a=${active.id}` : null} name={me.firstName || me.username || "?"} className="h-16 w-16" textClassName="text-xl" />
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="truncate text-base font-semibold">{name}</span>
@@ -223,6 +189,16 @@ function StatTiles({ stats }: { stats: OverviewStats | null }) {
   ];
 
   return (
+    <div className="space-y-3">
+    {stats && stats.botsNeedingAttention > 0 && (
+      <Link
+        href="/bots"
+        className="flex items-center gap-2 rounded-lg border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-2 text-sm text-[var(--danger)]"
+      >
+        <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
+        {stats.botsNeedingAttention} {stats.botsNeedingAttention === 1 ? "bot needs" : "bots need"} attention. Open it to see what&apos;s wrong.
+      </Link>
+    )}
     <Stagger className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
       {tiles.map(({ label, value, href, icon: Icon }) => (
         <StaggerItem key={label}>
@@ -242,58 +218,7 @@ function StatTiles({ stats }: { stats: OverviewStats | null }) {
         </StaggerItem>
       ))}
     </Stagger>
-  );
-}
-
-function RecentMessages({ stats, className }: { stats: OverviewStats | null; className?: string }) {
-  return (
-    <Card className={className}>
-      <CardHeader>
-        <CardTitle>Recent bot messages</CardTitle>
-        {stats && stats.recentMessages.length > 0 && (
-          <span className="text-xs text-[var(--muted)]">From bots with monitoring on</span>
-        )}
-      </CardHeader>
-      {stats === null ? (
-        <div className="space-y-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-10 w-full" />
-          ))}
-        </div>
-      ) : stats.recentMessages.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 py-6 text-center text-sm text-[var(--muted)]">
-          <MessageSquare className="h-7 w-7" />
-          <p>No messages yet. Turn on monitoring for a bot to see what people send it here.</p>
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/bots">Go to bots</Link>
-          </Button>
-        </div>
-      ) : (
-        <ul className="-mx-2 divide-y divide-[var(--card-border)]">
-          {stats.recentMessages.map((m) => (
-            <li key={m.id}>
-              <Link
-                href={`/bots/${m.botId}?tab=messages`}
-                className="flex items-start gap-3 rounded-md px-2 py-2.5 transition-colors hover:bg-black/5 dark:hover:bg-white/5"
-              >
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--primary)]/10 text-xs font-semibold text-[var(--primary)]">
-                  {m.fromName.replace(/^@/, "").charAt(0).toUpperCase() || "?"}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline justify-between gap-2 text-sm">
-                    <span className="truncate font-medium">
-                      {m.fromName} <span className="font-normal text-[var(--muted)]">→ @{m.botUsername}</span>
-                    </span>
-                    <span className="shrink-0 text-xs text-[var(--muted)]">{timeAgo(m.createdAt)}</span>
-                  </div>
-                  <p className="truncate text-sm text-[var(--muted)]">{m.text || "(non-text message)"}</p>
-                </div>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
+    </div>
   );
 }
 

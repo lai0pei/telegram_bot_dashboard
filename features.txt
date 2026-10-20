@@ -1,0 +1,469 @@
+# Telegram Bot Features — Complete List
+
+## 1. Inputs
+
+- Commands (`/start`, `/help`, `/settings`, custom commands)
+- Custom reply keyboards
+- Inline keyboards and interactive buttons
+- Menu button for commands or Mini Apps
+- Global commands
+- Command scopes for different users and groups
+- Multilingual commands
+- Chat selection
+- User selection
+- Contact, location, and poll requests
+- File, text, sticker, voice message, and other input handling
+- Mini App launch buttons
+
+## 2. Interactions
+
+- Inline mode and inline queries
+- Deep linking with parameters
+- Group deep links (`startgroup`)
+- Attachment menu integration
+- Ephemeral messages (private responses in group chats)
+- Ephemeral commands
+- Streaming replies and draft messages
+- Stop-generation support
+- Topics in private chats
+- Context-aware interactions
+- Callback queries and interactive buttons
+- Contextual replies without joining a group
+
+## 3. AI Agents
+
+- AI assistants and chatbots
+- Streaming AI responses
+- Multiple AI agents working together
+- Multi-agent workflows
+- Research assistants
+- Translation and fact-checking assistants
+- Image-generation assistants
+- Context-aware group assistants
+- AI-powered business assistants
+- AI agents with separate conversation topics
+- Structured AI reports and responses
+- Agent delegation and coordination
+- Bot-to-bot communication
+- Guest AI agents
+- AI agents managed by other bots
+- Business account automation
+
+## 4. Media and Messaging
+
+- Text messages
+- Photos and videos
+- Animations and GIFs
+- Audio files
+- Voice messages
+- Documents and files
+- Stickers and custom emoji
+- Contacts and locations
+- Venues
+- Polls
+- Quizzes
+- Collaborative checklists
+- Live Photos
+- Media albums
+- Paid media
+- Rich media messages
+- Media captions and credits
+- Message editing and deletion
+- Message formatting
+- Message replies and quoting
+
+## 5. Message Formatting
+
+- Rich Markdown
+- Rich HTML
+- MarkdownV2
+- HTML formatting
+- Headings and paragraphs
+- Bold, italic, underline, and strikethrough
+- Spoilers
+- Inline code and code blocks
+- Subscript and superscript
+- Tables
+- Ordered and unordered lists
+- Task lists
+- Block quotes
+- Collapsible details
+- Footnotes
+- Anchors and links
+- LaTeX formulas
+- Images, videos, documents, and audio blocks
+- Maps and coordinates
+- Collages and slideshows
+- Embedded interactive buttons
+- Structured reports and documentation
+- Partial quotes
+
+## 6. Communities and Groups
+
+- Group management
+- Community management
+- Cross-chat onboarding
+- Community-wide notifications
+- Moderation workflows
+- Admin-specific commands
+- Group and channel selection
+- User selection for moderation
+- Group privacy mode
+- Bot administration
+- Service message handling
+- Channel membership support
+- Suggested posts
+- Channel direct messages
+- Topic-based channel support
+- Approving suggested posts
+- Declining suggested posts
+- Sending suggested posts with proposed prices and dates
+
+## 7. Integration
+
+- Mini Apps
+- Business Bots
+- Managed Bots
+- Bot-to-bot communication
+- Guest Bots
+- Communities
+- Channel direct messages
+- Suggested posts
+- Payments
+- Web Login
+- HTML5 Games
+- Stickers and custom emoji
+- External service integrations
+- Website authentication
+- Third-party payment providers
+- Business workflow automation
+
+## 8. Monetization
+
+- Telegram Stars
+- Selling digital products
+- Selling digital services
+- Selling online courses
+- Selling commissioned artwork
+- Selling in-game items
+- Paid photos
+- Paid videos
+- Paid media in supported chats
+- Paid subscription plans
+- Multiple subscription tiers
+- Revenue sharing from Telegram Ads
+- Receiving rewards in Toncoin
+- Sending gifts to users
+- Using Stars for supported bot features
+
+## 9. Mini Apps
+
+- Custom JavaScript interfaces
+- Launching apps inside Telegram
+- Main Mini App profile button
+- Mini App screenshots and video previews
+- Multilingual previews
+- Mini App Store discovery
+- Home screen shortcuts
+- Custom loading screens
+- Custom loading screen icons
+- Light and dark theme customization
+- Full-screen mode
+- Portrait and landscape orientation
+- Setting emoji status
+- Sharing media to chats
+- Downloading generated media
+- Sharing media to Telegram Stories
+- Geolocation access
+- Interactive maps
+- Location-based games
+- Accelerometer access
+- Device orientation tracking
+- Gyroscope access
+- Device hardware information
+- Graphics optimization based on hardware
+- QR code scanning
+- Biometric authentication
+- Native dialogs
+- Shared group app sessions
+- Multiplayer games
+- Group orders
+- Live whiteboards
+- Mini App event handling
+
+## 10. Business Bots
+
+- Connecting bots to Telegram Business accounts
+- Secretary Mode
+- Processing incoming business messages
+- Replying on behalf of account owners
+- Reading messages when authorized
+- Editing messages when authorized
+- Deleting messages when authorized
+- Managing access to selected chats
+- Business connection updates
+- Handling edited business messages
+- Handling deleted business messages
+- Permission-based automation
+- Quick action bar for managed chats
+- Deep linking to managed business conversations
+- Business workflow automation
+- Communication with other bots through business accounts
+
+## 11. Managed Bots
+
+- Creating bots through a management bot
+- Managing bots on behalf of owners
+- Creating personal AI agents
+- Creating business bots
+- Creating games and productivity tools
+- Sharing bot creation links
+- Pre-filling bot usernames and display names
+- Receiving managed bot updates
+- Retrieving managed bot tokens
+- Replacing or revoking bot tokens
+- Viewing bot access settings
+- Updating bot access settings
+- Managing bot profiles
+- Managing bot commands and settings
+- Controlling managed bots through the Bot API
+
+## 12. Bot-to-Bot Communication
+
+- Bot mentions in groups
+- Replies to other bots' messages
+- Private messages between bots
+- Business-account bot communication
+- AI agent collaboration
+- Multi-agent task delegation
+- Code review workflows
+- Customer support workflows
+- Automated reservation workflows
+- Bot-to-bot tool integration
+- Loop prevention
+- Duplicate message detection
+- Rate limiting
+- Interaction depth limits
+- Timeouts and termination safeguards
+
+## 13. Guest Bots
+
+- Guest Mode
+- Mentioning a bot in a group
+- Mentioning a bot in a private chat
+- Replying to a guest bot's message
+- Receiving contextual messages
+- Receiving the message being replied to
+- Sending a contextual response without joining the chat
+- Invoking up to three guest bots in one message
+- AI assistant interactions
+- Translation and fact-checking
+- Temporary utility access
+- Context-aware responses
+- One-reply guest interactions
+- Inline search and content sharing
+- Inline Mini App integration
+
+## 14. Payments
+
+- Accepting payments through supported providers
+- Sending invoices
+- Processing checkout
+- Validating orders
+- Confirming successful payments
+- Selling physical goods
+- Selling digital goods and services through Telegram Stars
+- Payment testing
+- Test payment tokens
+- Third-party payment provider integration
+- Collecting necessary checkout information
+- Providing purchased goods and services
+- Payment-related service messages
+
+## 15. Web Login
+
+- Telegram Login Widget
+- Website authentication
+- App authentication
+- Domain linking through BotFather
+- Inline Login
+- Login URL buttons
+- Seamless account authorization
+- Signup-free login flows
+- Authentication data validation
+- Website and Telegram account integration
+
+## 16. HTML5 Games
+
+- Single-player games
+- Multiplayer games
+- Game descriptions
+- Game preview images
+- Animated game previews
+- Launching games through bots
+- Inline game sharing
+- Game callback queries
+- HTML5 game URLs
+- Custom game buttons
+- Score tracking
+- High-score tables
+- Sharing game results
+- Game URL parameters
+- Game management through BotFather
+
+## 17. Stickers and Custom Emoji
+
+- Creating sticker packs
+- Creating custom emoji packs
+- Adding stickers to existing packs
+- Editing sticker packs
+- Deleting stickers
+- Reordering stickers
+- Sticker keywords
+- Custom emoji keywords
+- Adaptive emoji colors
+- Animated stickers
+- Vector animations
+- WEBM video stickers
+- Artwork pack management
+- Sticker pack sharing
+- Importing stickers from other platforms
+
+## 18. Language Support
+
+- Multilingual bot interfaces
+- Localized command lists
+- Language-specific commands
+- Localized bot names
+- Localized descriptions
+- Localized profile information
+- Automatic language detection through `language_code`
+- Localized Mini Apps
+- Localized HTML5 games
+- Localized inline results
+- Multilingual Mini App previews
+- Default language fallback
+
+## 19. Bot Management
+
+- Creating bots through BotFather
+- Editing bot names
+- Editing bot descriptions
+- Editing bot profile pictures
+- Setting profile videos
+- Editing bot about text
+- Managing bot commands
+- Linking website domains
+- Enabling or disabling inline mode
+- Requesting location data for inline results
+- Controlling group access
+- Configuring privacy mode
+- Managing bot ownership
+- Transferring ownership
+- Regenerating authentication tokens
+- Deleting bots
+- Managing games
+- Managing Mini Apps
+- Configuring bot settings through BotFather
+- Using the BotFather Mini App
+
+## 20. Privacy and Security
+
+- Group privacy mode
+- Restricting which group messages a bot receives
+- Admin-based message access
+- Authorized business account access
+- Permission-controlled business actions
+- Secure bot token management
+- Token regeneration
+- Authentication data validation
+- Third-party payment provider processing
+- Private ephemeral responses
+- Private ephemeral commands
+- Testing bots separately from production
+- Bot-to-bot loop prevention
+- Rate limiting and interaction timeouts
+
+## 21. Testing and Debugging
+
+- Testing with a separate bot account
+- Dedicated Telegram test environment
+- Test Bot API
+- Testing Web Apps
+- Testing Web Login
+- Test payment tokens
+- Test credit cards
+- BotFather status alerts
+- Low-response-rate monitoring
+- Private message response monitoring
+- Inline query response monitoring
+- Callback query response monitoring
+- Game callback response monitoring
+- Retry policies for API errors
+- Local Bot API server
+- Increased local file upload limits
+- Local file download support
+- Custom webhook ports
+- Custom webhook connection limits
+
+## 22. BotFather Commands
+
+### Bot creation and profile
+
+- `/newbot` — Create a bot
+- `/token` — Generate a new authentication token
+- `/mybots` — Manage your bots
+- `/setname` — Change the bot's name
+- `/setdescription` — Change the description
+- `/setabouttext` — Change the about text
+- `/setuserpic` — Change the profile picture
+- `/deletebot` — Delete a bot
+
+### Commands and settings
+
+- `/setcommands` — Configure bot commands
+- `/setdomain` — Link a website domain
+- `/setinline` — Enable or disable inline mode
+- `/setinlinegeo` — Enable location-based inline results
+- `/setinlinefeedback` — Configure inline feedback
+- `/setjoingroups` — Control group access
+- `/setprivacy` — Configure group privacy mode
+
+### Games
+
+- `/newgame` — Create a game
+- `/listgames` — List games
+- `/editgame` — Edit a game
+- `/deletegame` — Delete a game
+
+## 23. Essential Global Commands
+
+- `/start` — Start interacting with the bot
+- `/help` — Display help information and supported commands
+- `/settings` — Display or modify user-specific settings
+
+## 24. Advanced Bot Capabilities
+
+- Automated workflows
+- Task tracking and checklists
+- Interactive surveys and quizzes
+- Context-aware assistance
+- Real-time response streaming
+- Structured document generation
+- Search and content discovery
+- Personalized user experiences
+- Group and community automation
+- Business message automation
+- AI-powered research
+- External service integration
+- Payment processing
+- Subscription management
+- Digital product delivery
+- Games and interactive experiences
+- Multi-agent coordination
+- Bot creation and management platforms
+- Location-based applications
+- Device-aware Mini Apps
+- Custom interfaces inside Telegram
+
+Official documentation: [Telegram Bot Features](<https://core.telegram.org/bots/features >) · [Telegram Bot API](<https://core.telegram.org/bots/api >) · [BotFather](<https://t.me/BotFather >)

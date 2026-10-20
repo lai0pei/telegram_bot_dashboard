@@ -5,6 +5,7 @@ import { getClient } from "@/lib/mtproto";
 import { createBot } from "@/lib/botfather";
 import {
   getBotToken,
+  healthOf,
   listBots,
   pruneBotsNotIn,
   saveBotToken,
@@ -48,6 +49,7 @@ export const GET = withAuth(async (_req, _ctx, userId) => {
           username: bot.username,
           firstName: bot.firstName,
           monitorEnabled: bot.monitorEnabled,
+          health: healthOf(bot),
         };
         if (!token) return { ...base, hasToken: false, maskedToken: null, details: null, error: null };
         try {

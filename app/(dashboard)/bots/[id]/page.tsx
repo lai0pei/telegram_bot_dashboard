@@ -4,27 +4,45 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-client";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
 import { FadeIn } from "@/components/motion";
-import { DetailHeader } from "../../detail-header";
 import type { BotDetail } from "./types";
-import { InfoTab } from "./info-tab";
+import { BotShell } from "./bot-shell";
+import { OverviewSection } from "./overview-section";
+import { resolveSection, type SectionId } from "./sections";
+import { HealthCard, BusinessCard, CapabilitiesCard, TokenCard } from "./info-tab";
 import { SettingsTab } from "./settings-tab";
+import { ProfilePhotoCard } from "../../profile-photo-card";
 import { CommandsTab } from "./commands-tab";
 import { WebhookTab } from "./webhook-tab";
 import { MessagesTab } from "./messages-tab";
+import { ChatsTab } from "./chats-tab";
+import { AutomationTab } from "./automation-tab";
+import { OutboxTab } from "./outbox-tab";
+import { StatsTab } from "./stats-tab";
+import { RevenueTab } from "./revenue-tab";
+import { StickersTab } from "./stickers-tab";
+import { UsernamesCard } from "./usernames-card";
+import { AppsTab } from "./apps-tab";
+import { MenuButtonCard } from "./menu-button-card";
+import { AdminRightsCard } from "./admin-rights-card";
+import { CloneCard } from "./clone-card";
 import { DangerTab } from "./danger-tab";
+import { MonitorToggle } from "./monitor-toggle";
 import BotDetailLoading from "./loading";
 
 export default function BotDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  // ?tab=messages etc. deep-links a tab (the overview's recent messages link here).
-  const initialTab = useSearchParams().get("tab") ?? "info";
+  const search = useSearchParams();
+  // `?s=messages` picks a section; the old `?tab=` values still resolve (the overview's links used them).
+  const [section, setSection] = useState<SectionId>(() => resolveSection(search.get("s"), search.get("tab")));
   const [bot, setBot] = useState<BotDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [reloading, setReloading] = useState(false);
   const [fetchingToken, setFetchingToken] = useState(false);
+  // Bumped after a photo upload/removal so every avatar of this bot refetches.
+  const [photoVersion, setPhotoVersion] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -43,6 +61,26 @@ export default function BotDetailPage() {
     void load();
   }, [load]);
 
+  /** Switches section without a navigation: the URL is rewritten in place (`?chat=` is only meaningful for Messages). */
+  const openSection = useCallback((id: SectionId, chat?: string) => {
+    setSection(id);
+    const url = new URL(window.location.href);
+    url.searchParams.set("s", id);
+    url.searchParams.delete("tab");
+    if (chat) url.searchParams.set("chat", chat);
+    else url.searchParams.delete("chat");
+    window.history.replaceState(null, "", url);
+  }, []);
+
+  async function reload() {
+    setReloading(true);
+    try {
+      await load();
+    } finally {
+      setReloading(false);
+    }
+  }
+
   async function fetchToken() {
     if (fetchingToken) return;
     setFetchingToken(true);
@@ -57,56 +95,95 @@ export default function BotDetailPage() {
     }
   }
 
+  const badges: Partial<Record<SectionId, string>> = {};
+  if (bot?.health?.status === "error") badges.overview = "!";
+  if (bot?.commands?.length) badges.commands = String(bot.commands.length);
+
   if (loading && !bot) return <BotDetailLoading />;
   if (!bot) return <p className="text-sm text-[var(--danger)]">Bot not found.</p>;
 
+  const photoSrc = `/api/bots/${bot.id}/photo?v=${photoVersion}`;
+
   return (
-    <FadeIn className="space-y-6">
-      <DetailHeader title={`@${bot.username}`} subtitle={bot.firstName} backHref="/bots" backLabel="Bots" />
-
-      {!bot.hasToken && (
-        <Card className="text-sm">
-          No token stored yet.{" "}
-          <button
-            className="text-[var(--primary)] hover:underline disabled:cursor-wait disabled:no-underline disabled:opacity-60"
-            disabled={fetchingToken}
-            onClick={fetchToken}
-          >
-            {fetchingToken ? "Fetching from BotFather…" : "Fetch it from BotFather"}
-          </button>
-          .
-        </Card>
-      )}
-
-      <Tabs defaultValue={initialTab}>
-        <TabsList>
-          <TabsTrigger value="info">Info</TabsTrigger>
-          <TabsTrigger value="settings">Settings</TabsTrigger>
-          <TabsTrigger value="commands">Commands</TabsTrigger>
-          <TabsTrigger value="webhook">Webhook</TabsTrigger>
-          <TabsTrigger value="messages">Messages</TabsTrigger>
-          <TabsTrigger value="danger">Danger zone</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="info">
-          <InfoTab bot={bot} onChange={load} onFetchToken={fetchToken} fetchingToken={fetchingToken} />
-        </TabsContent>
-        <TabsContent value="settings">
-          <SettingsTab bot={bot} onSaved={load} />
-        </TabsContent>
-        <TabsContent value="commands">
-          <CommandsTab bot={bot} onSaved={load} />
-        </TabsContent>
-        <TabsContent value="webhook">
-          <WebhookTab bot={bot} onChange={load} />
-        </TabsContent>
-        <TabsContent value="messages">
-          <MessagesTab bot={bot} onChange={load} />
-        </TabsContent>
-        <TabsContent value="danger">
-          <DangerTab bot={bot} onDeleted={() => router.push("/bots")} onTokenChanged={load} />
-        </TabsContent>
-      </Tabs>
+    <FadeIn>
+      <BotShell
+        bot={bot}
+        section={section}
+        onSection={openSection}
+        photoSrc={photoSrc}
+        onReload={reload}
+        reloading={reloading}
+        onFetchToken={fetchToken}
+        fetchingToken={fetchingToken}
+        badges={badges}
+      >
+        {section === "overview" && <OverviewSection bot={bot} photoSrc={photoSrc} onChange={load} onOpen={openSection} />}
+        {section === "messages" && <MessagesTab bot={bot} onChange={load} />}
+        {section === "chats" && <ChatsTab bot={bot} />}
+        {section === "automation" && <AutomationTab bot={bot} />}
+        {section === "outbox" && <OutboxTab bot={bot} />}
+        {section === "profile" && (
+          <div className="grid items-start gap-4 xl:grid-cols-2">
+            <div className="space-y-4">
+              <ProfilePhotoCard
+                endpoint={`/api/bots/${bot.id}/photo`}
+                name={bot.username}
+                photoSrc={photoSrc}
+                onChanged={() => setPhotoVersion((v) => v + 1)}
+                allowVideo
+              />
+              <UsernamesCard bot={bot} />
+            </div>
+            <SettingsTab bot={bot} onSaved={load} />
+          </div>
+        )}
+        {section === "commands" && (
+          <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+            <CommandsTab bot={bot} onSaved={load} />
+            {bot.hasToken && <MenuButtonCard bot={bot} />}
+          </div>
+        )}
+        {section === "delivery" && (
+          <div className="mx-auto max-w-3xl space-y-4">
+            <Card className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold">Monitor incoming messages</h3>
+                <p className="text-xs text-[var(--muted)]">
+                  Polls getUpdates in the background so messages, auto-replies and stats work. Off while a webhook is set.
+                </p>
+              </div>
+              <MonitorToggle bot={bot} onChange={load} />
+            </Card>
+            <WebhookTab bot={bot} onChange={load} />
+          </div>
+        )}
+        {section === "permissions" && (
+          <div className="grid items-start gap-4 xl:grid-cols-2">
+            <div className="space-y-4">
+              {bot.info && <CapabilitiesCard bot={bot} info={bot.info} onChange={load} />}
+              {bot.hasToken && <BusinessCard bot={bot} />}
+            </div>
+            <div className="space-y-4">{bot.hasToken && <AdminRightsCard bot={bot} />}</div>
+          </div>
+        )}
+        {section === "stats" && <StatsTab bot={bot} />}
+        {section === "stickers" && <StickersTab bot={bot} />}
+        {section === "apps" && <AppsTab bot={bot} />}
+        {section === "revenue" && <RevenueTab bot={bot} />}
+        {section === "advanced" && (
+          <div className="grid items-start gap-4 xl:grid-cols-2">
+            <div className="space-y-4">
+              <TokenCard bot={bot} onFetchToken={fetchToken} fetchingToken={fetchingToken} />
+              <HealthCard bot={bot} onChange={load} />
+              {bot.hasToken && <CloneCard bot={bot} />}
+            </div>
+            <DangerTab bot={bot} onDeleted={() => router.push("/bots")} onTokenChanged={load} />
+          </div>
+        )}
+        {!bot.hasToken && section !== "advanced" && section !== "overview" && (
+          <Card className="mt-4 text-sm">Some actions need the bot&apos;s token. Use &ldquo;No token — fetch it&rdquo; in the header.</Card>
+        )}
+      </BotShell>
     </FadeIn>
   );
 }

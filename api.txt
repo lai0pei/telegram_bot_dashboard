@@ -1,0 +1,204 @@
+# Telegram APIs — Complete List
+
+## 1. Main Navigation
+
+- [Follow on X](<https://x.com/telegram >)
+- [Home](<https://telegram.org/ >)
+- [FAQ](<https://telegram.org/faq >)
+- [Apps](<https://telegram.org/apps >)
+- [API](<https://telegram.org/api >)
+- [Protocol](<https://telegram.org/mtproto >)
+- [Schema](<https://telegram.org/schema >)
+- [Machine-readable API documentation](<https://core.telegram.org/api.md >)
+
+## 2. Main Telegram APIs
+
+1. [Bot API](<https://core.telegram.org/bots >) — Create bots that interact with users through Telegram messages.
+2. [Telegram API](<https://core.telegram.org/api >) — Build customized Telegram clients.
+3. [TDLib](<https://core.telegram.org/tdlib >) — Develop cross-platform Telegram applications with networking, encryption, and local storage handled by the library.
+4. [Gateway API](<https://core.telegram.org/gateway >) — Send verification codes through Telegram instead of SMS.
+5. [Telegram Payments API](<https://core.telegram.org/bots/payments >) — Accept payments through Telegram bots.
+6. [Telegram Widgets](<https://core.telegram.org/widgets >) — Embed Telegram features on websites.
+
+## 3. Telegram API — Getting Started
+
+- [Creating an application](<https://core.telegram.org/api/obtaining_api_id >)
+- [User authorization](<https://core.telegram.org/api/auth >)
+- [Two-factor authentication](<https://core.telegram.org/api/srp >)
+- [QR code login](<https://core.telegram.org/api/qr-login >)
+- [Passkeys](<https://core.telegram.org/api/passkeys >)
+- [Error handling](<https://core.telegram.org/api/errors >)
+- [Handling different data centers](<https://core.telegram.org/api/datacenter >)
+- [Handling updates](<https://core.telegram.org/api/updates >)
+- [Handling push notifications](<https://core.telegram.org/api/push-updates >)
+- [Channels, supergroups, gigagroups, and basic groups](<https://core.telegram.org/api/channel >)
+- [Forums](<https://core.telegram.org/api/forum >)
+- [Direct messages to channels](<https://core.telegram.org/api/monoforum >)
+- [Channel statistics](<https://core.telegram.org/api/stats >)
+- [Message views and read metrics](<https://core.telegram.org/api/views >)
+- [Calling methods](<https://core.telegram.org/api/invoking >)
+- [Uploading and downloading files](<https://core.telegram.org/api/files >)
+- [Pagination](<https://core.telegram.org/api/offsets >)
+- [Client configuration](<https://core.telegram.org/api/config >)
+- [Calls](<https://core.telegram.org/api/calls >)
+- [Group calls](<https://core.telegram.org/api/group-calls >)
+
+## 4. Security
+
+- [Secret chats and end-to-end encryption](<https://core.telegram.org/api/end-to-end >)
+- [Security guidelines](<https://core.telegram.org/mtproto/security_guidelines >)
+- [Perfect Forward Secrecy](<https://core.telegram.org/api/pfs >)
+- [End-to-end encryption in voice and video calls](<https://core.telegram.org/api/end-to-end/video-calls >)
+- [End-to-end encryption in group calls](<https://core.telegram.org/api/end-to-end/group-calls >)
+- [Perfect Forward Secrecy in secret chats](<https://core.telegram.org/api/end-to-end/pfs >)
+- [Sequence numbers in secret chats](<https://core.telegram.org/api/end-to-end/seq_no >)
+
+## 5. Optimization
+
+- [Client optimization](<https://core.telegram.org/api/optimisation >)
+
+## 6. API Methods and Schema
+
+- [Available method list](<https://core.telegram.org/methods >)
+- [API TL-schema](<https://core.telegram.org/schema >)
+- [API TL-schema as JSON](<https://core.telegram.org/schema/json >)
+- [Layer changelog](<https://core.telegram.org/api/layers >)
+
+## 7. Bot API Features
+
+### Bot Management and Interaction
+
+- [Working with bots using the MTProto API](<https://core.telegram.org/api/bots >)
+- [Bot API dialog IDs](<https://core.telegram.org/api/bots/ids >)
+- [Managed bots](<https://core.telegram.org/api/bots/managed-bots >)
+- [Bot commands](<https://core.telegram.org/api/bots/commands >)
+- [Buttons and inline buttons](<https://core.telegram.org/api/bots/buttons >)
+- [Menu button](<https://core.telegram.org/api/bots/menu >)
+- [Inline queries](<https://core.telegram.org/api/bots/inline >)
+- [Games](<https://core.telegram.org/api/bots/games >)
+- [Mini apps](<https://core.telegram.org/api/bots/webapps >)
+- [Affiliate programs](<https://core.telegram.org/api/bots/referrals >)
+- [Attachment menu](<https://core.telegram.org/api/bots/attach >)
+- [Editing bot information](<https://core.telegram.org/api/bots/info >)
+- [AI bots](<https://core.telegram.org/api/bots/ai >)
+- [Guest mode](<https://core.telegram.org/api/bots/guest-mode >)
+- [Bot-to-bot communication](<https://core.telegram.org/api/bots/bot-to-bot >)
+- [Connected business bots](<https://core.telegram.org/api/bots/connected-business-bots >)
+
+### Bot Content and Features
+
+- [Stories](<https://core.telegram.org/api/stories >)
+- [Similar channels and bots](<https://core.telegram.org/api/recommend >)
+- [Accent colors](<https://core.telegram.org/api/colors >)
+- [Privacy settings](<https://core.telegram.org/api/privacy >)
+- [Search and filters](<https://core.telegram.org/api/search >)
+- [Polls](<https://core.telegram.org/api/poll >)
+- [Checklists](<https://core.telegram.org/api/todo >)
+- [Reactions](<https://core.telegram.org/api/reactions >)
+- [Animated message effects](<https://core.telegram.org/api/effects >)
+- [Emoji categories](<https://core.telegram.org/api/emoji-categories >)
+- [Emoji status](<https://core.telegram.org/api/emoji-status >)
+- [Invite links and join requests](<https://core.telegram.org/api/invites >)
+- [Admin, banned, and default rights](<https://core.telegram.org/api/rights >)
+- [Discussion groups](<https://core.telegram.org/api/discussion >)
+- [Channel comments and message threads](<https://core.telegram.org/api/threads >)
+- [Admin log](<https://core.telegram.org/api/recent-actions >)
+- [Pinned messages](<https://core.telegram.org/api/pin >)
+- [Group member and admin tags](<https://core.telegram.org/api/rank >)
+- [Mentions](<https://core.telegram.org/api/mentions >)
+- [Scheduled messages](<https://core.telegram.org/api/scheduled-messages >)
+- [Live geolocations](<https://core.telegram.org/api/live-location >)
+
+## 8. Peer Database and Account Management
+
+- [Peer database](<https://core.telegram.org/api/peers >)
+- [Min constructors](<https://core.telegram.org/api/min >)
+- [Account deletion](<https://core.telegram.org/api/account-deletion >)
+- [Imported messages](<https://core.telegram.org/api/import >)
+- [Telegram Passport](<https://core.telegram.org/api/passport >)
+- [Telegram Payments](<https://core.telegram.org/api/payments >)
+- [Third-party verification](<https://core.telegram.org/api/bots/verification >)
+- [Styled text with message entities](<https://core.telegram.org/api/entities >)
+- [Working with GIFs](<https://core.telegram.org/api/gifs >)
+- [Working with stickers](<https://core.telegram.org/api/stickers >)
+- [Working with custom emojis](<https://core.telegram.org/api/custom-emoji >)
+- [Working with animated emojis](<https://core.telegram.org/api/animated-emojis >)
+- [Working with animated dice](<https://core.telegram.org/api/dice >)
+- [Message drafts](<https://core.telegram.org/api/drafts >)
+- [Folders](<https://core.telegram.org/api/folders >)
+- [Top peer rating](<https://core.telegram.org/api/top-rating >)
+- [Handling file references](<https://core.telegram.org/api/file-references >)
+- [Seamless Telegram Login](<https://core.telegram.org/api/url-authorization >)
+- [Wallpapers](<https://core.telegram.org/api/wallpapers >)
+- [Notification sounds](<https://core.telegram.org/api/ringtones >)
+- [Message transcription](<https://core.telegram.org/api/transcribe >)
+- [Message translation](<https://core.telegram.org/api/translation >)
+- [Native antispam system](<https://core.telegram.org/api/antispam >)
+- [Collectibles](<https://core.telegram.org/api/fragment >)
+- [Telegram Premium](<https://core.telegram.org/api/premium >)
+- [Telegram Business](<https://core.telegram.org/api/business >)
+- [Telegram Stars](<https://core.telegram.org/api/stars >)
+- [Subscriptions](<https://core.telegram.org/api/subscriptions >)
+- [Protected content](<https://core.telegram.org/api/content-protection >)
+- [Gifts](<https://core.telegram.org/api/gifts >)
+- [Collectible gift auctions](<https://core.telegram.org/api/auctions >)
+- [Paid media](<https://core.telegram.org/api/paid-media >)
+- [Paid messages](<https://core.telegram.org/api/paid-messages >)
+- [Suggested posts](<https://core.telegram.org/api/suggested-posts >)
+- [Channel and supergroup boosts](<https://core.telegram.org/api/boost >)
+- [Giveaways and gifts](<https://core.telegram.org/api/giveaways >)
+- [Action bar](<https://core.telegram.org/api/action-bar >)
+- [Saved Messages](<https://core.telegram.org/api/saved-messages >)
+- [Profile](<https://core.telegram.org/api/profile >)
+- [Themes](<https://core.telegram.org/api/themes >)
+
+## 9. Advertising and Revenue
+
+- [Sponsored messages](<https://core.telegram.org/api/sponsored-messages >)
+- [Channel and bot ad revenue](<https://core.telegram.org/api/revenue >)
+
+## 10. Additional Telegram API Features
+
+- [Fact-checks](<https://core.telegram.org/api/factcheck >)
+- [Contacts](<https://core.telegram.org/api/contacts >)
+- [Blocklist](<https://core.telegram.org/api/block >)
+- [Age verification](<https://core.telegram.org/api/age-verification >)
+- [Web events](<https://core.telegram.org/api/web-events >)
+- [Deep links](<https://core.telegram.org/api/links >)
+- [Takeout](<https://core.telegram.org/api/takeout >)
+- [Terms of Service](<https://core.telegram.org/api/terms >)
+
+## 11. Telegram Design Resources
+
+- [Animated stickers and emoji](<https://telegram.org/stickers #animated-stickers-and-emoji>)
+- [Custom themes](<https://telegram.org/themes >)
+- [Telegram app source code](<https://telegram.org/apps #source-code>)
+
+## 12. Telegram Official Resources
+
+### About Telegram
+
+- [FAQ](<https://telegram.org/faq >)
+- [Privacy](<https://telegram.org/privacy >)
+- [Press](<https://telegram.org/press >)
+- [Blog](<https://telegram.org/blog >)
+- [Safety](<https://telegram.org/safety >)
+
+### Mobile Apps
+
+- [iPhone and iPad](<https://telegram.org/dl/ios >)
+- [Android](<https://telegram.org/android >)
+- [Mobile Web](<https://telegram.org/dl/web >)
+
+### Desktop Apps
+
+- [PC, Mac, and Linux](<https://desktop.telegram.org/ >)
+- [macOS](<https://macos.telegram.org/ >)
+- [Web browser](<https://telegram.org/dl/web >)
+
+### Other Platforms
+
+- [Translations](<https://translations.telegram.org/ >)
+- [Instant View](<https://instantview.telegram.org/ >)
+
+Main takeaway: If you want to develop a Telegram integration, start with the [Bot API](<https://core.telegram.org/bots >) for bots, the [Telegram API](<https://core.telegram.org/api >) and [TDLib](<https://core.telegram.org/tdlib >) for custom clients, or the [Gateway API](<https://core.telegram.org/gateway >) for verification codes

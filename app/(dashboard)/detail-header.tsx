@@ -1,5 +1,6 @@
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
+import { Avatar } from "@/components/ui/avatar";
 
 /** Shared header for bot/chat detail pages: a back link to their list page, an initial avatar, and title/subtitle. */
 export function DetailHeader({
@@ -7,13 +8,15 @@ export function DetailHeader({
   subtitle,
   backHref,
   backLabel,
+  photoSrc,
 }: {
   title: string;
   subtitle: string;
   backHref: string;
   backLabel: string;
+  /** Optional profile photo URL; falls back to the title's initial. */
+  photoSrc?: string;
 }) {
-  const initial = title.replace(/^@/, "").charAt(0).toUpperCase() || "?";
   return (
     <div className="space-y-3">
       <Link
@@ -24,9 +27,7 @@ export function DetailHeader({
         {backLabel}
       </Link>
       <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--primary)]/10 text-sm font-semibold text-[var(--primary)]">
-          {initial}
-        </div>
+        <Avatar src={photoSrc} name={title} className="h-10 w-10" />
         <div className="min-w-0">
           <h1 className="truncate text-xl font-semibold">{title}</h1>
           <p className="truncate text-sm text-[var(--muted)]">{subtitle}</p>

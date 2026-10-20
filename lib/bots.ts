@@ -1,8 +1,26 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
+import type { TelegramClient } from "teleproto";
+import { uploads } from "teleproto/client";
+import { Api } from "teleproto/tl";
+import { RPCError } from "teleproto/errors";
 import { db } from "./db";
-import { botMessages, botUsers, bots } from "./db/schema";
+import {
+  autoReplies,
+  botBusinessConnections,
+  botChats,
+  botJoinRequests,
+  botMessages,
+  botStickerSets,
+  botUsers,
+  bots,
+  broadcasts,
+  inlineResults,
+  scheduledMessages,
+} from "./db/schema";
 import { decrypt, encrypt } from "./crypto";
 import { fetchBotToken } from "./botfather";
+import { getClient } from "./mtproto";
+import { asPhotoBuffer } from "./photos";
 import { BotApiError } from "./botapi";
 import { singleFlight } from "./single-flight";
 
@@ -19,6 +37,11 @@ export function getBotById(id: number, ownerUserId: string): BotRow | undefined 
     .from(bots)
     .where(and(eq(bots.id, id), eq(bots.ownerUserId, ownerUserId)))
     .all()[0];
+}
+
+/** The last background health check as the dashboard shows it, or null before the first check. */
+export function healthOf(bot: BotRow): { status: "ok" | "warning" | "error"; message: string | null; checkedAt: Date | null } | null {
+  return bot.healthStatus ? { status: bot.healthStatus, message: bot.healthMessage, checkedAt: bot.healthCheckedAt } : null;
 }
 
 export function getBotToken(bot: BotRow): string | null {
@@ -139,6 +162,14 @@ export function deleteBotRow(id: number): void {
   db.transaction((tx) => {
     tx.delete(botMessages).where(eq(botMessages.botId, id)).run();
     tx.delete(botUsers).where(eq(botUsers.botId, id)).run();
+    tx.delete(botChats).where(eq(botChats.botId, id)).run();
+    tx.delete(autoReplies).where(eq(autoReplies.botId, id)).run();
+    tx.delete(scheduledMessages).where(eq(scheduledMessages.botId, id)).run();
+    tx.delete(broadcasts).where(eq(broadcasts.botId, id)).run();
+    tx.delete(botJoinRequests).where(eq(botJoinRequests.botId, id)).run();
+    tx.delete(inlineResults).where(eq(inlineResults.botId, id)).run();
+    tx.delete(botBusinessConnections).where(eq(botBusinessConnections.botId, id)).run();
+    tx.delete(botStickerSets).where(eq(botStickerSets.botId, id)).run();
     tx.delete(bots).where(eq(bots.id, id)).run();
   });
 }
@@ -150,7 +181,159 @@ export function pruneBotsNotIn(ownerUserId: string, telegramIds: Set<string>): v
   }
 }
 
+/** A bot by ID with no owner check: for background jobs (lib/jobs.ts) acting on rows they created, never for request handlers. */
+export function getBotForJob(id: number): BotRow | undefined {
+  return db.select().from(bots).where(eq(bots.id, id)).all()[0];
+}
+
+/** Every bot that has a stored token, across all users — used only by the health check job. */
+export function listAllBotsWithToken(): BotRow[] {
+  return db.select().from(bots).where(isNotNull(bots.encryptedToken)).all();
+}
+
+export function saveBotHealth(id: number, status: "ok" | "warning" | "error", message: string | null): void {
+  db.update(bots).set({ healthStatus: status, healthMessage: message, healthCheckedAt: new Date() }).where(eq(bots.id, id)).run();
+}
+
 /** Every monitored bot across all users — used only by the background poller. */
 export function listAllMonitoredBots(): BotRow[] {
   return db.select().from(bots).where(eq(bots.monitorEnabled, true)).all();
+}
+
+/** The bot's current row if monitoring is still on for it. Unscoped: for the background poller only, never for request handlers. */
+export function getMonitoredBot(id: number): BotRow | undefined {
+  return db
+    .select()
+    .from(bots)
+    .where(and(eq(bots.id, id), eq(bots.monitorEnabled, true)))
+    .all()[0];
+}
+
+// --- Profile photo (MTProto, as the owning Telegram account: no bot token needed) ------------
+
+export class BotPhotoError extends Error {}
+
+const PHOTO_ERRORS: Record<string, string> = {
+  PHOTO_INVALID: "Telegram rejected that image.",
+  PHOTO_CROP_SIZE_SMALL: "That image is too small. Use at least 160×160 pixels.",
+  PHOTO_EXT_INVALID: "Telegram doesn't accept that image format.",
+  BOT_INVALID: "Telegram says you can't edit this bot's photo.",
+  USER_BOT_INVALID: "Telegram says you can't edit this bot's photo.",
+};
+
+async function requirePhotoClient(telegramAccountId: string): Promise<TelegramClient> {
+  const client = await getClient(telegramAccountId);
+  if (!client) throw new BotPhotoError("Not logged in to Telegram.");
+  return client;
+}
+
+function rethrowPhotoError(err: unknown): never {
+  if (err instanceof RPCError && PHOTO_ERRORS[err.errorMessage]) throw new BotPhotoError(PHOTO_ERRORS[err.errorMessage]);
+  throw err;
+}
+
+/** The bot's current small profile photo, or null if it has none. */
+export async function getBotPhoto(telegramAccountId: string, bot: BotRow): Promise<Buffer | null> {
+  const client = await requirePhotoClient(telegramAccountId);
+  const entity = await client.getEntity(bot.username);
+  return asPhotoBuffer(await client.downloadProfilePhoto(entity, { isBig: false }));
+}
+
+/** Sets the bot's profile picture; `video` uploads an MP4 as a profile video (looping, starting at its first frame). */
+export async function setBotPhoto(
+  telegramAccountId: string,
+  bot: BotRow,
+  file: { name: string; data: Buffer; video?: boolean }
+): Promise<void> {
+  const client = await requirePhotoClient(telegramAccountId);
+  try {
+    const uploaded = await client.uploadFile({
+      file: new uploads.CustomFile(file.name, file.data.length, "", file.data),
+      workers: 1,
+    });
+    await client.invoke(
+      new Api.photos.UploadProfilePhoto({
+        bot: await client.getInputEntity(bot.username),
+        ...(file.video ? { video: uploaded, videoStartTs: 0 } : { file: uploaded }),
+      })
+    );
+  } catch (err) {
+    rethrowPhotoError(err);
+  }
+}
+
+export async function deleteBotPhoto(telegramAccountId: string, bot: BotRow): Promise<void> {
+  const client = await requirePhotoClient(telegramAccountId);
+  try {
+    await client.invoke(
+      new Api.photos.UpdateProfilePhoto({
+        bot: await client.getInputEntity(bot.username),
+        id: new Api.InputPhotoEmpty(),
+      })
+    );
+  } catch (err) {
+    rethrowPhotoError(err);
+  }
+}
+
+// --- Usernames (MTProto: collectible usernames can be switched on/off and reordered) ---------
+
+export class BotUsernameError extends Error {}
+
+const USERNAME_ERRORS: Record<string, string> = {
+  USERNAME_NOT_MODIFIED: "That username is already in that state.",
+  USERNAMES_ACTIVE_TOO_MUCH: "Too many usernames are active; deactivate one first.",
+  USERNAME_INVALID: "Telegram doesn't know that username.",
+  USERNAME_PURCHASE_AVAILABLE: "That username can't be used right now.",
+  USERNAME_OCCUPIED: "That username is taken.",
+  BOT_INVALID: "Telegram says you can't manage this bot's usernames.",
+  USER_BOT_INVALID: "Telegram says you can't manage this bot's usernames.",
+};
+
+export interface BotUsername {
+  username: string;
+  active: boolean;
+  /** True for the bot's one regular username: it can be changed in BotFather only, never toggled off. */
+  editable: boolean;
+}
+
+function rethrowUsernameError(err: unknown): never {
+  if (err instanceof RPCError && USERNAME_ERRORS[err.errorMessage]) throw new BotUsernameError(USERNAME_ERRORS[err.errorMessage]);
+  throw err;
+}
+
+/** The bot's primary username plus any collectible ones, in Telegram's order. */
+export async function listBotUsernames(telegramAccountId: string, bot: BotRow): Promise<BotUsername[]> {
+  const client = await getClient(telegramAccountId);
+  if (!client) throw new BotUsernameError("Not logged in to Telegram.");
+  try {
+    const full = await client.invoke(new Api.users.GetFullUser({ id: await client.getInputEntity(bot.username) }));
+    const user = full.users.find((u): u is Api.User => u instanceof Api.User && u.username?.toLowerCase() === bot.username.toLowerCase()) ?? full.users[0];
+    if (!(user instanceof Api.User)) return [{ username: bot.username, active: true, editable: true }];
+    const rows = (user.usernames ?? []).map((u) => ({ username: u.username, active: Boolean(u.active), editable: Boolean(u.editable) }));
+    return rows.length ? rows : [{ username: user.username ?? bot.username, active: true, editable: true }];
+  } catch (err) {
+    return rethrowUsernameError(err);
+  }
+}
+
+export async function setBotUsernameActive(telegramAccountId: string, bot: BotRow, username: string, active: boolean): Promise<void> {
+  const client = await getClient(telegramAccountId);
+  if (!client) throw new BotUsernameError("Not logged in to Telegram.");
+  try {
+    await client.invoke(new Api.bots.ToggleUsername({ bot: await client.getInputEntity(bot.username), username, active }));
+  } catch (err) {
+    rethrowUsernameError(err);
+  }
+}
+
+/** `order` lists every active username in the wanted order. */
+export async function reorderBotUsernames(telegramAccountId: string, bot: BotRow, order: string[]): Promise<void> {
+  const client = await getClient(telegramAccountId);
+  if (!client) throw new BotUsernameError("Not logged in to Telegram.");
+  try {
+    await client.invoke(new Api.bots.ReorderUsernames({ bot: await client.getInputEntity(bot.username), order }));
+  } catch (err) {
+    rethrowUsernameError(err);
+  }
 }

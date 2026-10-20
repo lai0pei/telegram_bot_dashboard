@@ -54,7 +54,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
         )}
 
         {/* Remounts the page when the active Telegram account changes, so it re-fetches as the new account. */}
-        <main key={generation} className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">
+        <main key={generation} className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-8">
           {children}
         </main>
       </div>

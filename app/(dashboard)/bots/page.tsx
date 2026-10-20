@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Bot as BotIcon, Plus, RefreshCw, SearchX } from "lucide-react";
+import { Bot as BotIcon, CheckSquare, Plus, RefreshCw, SearchX } from "lucide-react";
 import { motion } from "motion/react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-client";
@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Stagger, fade } from "@/components/motion";
 import { BotCard, type BotSummary } from "../bot-card";
+import { BulkBar } from "../bulk-bar";
 import { CardGridSkeleton } from "../loading";
 import { FilterChips, SearchInput, matchesQuery, useSlashToSearch } from "../list-toolbar";
 import { NoActiveAccount, isNoActiveAccount } from "../no-active-account";
@@ -47,6 +48,8 @@ function BotsList() {
   const [loading, setLoading] = useState(true);
   const [noActiveAccount, setNoActiveAccount] = useState(false);
   const [query, setQuery] = useState("");
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<number[]>([]);
   useSlashToSearch();
 
   async function load() {
@@ -85,6 +88,8 @@ function BotsList() {
     return (bots ?? []).filter((b) => test(b) && matchesQuery(query, b.username, b.firstName));
   }, [bots, filter, query]);
 
+  const toggle = (id: number) => setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
   if (noActiveAccount) return <NoActiveAccount />;
 
   return (
@@ -95,6 +100,19 @@ function BotsList() {
           <p className="text-sm text-[var(--muted)]">Every bot this Telegram account owns, synced from BotFather.</p>
         </div>
         <div className="flex gap-2">
+          {bots && bots.length > 1 && (
+            <Button
+              variant={selecting ? "default" : "outline"}
+              size="sm"
+              onClick={() => {
+                setSelecting((v) => !v);
+                setSelected([]);
+              }}
+            >
+              <CheckSquare className="h-3.5 w-3.5" />
+              {selecting ? "Done" : "Select"}
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={load} loading={loading && Boolean(bots)}>
             {!(loading && bots) && <RefreshCw className="h-3.5 w-3.5" />}
             Refresh
@@ -128,6 +146,20 @@ function BotsList() {
             <FilterChips options={options} value={filter} onChange={setFilter} />
           </div>
 
+          {selecting && bots && (
+            <>
+              <div className="flex items-center gap-2 text-sm">
+                <Button variant="ghost" size="sm" onClick={() => setSelected(visible.map((b) => b.id))}>
+                  Select all shown
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setSelected([])}>
+                  Clear
+                </Button>
+              </div>
+              <BulkBar selected={selected} bots={bots} onDone={() => void load()} />
+            </>
+          )}
+
           <motion.div initial={fade.initial} animate={{ opacity: loading ? 0.6 : 1 }} transition={{ duration: 0.15 }}>
             {visible.length === 0 ? (
               <Card className="flex flex-col items-center gap-2 py-10 text-center text-sm text-[var(--muted)]">
@@ -147,7 +179,7 @@ function BotsList() {
             ) : (
               <Stagger className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {visible.map((bot) => (
-                  <BotCard key={bot.id} bot={bot} />
+                  <BotCard key={bot.id} bot={bot} selecting={selecting} selected={selected.includes(bot.id)} onToggle={toggle} />
                 ))}
               </Stagger>
             )}

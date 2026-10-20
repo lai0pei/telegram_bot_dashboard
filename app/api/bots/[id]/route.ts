@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth, errorResponse } from "@/lib/api-guard";
 import { deleteBot as botFatherDelete } from "@/lib/botfather";
-import { deleteBotRow, getBotById, getBotToken, withLiveBotToken } from "@/lib/bots";
+import { deleteBotRow, getBotById, getBotToken, healthOf, withLiveBotToken } from "@/lib/bots";
 import { botApi, type BotCommand } from "@/lib/botapi";
 import { singleFlight } from "@/lib/single-flight";
 import {
@@ -9,6 +9,7 @@ import {
   validateCommand,
   validateCommandDescription,
   validateDescription,
+  validateLanguageCode,
   validateShortDescription,
 } from "@/lib/validation";
 
@@ -26,6 +27,7 @@ export const GET = withAuth(async (_req: Request, ctx: { params: Promise<{ id: s
         firstName: bot.firstName,
         hasToken: false,
         monitorEnabled: bot.monitorEnabled,
+        health: healthOf(bot),
       });
     }
 
@@ -48,6 +50,7 @@ export const GET = withAuth(async (_req: Request, ctx: { params: Promise<{ id: s
       hasToken: true,
       token: liveToken,
       monitorEnabled: bot.monitorEnabled,
+      health: healthOf(bot),
       info: result.info,
       name: result.name.name,
       description: result.description.description,
@@ -72,23 +75,28 @@ export const PATCH = withAuth(
 
       const body = await req.json();
       const applied: string[] = [];
+      // Optional: edit the name/descriptions for one language instead of the default.
+      const languageCode = typeof body.languageCode === "string" ? body.languageCode : "";
+      const languageError = validateLanguageCode(languageCode);
+      if (languageError) return NextResponse.json({ error: languageError }, { status: 400 });
 
       if (typeof body.name === "string") {
-        const error = validateBotName(body.name);
+        // For a specific language an empty name removes that language's override.
+        const error = languageCode && !body.name ? null : validateBotName(body.name);
         if (error) return NextResponse.json({ error }, { status: 400 });
-        await botApi.setMyName(token, body.name.trim());
+        await botApi.setMyName(token, body.name.trim(), languageCode);
         applied.push("name");
       }
       if (typeof body.description === "string") {
         const error = validateDescription(body.description);
         if (error) return NextResponse.json({ error }, { status: 400 });
-        await botApi.setMyDescription(token, body.description);
+        await botApi.setMyDescription(token, body.description, languageCode);
         applied.push("description");
       }
       if (typeof body.shortDescription === "string") {
         const error = validateShortDescription(body.shortDescription);
         if (error) return NextResponse.json({ error }, { status: 400 });
-        await botApi.setMyShortDescription(token, body.shortDescription);
+        await botApi.setMyShortDescription(token, body.shortDescription, languageCode);
         applied.push("shortDescription");
       }
       if (Array.isArray(body.commands)) {

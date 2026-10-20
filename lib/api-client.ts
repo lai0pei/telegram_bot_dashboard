@@ -10,10 +10,12 @@ export async function apiFetch<T = unknown>(
   url: string,
   options?: { method?: string; body?: unknown }
 ): Promise<T> {
+  // A FormData body goes as-is: the browser sets the multipart Content-Type (with its boundary) itself.
+  const isForm = typeof FormData !== "undefined" && options?.body instanceof FormData;
   const res = await fetch(url, {
     method: options?.method ?? (options?.body ? "POST" : "GET"),
-    headers: options?.body ? { "Content-Type": "application/json" } : undefined,
-    body: options?.body ? JSON.stringify(options.body) : undefined,
+    headers: options?.body && !isForm ? { "Content-Type": "application/json" } : undefined,
+    body: options?.body ? (isForm ? (options.body as FormData) : JSON.stringify(options.body)) : undefined,
     cache: "no-store",
   });
   const json = await res.json().catch(() => ({}));

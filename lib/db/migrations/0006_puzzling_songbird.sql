@@ -1,0 +1,1 @@
+CREATE INDEX `bot_messages_bot_chat_created_idx` ON `bot_messages` (`bot_id`,`chat_id`,`created_at`);
