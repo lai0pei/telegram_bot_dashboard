@@ -14,6 +14,8 @@ export const users = pgTable("users", {
   id: text("id").primaryKey(),
   username: text("username").notNull(),
   sessionVersion: integer("session_version").notNull().default(0),
+  /** Last authenticated request (throttled to one write per few minutes, see touchLastActive in lib/users.ts). Shown to the master admin as "last seen". */
+  lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
 });

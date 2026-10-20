@@ -11,6 +11,8 @@ const BACKGROUND_REFRESH_MS = 60_000;
 interface AccountsContextValue {
   accounts: TelegramAccountSummary[] | null;
   active: TelegramAccountSummary | null;
+  /** The signed-in dashboard user is a master admin. Only for showing the nav link: the Admin routes enforce it server-side. */
+  isAdmin: boolean;
   /** Bumps whenever the active account changes after the first load; the layout keys the page on it. */
   generation: number;
   reload: () => Promise<void>;
@@ -32,6 +34,7 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const pathnameRef = useRef(pathname);
   const [accounts, setAccounts] = useState<TelegramAccountSummary[] | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [generation, setGeneration] = useState(0);
   const previousRef = useRef<TelegramAccountSummary[] | null>(null);
   const seqRef = useRef(0);
@@ -45,10 +48,11 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
     let next: TelegramAccountSummary[];
     let activeChanged: boolean;
     try {
-      const result = await apiFetch<{ accounts: TelegramAccountSummary[]; activeChanged?: boolean }>(
+      const result = await apiFetch<{ accounts: TelegramAccountSummary[]; activeChanged?: boolean; isAdmin?: boolean }>(
         "/api/telegram-accounts"
       );
       next = result.accounts;
+      setIsAdmin(!!result.isAdmin);
       activeChanged = !!result.activeChanged;
     } catch {
       setAccounts((current) => current ?? []);
@@ -106,7 +110,7 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
 
   const active = accounts?.find((a) => a.isActive) ?? null;
   return (
-    <AccountsContext.Provider value={{ accounts, active, generation, reload }}>{children}</AccountsContext.Provider>
+    <AccountsContext.Provider value={{ accounts, active, isAdmin, generation, reload }}>{children}</AccountsContext.Provider>
   );
 }
 
