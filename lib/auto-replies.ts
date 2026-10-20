@@ -3,10 +3,11 @@ import { botApi, buttonsForChat, replyKeyboardForChat, type InlineButton, type R
 import { findCallbackRule } from "./callback-match";
 import { db } from "./db";
 import { autoReplies, botMessages } from "./db/schema";
+import { matchMessageRule, startPayloadOf } from "./match-message";
 import { describeMessage } from "./messages";
 import { recordOutgoing } from "./outgoing";
+import { recordSetup } from "./setup-cache";
 import { renderTemplate } from "./templates";
-import type { MEDIA_KINDS } from "./validation";
 
 export type AutoReplyRow = typeof autoReplies.$inferSelect;
 export type AutoReplyInput = Pick<AutoReplyRow, "matchType" | "pattern" | "replyText" | "parseMode" | "showAlert" | "enabled"> & {
@@ -58,6 +59,7 @@ function normalizePattern(matchType: AutoReplyRow["matchType"], pattern: string)
   const trimmed = pattern.trim();
   if (matchType === "command") return trimmed.replace(/^\//, "").toLowerCase();
   if (matchType === "media") return trimmed.toLowerCase();
+  if (matchType === "fallback") return "*";
   return trimmed;
 }
 
@@ -96,7 +98,21 @@ export function getAutoReply(botId: number, id: number): AutoReplyRow | undefine
     .all()[0];
 }
 
+/** Thrown when a bot would get a second "anything else" rule; routes answer 422. */
+export class DuplicateFallbackError extends Error {
+  constructor() {
+    super("This bot already has an “anything else” rule. Edit that one instead.");
+  }
+}
+
+/** A bot has at most one fallback rule: enforced here (not in the route) so clones and templates can't add a second. */
+function assertSingleFallback(botId: number, input: Pick<AutoReplyInput, "matchType">, exceptId?: number): void {
+  if (input.matchType !== "fallback") return;
+  if (listAutoReplies(botId).some((r) => r.matchType === "fallback" && r.id !== exceptId)) throw new DuplicateFallbackError();
+}
+
 export function createAutoReply(botId: number, input: AutoReplyInput): AutoReplyRow {
+  assertSingleFallback(botId, input);
   const last = db
     .select({ position: autoReplies.position })
     .from(autoReplies)
@@ -104,24 +120,36 @@ export function createAutoReply(botId: number, input: AutoReplyInput): AutoReply
     .orderBy(desc(autoReplies.position))
     .limit(1)
     .all()[0];
-  return db
+  const created = db
     .insert(autoReplies)
     .values({ botId, ...columnsFor(input), position: (last?.position ?? -1) + 1, createdAt: new Date() })
     .returning()
     .get();
+  noteStartRule(botId);
+  return created;
+}
+
+/** Keeps the cached "has a welcome message" fact (the bot cards' setup figure) in step with the rules. */
+export function noteStartRule(botId: number): void {
+  recordSetup(botId, { welcome: listAutoReplies(botId).some((r) => r.enabled && r.matchType === "command" && r.pattern === "start") });
 }
 
 export function updateAutoReply(botId: number, id: number, input: AutoReplyInput): AutoReplyRow | undefined {
-  return db
+  assertSingleFallback(botId, input, id);
+  const updated = db
     .update(autoReplies)
     .set(columnsFor(input))
     .where(and(eq(autoReplies.botId, botId), eq(autoReplies.id, id)))
     .returning()
     .get();
+  noteStartRule(botId);
+  return updated;
 }
 
 export function deleteAutoReply(botId: number, id: number): boolean {
-  return db.delete(autoReplies).where(and(eq(autoReplies.botId, botId), eq(autoReplies.id, id))).run().changes > 0;
+  const deleted = db.delete(autoReplies).where(and(eq(autoReplies.botId, botId), eq(autoReplies.id, id))).run().changes > 0;
+  noteStartRule(botId);
+  return deleted;
 }
 
 /** Swaps a rule with its neighbour in list order. */
@@ -141,82 +169,12 @@ export function moveAutoReply(botId: number, id: number, direction: "up" | "down
 }
 
 export { MEDIA_KINDS } from "./validation";
-export type MediaKind = (typeof MEDIA_KINDS)[number];
+export type { MediaKind } from "./match-message";
+export { mediaKindOf, startPayloadOf } from "./match-message";
 
-/** What a non-text message carries, as a "media" rule would name it (venue before location: a venue has both). */
-export function mediaKindOf(message: TelegramMessage): MediaKind | null {
-  if (message.photo?.length) return "photo";
-  if (message.video) return "video";
-  if (message.video_note) return "video_note";
-  if (message.voice) return "voice";
-  if (message.audio) return "audio";
-  if (message.animation) return "animation";
-  if (message.sticker) return "sticker";
-  if (message.document) return "document";
-  if (message.contact) return "contact";
-  if (message.venue) return "venue";
-  if (message.location) return "location";
-  if (message.poll) return "poll";
-  if (message.dice) return "dice";
-  if (message.web_app_data) return "web_app_data";
-  return null;
-}
-
-/** The `/start <payload>` payload of a message's text (case preserved), or null. A `/start@other_bot` is not ours. */
-export function startPayloadOf(message: TelegramMessage, botUsername: string): string | null {
-  const text = message.text?.trim();
-  const match = text?.match(/^\/start(?:@(\w+))?\s+(\S+)/i);
-  if (!match || (match[1] && match[1].toLowerCase() !== botUsername.toLowerCase())) return null;
-  return match[2];
-}
-
-/**
- * The first enabled message rule that fits `message`, or undefined. Text rules only apply in private chats (commands
- * everywhere). Text messages: a deep-link rule for the `/start` payload beats everything, then rules in list order.
- * Messages without text: "shared" rules (a user/chat picked through a keyboard button) and "media" rules.
- */
+/** The first enabled message rule that fits `message` (see `matchMessageRule`, which the dashboard's test chat shares). */
 export function matchAutoReply(botId: number, botUsername: string, message: TelegramMessage): AutoReplyRow | undefined {
-  if (message.from?.is_bot) return undefined;
-  const isPrivate = message.chat.type === "private";
-  const rules = listAutoReplies(botId).filter((r) => r.enabled);
-  const text = message.text?.trim();
-
-  if (!text) {
-    if (!isPrivate) return undefined;
-    const shared = message.users_shared?.request_id ?? message.chat_shared?.request_id;
-    if (shared !== undefined) return rules.find((r) => r.matchType === "shared" && r.pattern === String(shared));
-    const kind = mediaKindOf(message);
-    return kind ? rules.find((r) => r.matchType === "media" && r.pattern === kind) : undefined;
-  }
-
-  const payload = startPayloadOf(message, botUsername);
-  if (payload !== null) {
-    const deepLink = rules.find((r) => r.matchType === "deeplink" && r.pattern === payload);
-    if (deepLink) return deepLink;
-  }
-
-  let command: string | null = null;
-  if (text.startsWith("/")) {
-    const [head] = text.slice(1).split(/\s/, 1);
-    const [name, target] = head.split("@");
-    // "/start@other_bot" in a group is meant for another bot.
-    if (!target || target.toLowerCase() === botUsername.toLowerCase()) command = name.toLowerCase();
-  }
-  const lower = text.toLowerCase();
-
-  return rules.find((rule) => {
-    const pattern = rule.pattern.toLowerCase();
-    switch (rule.matchType) {
-      case "command":
-        return command !== null && command === pattern;
-      case "exact":
-        return isPrivate && lower === pattern;
-      case "contains":
-        return isPrivate && lower.includes(pattern);
-      default:
-        return false;
-    }
-  });
+  return matchMessageRule(listAutoReplies(botId), botUsername, message);
 }
 
 /** The first enabled rule answering a pressed button with this callback data (exact data or a data prefix). */

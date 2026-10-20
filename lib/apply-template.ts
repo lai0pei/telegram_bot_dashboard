@@ -3,7 +3,7 @@ import { BotApiError, botApi } from "./botapi";
 import { withRetry } from "./bot-api-retry";
 import { templateRuleKey, type BotTemplate, type TemplatePart } from "./bot-templates";
 import { setMonitorEnabled } from "./bots";
-import { normalizeInlineButtons, validateAutoReply } from "./validation";
+import { normalizeInlineButtons, normalizeReplyKeyboard, validateAutoReply } from "./validation";
 
 export interface PartResult {
   part: TemplatePart;
@@ -92,7 +92,8 @@ export async function applyTemplate(
       }
       // Templates go through the same gate as a rule typed into the form.
       const buttons = normalizeInlineButtons(rule.buttons) ?? undefined;
-      const invalid = validateAutoReply({ ...rule, buttons });
+      const replyKeyboard = normalizeReplyKeyboard(rule.replyKeyboard);
+      const invalid = validateAutoReply({ ...rule, buttons, replyKeyboard });
       if (invalid) {
         r.errors.push(`${rule.pattern}: ${invalid}`);
         continue;
@@ -102,9 +103,10 @@ export async function applyTemplate(
         pattern: rule.pattern,
         replyText: rule.replyText,
         parseMode: rule.parseMode ?? null,
-        showAlert: false,
-        enabled: true,
+        showAlert: rule.showAlert === true,
+        enabled: rule.enabled !== false,
         buttons,
+        replyKeyboard,
         callbackAction: rule.callbackAction,
       });
       r.applied++;

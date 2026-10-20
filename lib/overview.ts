@@ -13,20 +13,10 @@ export interface OverviewStats {
   groups: number;
   botUsers: number;
   messagesToday: number;
-<<<<<<< HEAD
   /** Bots whose last health check found a problem (see lib/health.ts). */
   botsNeedingAttention: number;
-=======
+  /** Daily new-user and incoming-message counts for the tile sparklines (lib/stats.ts). */
   trend: TrendPoint[];
-  recentMessages: {
-    id: number;
-    botId: number;
-    botUsername: string;
-    fromName: string;
-    text: string | null;
-    createdAt: number;
-  }[];
->>>>>>> a05ef6cc882ff2f00a1a66315cd22f35b5d75cda
 }
 
 /**
@@ -70,11 +60,7 @@ export function getOverviewStats(telegramAccountId: string): OverviewStats {
     groups: chatRows.filter((c) => c.kind !== "channel").length,
     botUsers: botUserCount,
     messagesToday,
-<<<<<<< HEAD
     botsNeedingAttention: ownBots.filter((b) => b.healthStatus === "warning" || b.healthStatus === "error").length,
-=======
     trend: getTrend(telegramAccountId, TREND_DAYS),
-    recentMessages,
->>>>>>> a05ef6cc882ff2f00a1a66315cd22f35b5d75cda
   };
 }

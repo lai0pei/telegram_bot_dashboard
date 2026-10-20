@@ -4,7 +4,7 @@ import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { spring } from "@/components/motion";
 
-export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+export function Card({ className, ...props }: React.ComponentProps<"div">) {
   return <div className={cn("card p-5", className)} {...props} />;
 }
 

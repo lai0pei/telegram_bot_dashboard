@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* 1200px: All rules shows list | editor | phone. A theme breakpoint, so its rules sort after lg/xl (an arbitrary min-[1360px] was emitted before them and lost). */
+@theme {
+  --breakpoint-wide: 75rem;
+}
+
 :root {
   --background: #f8f9fb;
   --foreground: #16181c;

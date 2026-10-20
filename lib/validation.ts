@@ -4,7 +4,7 @@
  * (the actual gate — never trust the client).
  */
 
-import type { ButtonStyle, InlineButton, KeyboardButton, ReplyKeyboard, StickerFormat } from "./botapi";
+import type { ButtonStyle, InlineButton, KeyboardButton, ReplyKeyboard } from "./botapi";
 
 const USERNAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]{3,30}[bB][oO][tT]$/;
 
@@ -424,7 +424,7 @@ export function validateInlineResult(r: {
   return validateMessageText(r.messageText) ?? validateParseMode(r.parseMode) ?? validateInlineButtons(r.buttons, "-1");
 }
 
-export const AUTO_REPLY_MATCH_TYPES = ["command", "exact", "contains", "callback", "callback_prefix", "deeplink", "media", "shared"] as const;
+export const AUTO_REPLY_MATCH_TYPES = ["command", "exact", "contains", "callback", "callback_prefix", "deeplink", "media", "shared", "fallback"] as const;
 export const CALLBACK_ACTIONS = ["toast", "edit", "reply"] as const;
 
 /** The kinds of non-text message a "media" rule can name (see mediaKindOf in lib/auto-replies.ts). */
@@ -458,8 +458,11 @@ export function validateAutoReply(rule: {
   if (!AUTO_REPLY_MATCH_TYPES.includes(rule.matchType as (typeof AUTO_REPLY_MATCH_TYPES)[number])) return "Unknown match type.";
   if (typeof rule.pattern !== "string" || typeof rule.replyText !== "string") return "Pattern and reply are required.";
   const pattern = rule.pattern.trim();
-  if (!pattern) return "Pattern is required.";
-  if (rule.matchType === "command") {
+  // "Anything else" has nothing to match on; its stored pattern is always "*".
+  if (!pattern && rule.matchType !== "fallback") return "Pattern is required.";
+  if (rule.matchType === "fallback") {
+    // nothing to check
+  } else if (rule.matchType === "command") {
     const error = validateCommand(pattern.replace(/^\//, "").toLowerCase());
     if (error) return error;
   } else if (rule.matchType === "callback" || rule.matchType === "callback_prefix") {
@@ -624,59 +627,6 @@ export function normalizeInlineButtons(buttons: unknown): InlineButton[][] | nul
       return out;
     })
   );
-}
-
-/**
- * The short name typed for a sticker set, before the required `_by_<bot username>` suffix: English letters, digits
- * and single underscores, starting with a letter. The full name is at most 64 characters.
- */
-export function validateStickerSetShortName(short: string, botUsername: string): string | null {
-  if (!/^[A-Za-z](?:[A-Za-z0-9]|_(?=[A-Za-z0-9]))*$/.test(short)) {
-    return "Use English letters, digits and single underscores, starting with a letter.";
-  }
-  if (`${short}_by_${botUsername}`.length > 64) return "That name is too long once _by_<bot username> is added (64 characters max).";
-  return null;
-}
-
-export function validateStickerTitle(title: string): string | null {
-  const trimmed = title.trim();
-  if (!trimmed || trimmed.length > 64) return "Title must be 1–64 characters.";
-  return null;
-}
-
-/** The emoji in a text field, one per grapheme (so skin tones and flags count once). Not emoji? Not included. */
-export function splitEmoji(text: string): string[] {
-  const segments = Array.from(new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text), (s) => s.segment);
-  return segments.filter((g) => /\p{Extended_Pictographic}|\p{Regional_Indicator}/u.test(g));
-}
-
-/** 1–20 emoji; anything that isn't an emoji in the field is an error rather than silently dropped. */
-export function validateStickerEmoji(text: string): string | null {
-  const emoji = splitEmoji(text);
-  const typed = Array.from(new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text), (s) => s.segment).filter((g) => g.trim());
-  if (emoji.length === 0) return "Add at least one emoji for this sticker.";
-  if (emoji.length > 20) return "At most 20 emoji per sticker.";
-  if (typed.length !== emoji.length) return "Only emoji are allowed here.";
-  return null;
-}
-
-const STICKER_MAX_BYTES: Record<StickerFormat, number> = { static: 512 * 1024, video: 256 * 1024, animated: 64 * 1024 };
-
-/** Which sticker format an uploaded file is: WEBP/PNG are static, WEBM is video, .tgs is animated. null = unsupported. */
-export function stickerFormatOf(file: { type: string; name: string }): StickerFormat | null {
-  if (file.type === "image/png" || file.type === "image/webp") return "static";
-  if (file.type === "video/webm") return "video";
-  if (file.name.toLowerCase().endsWith(".tgs")) return "animated";
-  return null;
-}
-
-/** Size limits per format. Telegram checks dimensions and duration itself and its message is shown as-is. */
-export function validateStickerFile(file: { type: string; name: string; size: number }): string | null {
-  const format = stickerFormatOf(file);
-  if (!format) return "Use a .webp or .png image, a .webm video or a .tgs animation.";
-  if (file.size === 0) return "That file is empty.";
-  if (file.size > STICKER_MAX_BYTES[format]) return `A ${format} sticker must be at most ${STICKER_MAX_BYTES[format] / 1024} KB.`;
-  return null;
 }
 
 /** Error text unless `raw` is an https:// URL (labelled for the message). */

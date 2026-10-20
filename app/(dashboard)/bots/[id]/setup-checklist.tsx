@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiFetch } from "@/lib/api-client";
+import { setupFlags, setupProgress } from "@/lib/setup-progress";
 import { validateDescription, validateShortDescription } from "@/lib/validation";
 import { ESSENTIAL_COMMANDS } from "./essential-commands";
 import { MonitorToggle } from "./monitor-toggle";
@@ -50,6 +51,7 @@ interface Step {
 export function SetupChecklist({
   bot,
   photoSrc,
+  hasPhoto,
   rules,
   onReload,
   onRulesChanged,
@@ -57,6 +59,8 @@ export function SetupChecklist({
 }: {
   bot: BotDetail;
   photoSrc: string;
+  /** Whether the bot has a profile photo; null while unknown. Loaded by the page (the sidebar badge counts it too). */
+  hasPhoto: boolean | null;
   /** null while the rules are still loading. */
   rules: AutoReplyRule[] | null;
   onReload: () => void;
@@ -67,7 +71,6 @@ export function SetupChecklist({
   const triedKey = `tgdash:setup-tried:${bot.id}`;
   const [hidden, setHidden] = useState(() => readFlag(hiddenKey));
   const [tried, setTried] = useState(() => readFlag(triedKey));
-  const [hasPhoto, setHasPhoto] = useState<boolean | null>(null);
   const [openStep, setOpenStep] = useState<StepId | "" | null>(null);
   const [short, setShort] = useState(bot.shortDescription ?? "");
   const [about, setAbout] = useState(bot.description ?? "");
@@ -75,35 +78,33 @@ export function SetupChecklist({
   const [welcomeDraft, setWelcomeDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    let live = true;
-    // 404 = the bot has no photo; any other failure (rate limit, network) is "unknown", not "missing". The route is cached.
-    fetch(photoSrc)
-      .then((r) => live && setHasPhoto(r.ok ? true : r.status === 404 ? false : null))
-      .catch(() => live && setHasPhoto(null));
-    return () => {
-      live = false;
-    };
-  }, [photoSrc]);
-
   const startRule = rules?.find((r) => r.matchType === "command" && r.pattern === "start");
   const welcome = welcomeDraft ?? startRule?.replyText ?? DEFAULT_WELCOME;
-  const listening = bot.monitorEnabled && !bot.webhook?.url;
+  const flags = setupFlags({
+    hasPhoto,
+    shortDescription: bot.shortDescription,
+    description: bot.description,
+    startRuleEnabled: Boolean(startRule?.enabled),
+    commandsCount: bot.commands?.length ?? 0,
+    monitorEnabled: bot.monitorEnabled,
+    webhookUrl: bot.webhook?.url,
+  });
   const steps: Step[] = [
-    { id: "photo", title: "Add a profile photo", why: "A face makes the bot recognisable in chat lists and search.", done: hasPhoto === true },
-    { id: "short", title: "Write a short description", why: "One line on the bot's profile, above the Start button.", done: Boolean(bot.shortDescription?.trim()) },
-    { id: "about", title: "Explain what the bot does", why: "Shown on the empty chat before anyone presses Start.", done: Boolean(bot.description?.trim()) },
-    { id: "welcome", title: "Write a welcome message", why: "What the bot says right after Start. Without it, it stays silent.", done: Boolean(startRule?.enabled) },
-    { id: "commands", title: "Add a commands menu", why: "The list people see when they type “/”.", done: (bot.commands?.length ?? 0) > 0 },
+    { id: "photo", title: "Add a profile photo", why: "A face makes the bot recognisable in chat lists and search.", done: flags.photo },
+    { id: "short", title: "Write a short description", why: "One line on the bot's profile, above the Start button.", done: flags.short },
+    { id: "about", title: "Explain what the bot does", why: "Shown on the empty chat before anyone presses Start.", done: flags.about },
+    { id: "welcome", title: "Write a welcome message", why: "What the bot says right after Start. Without it, it stays silent.", done: flags.welcome },
+    { id: "commands", title: "Add a commands menu", why: "The list people see when they type “/”.", done: flags.commands },
     {
       id: "listening",
       title: "Turn on replies",
       why: "Automatic replies only work while the dashboard is listening for messages (monitoring).",
-      done: listening,
+      done: flags.listening,
     },
     { id: "try", title: "Try it in Telegram", why: "Open your bot, press Start and see what people will see.", done: tried, optional: true },
   ];
-  const doneCount = steps.filter((s) => s.done).length;
+  // The optional "try it" step is shown but not counted, so the figure matches the sidebar badge and the bot cards.
+  const { done: doneCount, total: totalCount } = setupProgress(flags);
   const firstTodo = steps.find((s) => !s.done)?.id ?? "";
   const active = openStep ?? firstTodo;
 
@@ -148,7 +149,7 @@ export function SetupChecklist({
     return (
       <div className="flex items-center justify-between rounded-xl border border-dashed border-[var(--card-border)] px-4 py-2 text-sm">
         <span className="text-[var(--muted)]">
-          Setup guide · {doneCount} of {steps.length} done
+          Setup guide · {doneCount} of {totalCount} done
         </span>
         <Button variant="ghost" size="sm" onClick={() => { writeFlag(hiddenKey, false); setHidden(false); }}>
           Show
@@ -164,13 +165,13 @@ export function SetupChecklist({
     <Card className="p-0">
       <div className="flex flex-wrap items-center gap-3 border-b border-[var(--card-border)] px-5 py-3">
         <div className="min-w-0 flex-1">
-          <h2 className="text-base font-semibold">{doneCount === steps.length ? "Your bot is ready 🎉" : "Get your bot ready"}</h2>
+          <h2 className="text-base font-semibold">{doneCount === totalCount ? "Your bot is ready 🎉" : "Get your bot ready"}</h2>
           <p className="text-xs text-[var(--muted)]">
-            {doneCount} of {steps.length} done
+            {doneCount} of {totalCount} done
           </p>
         </div>
-        <div className="h-2 w-40 overflow-hidden rounded-full bg-[var(--card-border)]" role="progressbar" aria-valuemin={0} aria-valuemax={steps.length} aria-valuenow={doneCount}>
-          <div className="h-full bg-[var(--success)] transition-all" style={{ width: `${(doneCount / steps.length) * 100}%` }} />
+        <div className="h-2 w-40 overflow-hidden rounded-full bg-[var(--card-border)]" role="progressbar" aria-valuemin={0} aria-valuemax={totalCount} aria-valuenow={doneCount}>
+          <div className="h-full bg-[var(--success)] transition-all" style={{ width: `${(doneCount / totalCount) * 100}%` }} />
         </div>
         <Button variant="ghost" size="sm" onClick={() => { writeFlag(hiddenKey, true); setHidden(true); }}>
           Hide

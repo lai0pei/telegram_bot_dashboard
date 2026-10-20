@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, BarChart3, Keyboard, Link2, Paperclip, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
+import { ArrowLeft, BarChart3, Eye, Keyboard, Link2, Paperclip, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -15,6 +15,7 @@ import {
 } from "@/lib/validation";
 import { cn } from "@/lib/utils";
 import type { BotMessageRow, ParseModeChoice, SendPayload } from "./types";
+import { ComposerPreview, type PreviewBot } from "./composer-preview";
 import { MessageRow, type MessageActions } from "./message-row";
 import { PollDialog } from "./poll-dialog";
 import { ButtonsEditor, draftsError, draftsToButtons, emptyButtonDraft, type ButtonDraft } from "./buttons-editor";
@@ -28,6 +29,7 @@ const TYPING_THROTTLE_MS = 5000;
 
 export function ChatPane({
   botId,
+  bot,
   photoVersion,
   refreshing,
   onRefreshContact,
@@ -47,6 +49,7 @@ export function ChatPane({
   className,
 }: {
   botId: number;
+  bot: PreviewBot;
   photoVersion: number;
   refreshing: boolean;
   onRefreshContact: () => void;
@@ -72,6 +75,16 @@ export function ChatPane({
   const [parseMode, setParseMode] = useState<ParseModeChoice>("");
   const [replyingTo, setReplyingTo] = useState<BotMessageRow | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  // An object URL of the picked image, only for the preview; created when the file is picked and revoked when it goes.
+  const [fileUrl, setFileUrl] = useState<string | null>(null);
+  const fileUrlRef = useRef<string | null>(null);
+  useEffect(
+    () => () => {
+      if (fileUrlRef.current) URL.revokeObjectURL(fileUrlRef.current);
+    },
+    []
+  );
+  const [showPreview, setShowPreview] = useState(false);
   const [asFile, setAsFile] = useState(false);
   const [buttonDrafts, setButtonDrafts] = useState<ButtonDraft[]>([]);
   const [showButtons, setShowButtons] = useState(false);
@@ -137,8 +150,15 @@ export function ChatPane({
       toast.error(error);
       return;
     }
-    setFile(picked);
+    pickFile(picked);
     setAsFile(false);
+  }
+
+  function pickFile(next: File | null) {
+    if (fileUrlRef.current) URL.revokeObjectURL(fileUrlRef.current);
+    fileUrlRef.current = next?.type.startsWith("image/") ? URL.createObjectURL(next) : null;
+    setFile(next);
+    setFileUrl(fileUrlRef.current);
   }
 
   async function submit() {
@@ -158,7 +178,7 @@ export function ChatPane({
     if (await onSend(payload)) {
       setText("");
       setReplyingTo(null);
-      setFile(null);
+      pickFile(null);
       setAsFile(false);
       setButtonDrafts([]);
       setShowButtons(false);
@@ -287,7 +307,7 @@ export function ChatPane({
               Send as file
             </label>
           )}
-          <button type="button" onClick={() => setFile(null)} aria-label="Remove attachment" className="text-[var(--muted)] hover:text-[var(--foreground)]">
+          <button type="button" onClick={() => pickFile(null)} aria-label="Remove attachment" className="text-[var(--muted)] hover:text-[var(--foreground)]">
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -308,6 +328,19 @@ export function ChatPane({
             disabledReason={buttons ? "Remove the inline buttons to use a reply keyboard." : file ? "Remove the attachment to use a reply keyboard." : null}
           />
           {keyboardError && !keyboardDraftError(keyboardDraft, chatId) && <p className="mt-1 text-xs text-[var(--danger)]">{keyboardError}</p>}
+        </div>
+      )}
+
+      {showPreview && (
+        <div className="max-h-72 overflow-y-auto border-t border-[var(--card-border)] px-3 py-2">
+          <ComposerPreview
+            bot={bot}
+            text={text}
+            parseMode={parseMode}
+            drafts={buttonDrafts}
+            keyboard={replyKeyboard}
+            media={file ? { kind: asFile || !fileUrl ? "file" : "photo", src: asFile ? undefined : fileUrl ?? undefined, name: file.name } : undefined}
+          />
         </div>
       )}
 
@@ -349,6 +382,17 @@ export function ChatPane({
           <Keyboard className="h-4 w-4" />
         </Button>
         )}
+        <Button
+          type="button"
+          variant={showPreview ? "outline" : "ghost"}
+          size="icon"
+          onClick={() => setShowPreview((v) => !v)}
+          aria-label="Preview"
+          aria-expanded={showPreview}
+          title="See how the message will look in Telegram"
+        >
+          <Eye className="h-4 w-4" />
+        </Button>
         {!businessConnectionId && (
         <Button type="button" variant="ghost" size="icon" onClick={() => setPollOpen(true)} aria-label="Send a poll" title="Send a poll or quiz">
           <BarChart3 className="h-4 w-4" />

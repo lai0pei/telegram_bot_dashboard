@@ -7,6 +7,7 @@ import { Bot, LayoutGrid, Megaphone, Settings, Smartphone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-client";
 import { AccountSwitcher } from "./account-switcher";
+import { accountLabel, useAccounts } from "./accounts-context";
 import { LogoutButton } from "./logout-button";
 
 const NAV_LINKS = [
@@ -23,15 +24,45 @@ const NAV_LINKS = [
  * separate from "which dashboard user you are" (bottom) — the two are easy
  * to confuse once an account switcher exists.
  */
-export function DashboardNav({ onNavigate }: { onNavigate?: () => void }) {
+export function DashboardNav({ onNavigate, collapsed = false, onExpand }: { onNavigate?: () => void; /** The icon-only rail (desktop); `onExpand` opens the full panel. */ collapsed?: boolean; onExpand?: () => void }) {
   const pathname = usePathname();
   const [username, setUsername] = useState<string | null>(null);
+  const { active } = useAccounts();
 
   useEffect(() => {
     void apiFetch<{ username: string }>("/api/account")
       .then((r) => setUsername(r.username))
       .catch(() => {});
   }, []);
+
+  if (collapsed) {
+    return (
+      <div className="flex h-full flex-col items-center gap-4">
+        <nav aria-label="Main" className="flex flex-1 flex-col gap-1">
+          {NAV_LINKS.map(({ href, label, icon: Icon }) => {
+            const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+            return (
+              <Link
+                key={href}
+                href={href}
+                title={label}
+                aria-label={label}
+                className={cn("flex h-10 w-10 items-center justify-center rounded-lg transition-colors", active ? "bg-[var(--primary)]/10 text-[var(--primary)]" : "text-[var(--muted)] hover:bg-black/5 hover:text-[var(--foreground)] dark:hover:bg-white/5")}
+              >
+                <Icon className="h-5 w-5" />
+              </Link>
+            );
+          })}
+        </nav>
+        <div className="flex flex-col items-center gap-2 border-t border-[var(--card-border)] pt-3">
+          <button type="button" onClick={onExpand} title={active ? `Acting as ${accountLabel(active)} — switch account` : "No Telegram account"} aria-label="Switch Telegram account" className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--primary)]/10 text-xs font-semibold text-[var(--primary)]">
+            {active ? accountLabel(active).replace(/^@/, "").slice(0, 1).toUpperCase() : "?"}
+          </button>
+          <LogoutButton compact />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col gap-6">

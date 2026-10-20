@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import {
   botApi,
   type TelegramCallbackQuery,
@@ -8,7 +7,7 @@ import {
   type TelegramPoll,
   type TelegramUpdate,
 } from "./botapi";
-import { getBotToken, getMonitoredBot, listAllMonitoredBots, setLastUpdateId } from "./bots";
+import { getBotToken, getMonitoredBot, listAllMonitoredBots, setLastUpdateId, setPollHealth } from "./bots";
 import { db } from "./db";
 import { botMessages } from "./db/schema";
 import { setBotUserBlocked, upsertBotUser } from "./bot-users";
@@ -20,6 +19,8 @@ import { describeMessage } from "./messages";
 import { noteBotChatFromMessage, rightsOf, statusOf, trackedType, upsertBotChat } from "./bot-chats";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { getBusinessConnection, markBusinessMessagesDeleted, upsertBusinessConnection } from "./business";
+import { maybeSendDigests } from "./digest";
+import { snapshotDailyStats, utcDay } from "./stats";
 
 /**
  * Background long-poll for every bot with monitoring enabled. Started once per
@@ -27,23 +28,9 @@ import { getBusinessConnection, markBusinessMessagesDeleted, upsertBusinessConne
  * worker per monitored bot, so each bot's long-poll waits in parallel (idle
  * sockets cost almost nothing) and one slow or failing bot never delays the
  * others. Each bot keeps its own offset (lastUpdateId), so restarts don't
- * re-fetch old updates.
-=======
-import { botApi } from "./botapi";
-import { getBotToken, listAllMonitoredBots, setLastUpdateId, setPollHealth } from "./bots";
-import { db } from "./db";
-import { botMessages, botUsers } from "./db/schema";
-import { eq, and } from "drizzle-orm";
-import { snapshotDailyStats, utcDay } from "./stats";
-import { maybeSendDigests } from "./digest";
-
-/**
- * Background long-poll loop for every bot with monitoring enabled. Started
- * once per process from instrumentation.ts. Each bot is polled with its own
- * offset (lastUpdateId) so restarts don't re-fetch old updates. Also drives
- * the once-a-day stats snapshot and digest check, since this is the only
- * long-running loop in the process.
->>>>>>> a05ef6cc882ff2f00a1a66315cd22f35b5d75cda
+ * re-fetch old updates. The supervisor also drives the once-a-day stats
+ * snapshot and the Saved Messages digest check, since it is the process's only
+ * long-running loop.
  */
 const POLL_TIMEOUT_SECONDS = 15;
 const SUPERVISOR_INTERVAL_MS = 3000;
@@ -51,12 +38,13 @@ const MIN_BACKOFF_MS = 5000;
 const MAX_BACKOFF_MS = 60_000;
 
 declare global {
-<<<<<<< HEAD
   var __tgDashPollerRunning: boolean | undefined;
   /** Bot IDs that currently have a worker, so hot-reload can't start a second one. */
   var __tgDashPollerWorkers: Set<number> | undefined;
   /** Consecutive getUpdates failures per bot, read by the health check (lib/health.ts). Absent = healthy. */
   var __tgDashPollerFailures: Map<number, number> | undefined;
+  /** UTC day of the last stats snapshot, so it runs at most once a day per process. */
+  var __tgDashLastSnapshotDay: string | undefined;
 }
 
 function pollerFailures(): Map<number, number> {
@@ -78,34 +66,41 @@ export function startPoller() {
 async function supervise() {
   const workers = globalThis.__tgDashPollerWorkers!;
   while (globalThis.__tgDashPollerRunning) {
+    maybeSnapshotDailyStats();
+    // Has its own schedule guard (lastDigestAt) and a per-account single-flight, so a tick overlapping a slow send is safe.
+    maybeSendDigests().catch((err) => console.error("[poller] digest check failed:", err));
     for (const bot of listAllMonitoredBots()) {
       if (!bot.encryptedToken || workers.has(bot.id)) continue;
       workers.add(bot.id);
       pollBot(bot.id)
         .catch((err) => console.error(`[poller] worker for bot ${bot.username} crashed:`, err))
         .finally(() => workers.delete(bot.id));
-=======
-  var __tgDashLastSnapshotDay: string | undefined;
-}
-
-export function startPoller() {
-  if (running) return;
-  running = true;
-  loop().catch((err) => console.error("[poller] fatal error, stopped:", err));
-}
-
-async function loop() {
-  while (running) {
-    maybeSnapshotDailyStats();
-    maybeSendDigests().catch((err) => console.error("[poller] digest check failed:", err));
-
-    const monitored = listAllMonitoredBots().filter((b) => b.encryptedToken);
-    if (monitored.length === 0) {
-      await sleep(3000);
-      continue;
->>>>>>> a05ef6cc882ff2f00a1a66315cd22f35b5d75cda
     }
     await sleep(SUPERVISOR_INTERVAL_MS);
+  }
+}
+
+/** Runs the stats snapshot at most once per UTC day per process (every other supervisor tick is a cheap no-op check). */
+function maybeSnapshotDailyStats() {
+  const today = utcDay(new Date());
+  if (globalThis.__tgDashLastSnapshotDay === today) return;
+  globalThis.__tgDashLastSnapshotDay = today;
+  try {
+    snapshotDailyStats();
+  } catch (err) {
+    console.error("[poller] daily stats snapshot failed:", err);
+  }
+}
+
+/**
+ * Records the outcome of a poll cycle for the attention panel. Never throws: it runs in the failure path, where the
+ * problem may itself be a database error, and a throw there would skip the backoff sleep and respawn the worker in a loop.
+ */
+function recordPollHealth(botId: number, error: string | null) {
+  try {
+    setPollHealth(botId, error);
+  } catch (err) {
+    console.error(`[poller] couldn't record poll health for bot ${botId}:`, err);
   }
 }
 
@@ -133,19 +128,12 @@ async function pollBot(botId: number) {
           if (isDatabaseError(err)) throw err;
           console.error(`[poller] bot ${bot.username} skipped update ${update.update_id}:`, err);
         }
-<<<<<<< HEAD
         setLastUpdateId(bot.id, update.update_id);
-=======
-        setPollHealth(bot.id, null);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error(`[poller] bot ${bot.username} getUpdates failed:`, err);
-        setPollHealth(bot.id, message);
-        await sleep(5000);
->>>>>>> a05ef6cc882ff2f00a1a66315cd22f35b5d75cda
       }
+      recordPollHealth(bot.id, null);
     } catch (err) {
       console.error(`[poller] bot ${bot.username} getUpdates failed:`, err);
+      recordPollHealth(bot.id, err instanceof Error ? err.message : String(err));
       // Per-bot backoff (5s growing to 60s) so a dead token neither stalls other bots nor retries every few seconds.
       failures++;
       pollerFailures().set(botId, failures);
@@ -154,7 +142,6 @@ async function pollBot(botId: number) {
   }
 }
 
-<<<<<<< HEAD
 function isDatabaseError(err: unknown): boolean {
   const code = (err as { code?: unknown } | null)?.code;
   return typeof code === "string" && code.startsWith("SQLITE_");
@@ -291,24 +278,6 @@ function recordCallback(botId: number, token: string, query: TelegramCallbackQue
 }
 
 function recordIncomingMessage(botId: number, botUsername: string, token: string, message: TelegramMessage, autoReply = true) {
-=======
-/** Runs the stats snapshot at most once per UTC day per process (each poller cycle, this is a cheap no-op check). */
-function maybeSnapshotDailyStats() {
-  const today = utcDay(new Date());
-  if (globalThis.__tgDashLastSnapshotDay === today) return;
-  globalThis.__tgDashLastSnapshotDay = today;
-  try {
-    snapshotDailyStats();
-  } catch (err) {
-    console.error("[poller] daily stats snapshot failed:", err);
-  }
-}
-
-function recordIncomingMessage(
-  botId: number,
-  message: NonNullable<Awaited<ReturnType<typeof botApi.getUpdates>>[number]["message"]>
-) {
->>>>>>> a05ef6cc882ff2f00a1a66315cd22f35b5d75cda
   const now = new Date();
   const described = describeMessage(message);
   // A business chat belongs to the business owner, not to the bot. The owner's own messages in it arrive as business

@@ -14,6 +14,7 @@ import {
 } from "@/lib/bots";
 import { botApi } from "@/lib/botapi";
 import { maskSecret } from "@/lib/crypto";
+import { cachedProgress } from "@/lib/setup-progress";
 import { singleFlight } from "@/lib/single-flight";
 import { validateBotName, validateBotUsername } from "@/lib/validation";
 
@@ -50,6 +51,7 @@ export const GET = withAuth(async (_req, _ctx, userId) => {
           firstName: bot.firstName,
           monitorEnabled: bot.monitorEnabled,
           health: healthOf(bot),
+          setup: cachedProgress(bot.setupProgress),
         };
         if (!token) return { ...base, hasToken: false, maskedToken: null, details: null, error: null };
         try {

@@ -117,7 +117,7 @@ export function ChatsTab({ bot }: { bot: BotDetail }) {
   const selectedChat = chats?.find((c) => c.chatId === selected) ?? null;
 
   return (
-    <Card className="grid h-[calc(100dvh-13rem)] min-h-[460px] grid-cols-1 overflow-hidden p-0 md:grid-cols-[300px_1fr]">
+    <Card className="grid h-[calc(100dvh-16.5rem)] min-h-[460px] grid-cols-1 overflow-hidden p-0 md:grid-cols-[300px_1fr]">
       <div className={cn("flex min-h-0 flex-col border-[var(--card-border)] md:border-r", selected && "hidden md:flex")}>
         <div className="space-y-2 p-2">
           <form onSubmit={handleAdd} className="flex gap-2">

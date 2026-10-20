@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/api-client";
 import { validateChatId, validateMessageText, validateSendAt } from "@/lib/validation";
 import { ButtonsEditor, draftsError, draftsToButtons, type ButtonDraft } from "./buttons-editor";
+import { ComposerPreview } from "./composer-preview";
 import type { BotDetail, BroadcastItem, ParseModeChoice, ScheduledItem } from "./types";
 
 const select = "h-10 rounded-lg border border-[var(--card-border)] bg-[var(--card)] px-3 text-sm";
@@ -120,6 +121,7 @@ function BroadcastCard({ bot }: { bot: BotDetail }) {
           </select>
         </div>
         <ButtonsEditor drafts={drafts} onChange={setDrafts} botId={bot.id} chatId="1" inlineMode={bot.info?.supports_inline_queries} />
+        <ComposerPreview bot={bot} text={text} parseMode={parseMode} drafts={drafts} />
         <FieldError error={error} />
         {confirming ? (
           <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--card-border)] p-3 text-sm">
@@ -275,6 +277,7 @@ function ScheduledCard({ bot }: { bot: BotDetail }) {
           </select>
         </div>
         <ButtonsEditor drafts={drafts} onChange={setDrafts} botId={bot.id} chatId={chatId.trim() || undefined} inlineMode={bot.info?.supports_inline_queries} />
+        <ComposerPreview bot={bot} text={text} parseMode={parseMode} drafts={drafts} />
         <FieldError error={error} />
         <Button onClick={save} disabled={!canSave} loading={saving}>
           Schedule

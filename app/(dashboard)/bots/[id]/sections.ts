@@ -3,8 +3,10 @@ import {
   Boxes,
   Coins,
   GitBranch,
+  Link2,
   LayoutDashboard,
   LayoutTemplate,
+  Menu,
   MessageSquare,
   MessagesSquare,
   Radio,
@@ -12,7 +14,6 @@ import {
   ShieldAlert,
   ShieldCheck,
   Slash,
-  Sticker,
   UserCog,
   Zap,
   type LucideIcon,
@@ -25,13 +26,14 @@ export type SectionId =
   | "messages"
   | "chats"
   | "automation"
+  | "links"
   | "outbox"
   | "profile"
   | "commands"
+  | "menu"
   | "delivery"
   | "permissions"
   | "stats"
-  | "stickers"
   | "apps"
   | "revenue"
   | "advanced";
@@ -54,36 +56,32 @@ export const SECTION_GROUPS: SectionGroup[] = [
     sections: [
       { id: "builder", label: "Conversation builder", icon: GitBranch },
       { id: "templates", label: "Templates", icon: LayoutTemplate },
-    ],
-  },
-  {
-    label: "Conversations",
-    sections: [
-      { id: "messages", label: "Messages", icon: MessageSquare },
-      { id: "chats", label: "Chats", icon: MessagesSquare },
+      { id: "automation", label: "All rules", icon: Zap },
+      { id: "commands", label: "Commands", icon: Slash },
+      { id: "menu", label: "Menu button", icon: Menu },
     ],
   },
   {
     label: "Engage",
     sections: [
-      { id: "automation", label: "All rules", icon: Zap },
+      { id: "messages", label: "Messages", icon: MessageSquare },
       { id: "outbox", label: "Outbox", icon: Send },
+      { id: "links", label: "Links & inline", icon: Link2 },
     ],
   },
   {
     label: "Configure",
     sections: [
       { id: "profile", label: "Profile", icon: UserCog },
-      { id: "commands", label: "Commands & menu", icon: Slash },
       { id: "delivery", label: "Delivery", icon: Radio },
       { id: "permissions", label: "Permissions", icon: ShieldCheck },
+      { id: "chats", label: "Groups & channels", icon: MessagesSquare },
     ],
   },
   {
     label: "Extras",
     sections: [
       { id: "stats", label: "Stats", icon: BarChart3 },
-      { id: "stickers", label: "Stickers", icon: Sticker },
       { id: "apps", label: "Apps & games", icon: Boxes },
       { id: "revenue", label: "Revenue", icon: Coins },
     ],

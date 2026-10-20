@@ -12,6 +12,7 @@ import { apiFetch } from "@/lib/api-client";
 import { CHAT_COMMAND_SCOPES, validateCommand, validateCommandDescription, validateCommandTarget } from "@/lib/validation";
 import { spring } from "@/components/motion";
 import { LanguageSelect } from "./language-select";
+import { TelegramPreview } from "./telegram-preview";
 import type { BotCommand, BotDetail } from "./types";
 import { ESSENTIAL_COMMANDS } from "./essential-commands";
 
@@ -170,7 +171,13 @@ export function CommandsTab({ bot, onSaved }: { bot: BotDetail; onSaved: () => v
     }
   }
 
+  // The "/" list as it would be with the rows as typed now (saved or not), not only the saved commands.
+  const previewCommands = commands
+    .map((c) => ({ command: c.command.trim().replace(/^\//, ""), description: c.description.trim() }))
+    .filter((c) => c.command && c.description);
+
   return (
+    <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
     <Card>
       <h3 className="mb-3 text-sm font-semibold">Commands menu</h3>
       <p className="mb-4 text-xs text-[var(--muted)]">
@@ -277,5 +284,22 @@ export function CommandsTab({ bot, onSaved }: { bot: BotDetail; onSaved: () => v
         )}
       </div>
     </Card>
+    <Card className="xl:sticky xl:top-6">
+      <h3 className="mb-1 text-sm font-semibold">How the “/” list looks</h3>
+      <p className="mb-3 text-xs text-[var(--muted)]">
+        Updates as you type, before saving. Shown for {SCOPES.find((sc) => sc.value === scope)?.label.toLowerCase() ?? "this scope"}
+        {lang ? ` in language “${lang}”` : ""}. Telegram shows the first few and lets people scroll for the rest.
+      </p>
+      <TelegramPreview
+        mode="chat"
+        botName={bot.name ?? bot.firstName}
+        username={bot.username}
+        photoSrc={`/api/bots/${bot.id}/photo`}
+        messages={[{ from: "bot", text: "Hi! Type / to see what I can do." }]}
+        commands={previewCommands}
+        showCommands
+      />
+    </Card>
+    </div>
   );
 }

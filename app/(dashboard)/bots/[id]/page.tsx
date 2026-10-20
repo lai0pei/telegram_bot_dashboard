@@ -6,7 +6,8 @@ import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-client";
 import { Card } from "@/components/ui/card";
 import { FadeIn } from "@/components/motion";
-import type { BotDetail } from "./types";
+import { setupFlags, setupProgress } from "@/lib/setup-progress";
+import type { AutoReplyRule, BotDetail } from "./types";
 import { BotShell } from "./bot-shell";
 import { OverviewSection } from "./overview-section";
 import { resolveSection, type SectionId } from "./sections";
@@ -17,18 +18,18 @@ import { WebhookTab } from "./webhook-tab";
 import { MessagesTab } from "./messages-tab";
 import { ChatsTab } from "./chats-tab";
 import { AutomationTab } from "./automation-tab";
+import { DeepLinksCard } from "./deep-links-card";
+import { InlineResultsCard } from "./inline-results-card";
 import { BuilderSection } from "./builder-section";
 import { TemplatesSection } from "./templates-section";
 import { OutboxTab } from "./outbox-tab";
 import { StatsTab } from "./stats-tab";
 import { RevenueTab } from "./revenue-tab";
-import { StickersTab } from "./stickers-tab";
 import { AppsTab } from "./apps-tab";
 import { MenuButtonCard } from "./menu-button-card";
 import { AdminRightsCard } from "./admin-rights-card";
 import { CloneCard } from "./clone-card";
 import { DangerTab } from "./danger-tab";
-import { MonitorToggle } from "./monitor-toggle";
 import BotDetailLoading from "./loading";
 
 export default function BotDetailPage() {
@@ -43,6 +44,13 @@ export default function BotDetailPage() {
   const [fetchingToken, setFetchingToken] = useState(false);
   // Bumped after a photo upload/removal so every avatar of this bot refetches.
   const [photoVersion, setPhotoVersion] = useState(0);
+  // The setup checklist and the sidebar badge count the same facts, so the page loads them once. null = not known yet.
+  const [rules, setRules] = useState<AutoReplyRule[] | null>(null);
+  const [rulesVersion, setRulesVersion] = useState(0);
+  const [rulesFailed, setRulesFailed] = useState(false);
+  const [hasPhoto, setHasPhoto] = useState<boolean | null>(null);
+  // A template picked elsewhere (the empty "All rules" list, `?template=`) arrives preselected in the Templates section.
+  const [templateId, setTemplateId] = useState<string | null>(() => search.get("template"));
 
   const load = useCallback(async () => {
     try {
@@ -61,9 +69,36 @@ export default function BotDetailPage() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    let live = true;
+    apiFetch<{ rules: AutoReplyRule[] }>(`/api/bots/${params.id}/auto-replies`)
+      .then((r) => {
+        if (!live) return;
+        setRules(r.rules);
+        setRulesFailed(false);
+      })
+      .catch(() => live && setRulesFailed(true));
+    return () => {
+      live = false;
+    };
+  }, [params.id, rulesVersion]);
+
+  useEffect(() => {
+    let live = true;
+    // 404 = the bot has no photo; any other failure (rate limit, network) is "unknown", not "missing". The route is cached.
+    fetch(`/api/bots/${params.id}/photo?v=${photoVersion}`)
+      .then((r) => live && setHasPhoto(r.ok ? true : r.status === 404 ? false : null))
+      .catch(() => live && setHasPhoto(null));
+    return () => {
+      live = false;
+    };
+  }, [params.id, photoVersion]);
+
   /** Switches section without a navigation: the URL is rewritten in place (`?chat=` is only meaningful for Messages). */
   const openSection = useCallback((id: SectionId, chat?: string) => {
     setSection(id);
+    // The sections edit rules (and templates add them) without telling this page, so refresh what the badge counts.
+    setRulesVersion((v) => v + 1);
     const url = new URL(window.location.href);
     url.searchParams.set("s", id);
     url.searchParams.delete("tab");
@@ -71,6 +106,14 @@ export default function BotDetailPage() {
     else url.searchParams.delete("chat");
     window.history.replaceState(null, "", url);
   }, []);
+
+  const pickTemplate = useCallback(
+    (id: string | null) => {
+      setTemplateId(id);
+      openSection("templates");
+    },
+    [openSection]
+  );
 
   async function reload() {
     setReloading(true);
@@ -98,6 +141,20 @@ export default function BotDetailPage() {
   const badges: Partial<Record<SectionId, string>> = {};
   if (bot?.health?.status === "error") badges.overview = "!";
   if (bot?.commands?.length) badges.commands = String(bot.commands.length);
+  if (bot && bot.hasToken && rules && hasPhoto !== null && !badges.overview) {
+    const { done, total } = setupProgress(
+      setupFlags({
+        hasPhoto,
+        shortDescription: bot.shortDescription,
+        description: bot.description,
+        startRuleEnabled: rules.some((r) => r.enabled && r.matchType === "command" && r.pattern === "start"),
+        commandsCount: bot.commands?.length ?? 0,
+        monitorEnabled: bot.monitorEnabled,
+        webhookUrl: bot.webhook?.url,
+      })
+    );
+    if (done < total) badges.overview = `${done}/${total}`;
+  }
 
   if (loading && !bot) return <BotDetailLoading />;
   if (!bot) return <p className="text-sm text-[var(--danger)]">Bot not found.</p>;
@@ -117,33 +174,37 @@ export default function BotDetailPage() {
         fetchingToken={fetchingToken}
         badges={badges}
       >
-        {section === "overview" && <OverviewSection bot={bot} photoSrc={photoSrc} onChange={load} onOpen={openSection} />}
+        {section === "overview" && (
+          <OverviewSection
+            bot={bot}
+            photoSrc={photoSrc}
+            rules={rules}
+            rulesFailed={rulesFailed}
+            hasPhoto={hasPhoto}
+            onRulesChanged={() => setRulesVersion((v) => v + 1)}
+            onChange={load}
+            onOpen={openSection}
+          />
+        )}
         {section === "builder" && <BuilderSection bot={bot} photoSrc={photoSrc} onOpen={openSection} />}
-        {section === "templates" && <TemplatesSection bot={bot} photoSrc={photoSrc} onChange={load} onOpen={openSection} />}
+        {section === "templates" && <TemplatesSection bot={bot} photoSrc={photoSrc} initialTemplateId={templateId} onChange={load} onOpen={openSection} />}
         {section === "messages" && <MessagesTab bot={bot} onChange={load} />}
         {section === "chats" && <ChatsTab bot={bot} />}
-        {section === "automation" && <AutomationTab bot={bot} />}
+        {section === "automation" && <AutomationTab bot={bot} onPickTemplate={pickTemplate} />}
+        {section === "links" && (
+          <div className="grid items-start gap-4 xl:grid-cols-2">
+            <DeepLinksCard bot={bot} />
+            <InlineResultsCard bot={bot} />
+          </div>
+        )}
         {section === "outbox" && <OutboxTab bot={bot} />}
         {section === "profile" && (
           <ProfileSection bot={bot} photoSrc={photoSrc} onPhotoChanged={() => setPhotoVersion((v) => v + 1)} onSaved={load} />
         )}
-        {section === "commands" && (
-          <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-            <CommandsTab bot={bot} onSaved={load} />
-            {bot.hasToken && <MenuButtonCard bot={bot} />}
-          </div>
-        )}
+        {section === "commands" && <CommandsTab bot={bot} onSaved={load} />}
+        {section === "menu" && <div className="mx-auto max-w-3xl">{bot.hasToken && <MenuButtonCard bot={bot} />}</div>}
         {section === "delivery" && (
-          <div className="mx-auto max-w-3xl space-y-4">
-            <Card className="flex items-center justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-semibold">Monitor incoming messages</h3>
-                <p className="text-xs text-[var(--muted)]">
-                  Polls getUpdates in the background so messages, auto-replies and stats work. Off while a webhook is set.
-                </p>
-              </div>
-              <MonitorToggle bot={bot} onChange={load} />
-            </Card>
+          <div className="mx-auto max-w-3xl">
             <WebhookTab bot={bot} onChange={load} />
           </div>
         )}
@@ -157,7 +218,6 @@ export default function BotDetailPage() {
           </div>
         )}
         {section === "stats" && <StatsTab bot={bot} />}
-        {section === "stickers" && <StickersTab bot={bot} />}
         {section === "apps" && <AppsTab bot={bot} />}
         {section === "revenue" && <RevenueTab bot={bot} />}
         {section === "advanced" && (

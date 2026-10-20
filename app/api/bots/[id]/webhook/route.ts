@@ -1,11 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth, errorResponse } from "@/lib/api-guard";
-<<<<<<< HEAD
 import { botApiErrorResponse } from "@/lib/bot-api-errors";
-import { getBotById, getBotToken, setMonitorEnabled } from "@/lib/bots";
-=======
-import { getBotById, getBotToken, setWebhookHealth } from "@/lib/bots";
->>>>>>> a05ef6cc882ff2f00a1a66315cd22f35b5d75cda
+import { getBotById, getBotToken, setMonitorEnabled, setWebhookHealth } from "@/lib/bots";
 import { botApi } from "@/lib/botapi";
 import {
   validateAllowedUpdates,

@@ -1,5 +1,5 @@
 import { BotApiError, botApi, type BotCommandScopeType } from "./botapi";
-import { createAutoReply, listAutoReplies, parseButtons, parseReplyKeyboard } from "./auto-replies";
+import { createAutoReply, DuplicateFallbackError, listAutoReplies, parseButtons, parseReplyKeyboard } from "./auto-replies";
 import { withRetry as attempt } from "./bot-api-retry";
 import { COMMON_LANGUAGES } from "./languages";
 
@@ -124,6 +124,8 @@ export async function cloneBotSettings(
         createAutoReply(target.id, { ...rule, buttons: parseButtons(rule.buttons), replyKeyboard: parseReplyKeyboard(rule.replyKeyboard) });
         r.copied++;
       } catch (err) {
+        // The target keeps its own "anything else" rule; that's not a failure.
+        if (err instanceof DuplicateFallbackError) continue;
         r.errors.push(`${rule.pattern}: ${message(err)}`);
       }
     }

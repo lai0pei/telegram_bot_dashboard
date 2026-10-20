@@ -1,7 +1,7 @@
 "use client";
 
-import { AppWindow, Copy, ExternalLink, Menu, Paperclip, Search } from "lucide-react";
-import type { ReactNode } from "react";
+import { AppWindow, Copy, ExternalLink, FileText, ImageIcon, Menu, Paperclip, Search, Send } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import type { InlineButton, ReplyKeyboard } from "@/lib/botapi";
 import { fillSample, formatPreview, type FormatNode } from "@/lib/format-preview";
@@ -14,6 +14,8 @@ export interface PreviewMessage {
   buttons?: InlineButton[][] | null;
   /** A small pop-up answering a button press, shown over the chat instead of a bubble. */
   toast?: boolean;
+  /** A photo or file sent with the text (the text then reads as its caption). `src` is a local object URL, never fetched. */
+  media?: { kind: "photo" | "file"; src?: string; name: string };
 }
 
 export interface PreviewMenuButton {
@@ -37,6 +39,9 @@ export function TelegramPreview({
   menuButton,
   commands = [],
   showCommands = false,
+  fill = true,
+  onSend,
+  onButtonPress,
   className = "",
 }: {
   botName: string;
@@ -52,16 +57,29 @@ export function TelegramPreview({
   commands?: BotCommand[];
   /** Chat mode: open the "/" command list above the input. */
   showCommands?: boolean;
+  /**
+   * Replace `{first_name}`-style placeholders with sample values (default). Turn off where the text is sent exactly as
+   * typed (broadcasts, scheduled and chat messages never fill placeholders), or the preview would show "Alex" where
+   * the real message says `{first_name}`.
+   */
+  fill?: boolean;
+  /** Test mode: typing in the input bar (or pressing a reply-keyboard button) calls this. Without it the input is decorative. */
+  onSend?: (text: string) => void;
+  /** Test mode: inline buttons become pressable and call this with the message's index. Without it nothing is clickable. */
+  onButtonPress?: (messageIndex: number, button: InlineButton) => void;
   className?: string;
 }) {
+  const [typed, setTyped] = useState("");
+  const interactive = Boolean(onSend || onButtonPress);
   const menuLabel = menuButton?.type === "web_app" ? menuButton.text || "Open" : "Menu";
   const placeholder = keyboard?.kind === "keyboard" || keyboard?.kind === "force_reply" ? keyboard.placeholder : undefined;
 
   return (
     <div
       className={`mx-auto flex w-full max-w-[320px] flex-col overflow-hidden rounded-[1.5rem] border-4 border-[var(--card-border)] bg-[var(--tg-wall)] text-[13px] text-[var(--tg-text)] shadow-sm ${className}`}
-      role="img"
-      aria-label={`Preview of @${username} in Telegram`}
+      // Interactive children can't live inside role="img", so the test chat is a plain group.
+      role={interactive ? "group" : "img"}
+      aria-label={`${interactive ? "Test chat with" : "Preview of"} @${username} in Telegram`}
     >
       <div className="flex items-center gap-2 bg-[var(--tg-bar)] px-3 py-2">
         <Avatar src={photoSrc} name={botName} className="h-8 w-8" textClassName="text-xs" />
@@ -99,7 +117,7 @@ export function TelegramPreview({
             <div className="mt-auto flex flex-col gap-1.5">
               {messages.length === 0 && <p className="py-8 text-center text-[var(--tg-meta)]">Nothing to show yet.</p>}
               {messages.map((m, i) => (
-                <Bubble key={i} message={m} commands={commands} />
+                <Bubble key={i} message={m} commands={commands} fill={fill} onPress={onButtonPress ? (b) => onButtonPress(i, b) : undefined} />
               ))}
             </div>
           </div>
@@ -117,11 +135,17 @@ export function TelegramPreview({
             <div className="space-y-1 bg-[var(--tg-bar)] p-1.5">
               {keyboard.rows.map((row, r) => (
                 <div key={r} className="flex gap-1">
-                  {row.map((b, c) => (
-                    <div key={c} className="min-w-0 flex-1 truncate rounded-md bg-[var(--tg-in)] px-2 py-1.5 text-center shadow-sm">
-                      {b.text}
-                    </div>
-                  ))}
+                  {row.map((b, c) =>
+                    onSend ? (
+                      <button key={c} type="button" onClick={() => onSend(b.text)} className="min-w-0 flex-1 truncate rounded-md bg-[var(--tg-in)] px-2 py-1.5 text-center shadow-sm">
+                        {b.text}
+                      </button>
+                    ) : (
+                      <div key={c} className="min-w-0 flex-1 truncate rounded-md bg-[var(--tg-in)] px-2 py-1.5 text-center shadow-sm">
+                        {b.text}
+                      </div>
+                    )
+                  )}
                 </div>
               ))}
             </div>
@@ -136,8 +160,34 @@ export function TelegramPreview({
             ) : (
               <Menu className="h-4 w-4 shrink-0" aria-hidden />
             )}
-            <span className="min-w-0 flex-1 truncate">{placeholder || "Message"}</span>
-            <Paperclip className="h-4 w-4 shrink-0" aria-hidden />
+            {onSend ? (
+              <form
+                className="flex min-w-0 flex-1 items-center gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const text = typed.trim();
+                  if (!text) return;
+                  onSend(text);
+                  setTyped("");
+                }}
+              >
+                <input
+                  value={typed}
+                  onChange={(e) => setTyped(e.target.value)}
+                  placeholder={placeholder || "Message"}
+                  aria-label="Type a message to your bot"
+                  className="min-w-0 flex-1 bg-transparent text-[var(--tg-text)] outline-none placeholder:text-[var(--tg-meta)]"
+                />
+                <button type="submit" aria-label="Send" disabled={!typed.trim()} className="shrink-0 text-[var(--tg-link)] disabled:opacity-40">
+                  <Send className="h-4 w-4" aria-hidden />
+                </button>
+              </form>
+            ) : (
+              <>
+                <span className="min-w-0 flex-1 truncate">{placeholder || "Message"}</span>
+                <Paperclip className="h-4 w-4 shrink-0" aria-hidden />
+              </>
+            )}
           </div>
         </>
       )}
@@ -145,8 +195,8 @@ export function TelegramPreview({
   );
 }
 
-function Bubble({ message, commands }: { message: PreviewMessage; commands: BotCommand[] }) {
-  const text = fillSample(message.text, message.parseMode, commands);
+function Bubble({ message, commands, fill, onPress }: { message: PreviewMessage; commands: BotCommand[]; fill: boolean; onPress?: (button: InlineButton) => void }) {
+  const text = fill ? fillSample(message.text, message.parseMode, commands) : message.text;
   if (message.toast) {
     return <p className="mx-auto max-w-[85%] rounded-full bg-black/70 px-3 py-1.5 text-center text-xs text-white">{text}</p>;
   }
@@ -154,27 +204,57 @@ function Bubble({ message, commands }: { message: PreviewMessage; commands: BotC
   return (
     <div className={`flex flex-col gap-1 ${mine ? "items-end" : "items-start"}`}>
       <div className={`max-w-[88%] rounded-2xl px-2.5 py-1.5 shadow-sm ${mine ? "bg-[var(--tg-out)]" : "bg-[var(--tg-in)]"}`}>
+        {message.media && <MediaBlock media={message.media} />}
         <div className="whitespace-pre-wrap break-words">{renderNodes(formatPreview(text, message.parseMode))}</div>
       </div>
       {message.buttons?.length ? (
         <div className="w-full max-w-[88%] space-y-1">
           {message.buttons.map((row, r) => (
             <div key={r} className="flex gap-1">
-              {row.map((b, c) => (
-                <div
-                  key={c}
-                  className="flex min-w-0 flex-1 items-center justify-center gap-1 rounded-lg bg-[var(--tg-btn)] px-2 py-1.5 text-center text-xs font-medium text-white"
-                >
-                  <span className="truncate">{b.text || "…"}</span>
-                  {b.url || b.login_url ? <ExternalLink className="h-3 w-3 shrink-0 opacity-80" aria-hidden /> : null}
-                  {b.copy_text ? <Copy className="h-3 w-3 shrink-0 opacity-80" aria-hidden /> : null}
-                  {b.web_app ? <AppWindow className="h-3 w-3 shrink-0 opacity-80" aria-hidden /> : null}
-                </div>
-              ))}
+              {row.map((b, c) => {
+                const cls = "flex min-w-0 flex-1 items-center justify-center gap-1 rounded-lg bg-[var(--tg-btn)] px-2 py-1.5 text-center text-xs font-medium text-white";
+                const content = (
+                  <>
+                    <span className="truncate">{b.text || "…"}</span>
+                    {b.url || b.login_url ? <ExternalLink className="h-3 w-3 shrink-0 opacity-80" aria-hidden /> : null}
+                    {b.copy_text ? <Copy className="h-3 w-3 shrink-0 opacity-80" aria-hidden /> : null}
+                    {b.web_app ? <AppWindow className="h-3 w-3 shrink-0 opacity-80" aria-hidden /> : null}
+                  </>
+                );
+                return onPress ? (
+                  <button key={c} type="button" onClick={() => onPress(b)} className={`${cls} hover:brightness-110`}>
+                    {content}
+                  </button>
+                ) : (
+                  <div key={c} className={cls}>
+                    {content}
+                  </div>
+                );
+              })}
             </div>
           ))}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function MediaBlock({ media }: { media: NonNullable<PreviewMessage["media"]> }) {
+  if (media.kind === "photo") {
+    return media.src ? (
+      // eslint-disable-next-line @next/next/no-img-element -- a local object URL of the file being composed
+      <img src={media.src} alt="" className="mb-1 max-h-40 w-full rounded-lg object-cover" />
+    ) : (
+      <div className="mb-1 flex h-24 w-44 items-center justify-center gap-1 rounded-lg bg-black/10 text-[var(--tg-meta)]">
+        <ImageIcon className="h-4 w-4" aria-hidden />
+        <span className="max-w-28 truncate text-xs">{media.name}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="mb-1 flex items-center gap-2 rounded-lg bg-black/10 px-2 py-1.5">
+      <FileText className="h-5 w-5 shrink-0 text-[var(--tg-link)]" aria-hidden />
+      <span className="max-w-40 truncate text-xs">{media.name}</span>
     </div>
   );
 }

@@ -113,7 +113,7 @@ export interface BotContact {
   name: string;
 }
 
-export type AutoReplyMatchType = "command" | "exact" | "contains" | "callback" | "callback_prefix" | "deeplink" | "media" | "shared";
+export type AutoReplyMatchType = "command" | "exact" | "contains" | "callback" | "callback_prefix" | "deeplink" | "media" | "shared" | "fallback";
 
 export type CallbackAction = "toast" | "edit" | "reply";
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { withAuth, errorResponse } from "@/lib/api-guard";
-import { deleteAutoReply, getAutoReply, moveAutoReply, toAutoReplyDto, updateAutoReply } from "@/lib/auto-replies";
+import { deleteAutoReply, DuplicateFallbackError, getAutoReply, moveAutoReply, toAutoReplyDto, updateAutoReply } from "@/lib/auto-replies";
 import type { InlineButton } from "@/lib/botapi";
 import { getBotById } from "@/lib/bots";
 import { normalizeInlineButtons, normalizeReplyKeyboard, validateAutoReply } from "@/lib/validation";
@@ -47,6 +47,7 @@ export const PATCH = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: 
     });
     return NextResponse.json({ rule: rule && toAutoReplyDto(rule) });
   } catch (err) {
+    if (err instanceof DuplicateFallbackError) return NextResponse.json({ error: err.message }, { status: 422 });
     return errorResponse(err);
   }
 });

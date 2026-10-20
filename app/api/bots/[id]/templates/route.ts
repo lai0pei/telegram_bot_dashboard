@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { withAuth, errorResponse } from "@/lib/api-guard";
 import { applyTemplate } from "@/lib/apply-template";
-import { TEMPLATE_PARTS, getBotTemplate, type TemplatePart } from "@/lib/bot-templates";
+import { TEMPLATE_PARTS, type TemplatePart } from "@/lib/bot-templates";
+import { resolveTemplate } from "@/lib/custom-templates";
+import { removeTemplate } from "@/lib/remove-template";
 import { getBotById, getBotToken } from "@/lib/bots";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -17,7 +19,7 @@ export const POST = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: s
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
     const body = await req.json().catch(() => null);
-    const template = typeof body?.templateId === "string" ? getBotTemplate(body.templateId) : undefined;
+    const template = typeof body?.templateId === "string" ? resolveTemplate(telegramAccountId, body.templateId) : undefined;
     if (!template) return NextResponse.json({ error: "Unknown template." }, { status: 400 });
 
     const parts = Array.isArray(body?.parts) ? (body.parts as unknown[]) : [];
@@ -28,6 +30,24 @@ export const POST = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: s
     const results = await applyTemplate({ id: bot.id, token: getBotToken(bot) }, template, parts as TemplatePart[], {
       overwriteProfile: body.overwriteProfile === true,
     });
+    return NextResponse.json({ results });
+  } catch (err) {
+    return errorResponse(err);
+  }
+});
+
+/**
+ * DELETE { templateId } — removes what the template added and is still exactly as it made it (rules, and commands with the
+ * template's name and description). Anything edited since is kept and reported. Profile texts and monitoring stay.
+ */
+export const DELETE = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: string) => {
+  try {
+    const bot = getBotById(Number((await ctx.params).id), telegramAccountId);
+    if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
+    const body = await req.json().catch(() => null);
+    const template = typeof body?.templateId === "string" ? resolveTemplate(telegramAccountId, body.templateId) : undefined;
+    if (!template) return NextResponse.json({ error: "Unknown template." }, { status: 400 });
+    const results = await removeTemplate({ id: bot.id, token: getBotToken(bot) }, template);
     return NextResponse.json({ results });
   } catch (err) {
     return errorResponse(err);
