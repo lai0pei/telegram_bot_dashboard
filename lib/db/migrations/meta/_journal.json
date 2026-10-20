@@ -15,6 +15,13 @@
       "when": 1792504040038,
       "tag": "0001_token_bots",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792505069626,
+      "tag": "0002_admin_last_active",
+      "breakpoints": true
     }
   ]
 }
