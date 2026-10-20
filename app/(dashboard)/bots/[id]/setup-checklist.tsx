@@ -205,11 +205,14 @@ export function SetupChecklist({
                 <div className="grid gap-4 px-5 pb-5 pl-14 md:grid-cols-[minmax(0,1fr)_260px]">
                   <div className="space-y-3 text-sm">
                     <p className="text-[var(--muted)]">{step.why}</p>
-                    {step.id === "photo" && (
-                      <Button size="sm" onClick={() => onOpen("profile")}>
-                        {step.done ? "Change the photo" : "Upload a photo"}
-                      </Button>
-                    )}
+                    {step.id === "photo" &&
+                      (bot.source === "token" ? (
+                        <p className="text-xs text-[var(--muted)]">Only the bot&apos;s owner can set its photo (in @BotFather). Ask them to add one.</p>
+                      ) : (
+                        <Button size="sm" onClick={() => onOpen("profile")}>
+                          {step.done ? "Change the photo" : "Upload a photo"}
+                        </Button>
+                      ))}
                     {step.id === "short" && (
                       <>
                         <Input value={short} onChange={(e) => setShort(e.target.value)} maxLength={120} placeholder="e.g. Orders, support and news from our shop" aria-label="Short description" />

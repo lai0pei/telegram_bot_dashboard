@@ -6,16 +6,36 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { apiFetch } from "@/lib/api-client";
+import { validateBotToken } from "@/lib/validation";
 import { FEEDBACK_PERCENTAGES, hasUnconfirmedSettings, privacyOnFromInfo, validateSettingValue, type SettingKey, type SettingValue } from "@/lib/botfather-settings";
 import { timeAgo } from "@/lib/time";
 import type { BotDetail, BusinessConnectionInfo } from "./types";
 
 /** The token with reveal/copy; revoking it lives next to it (Token & danger). */
-export function TokenCard({ bot, onFetchToken, fetchingToken }: { bot: BotDetail; onFetchToken: () => void; fetchingToken: boolean }) {
+export function TokenCard({ bot, onFetchToken, fetchingToken, onChange }: { bot: BotDetail; onFetchToken: () => void; fetchingToken: boolean; onChange: () => void }) {
   const [revealed, setRevealed] = useState(false);
+  const [newToken, setNewToken] = useState("");
+  const [replacing, setReplacing] = useState(false);
   const token = bot.token;
+  const tokenBot = bot.source === "token";
+  const tokenError = newToken ? validateBotToken(newToken) : null;
+
+  async function replaceToken() {
+    setReplacing(true);
+    try {
+      await apiFetch(`/api/bots/${bot.id}/token`, { method: "PUT", body: { token: newToken.trim() } });
+      toast.success("Token replaced.");
+      setNewToken("");
+      onChange();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to replace the token.");
+    } finally {
+      setReplacing(false);
+    }
+  }
 
   return (
     <Card>
@@ -26,9 +46,12 @@ export function TokenCard({ bot, onFetchToken, fetchingToken }: { bot: BotDetail
         </code>
         <div className="flex gap-2">
           {!token ? (
-            <Button size="sm" variant="outline" onClick={onFetchToken} loading={fetchingToken}>
-              Fetch from BotFather
-            </Button>
+            // A bot added by token has no BotFather chat to fetch from: its owner has to hand over a new token.
+            tokenBot ? null : (
+              <Button size="sm" variant="outline" onClick={onFetchToken} loading={fetchingToken}>
+                Fetch from BotFather
+              </Button>
+            )
           ) : (
             <>
               <Button size="sm" variant="outline" onClick={() => setRevealed((r) => !r)}>
@@ -51,6 +74,29 @@ export function TokenCard({ bot, onFetchToken, fetchingToken }: { bot: BotDetail
         </div>
       </div>
       <p className="mt-2 text-xs text-[var(--muted)]">Anyone with this token has full control of the bot. Keep it secret.</p>
+      {tokenBot && (
+        <div className="mt-4 space-y-2 border-t border-[var(--card-border)] pt-4">
+          <h4 className="text-sm font-medium">Replace token</h4>
+          <p className="text-xs text-[var(--muted)]">
+            If the bot&apos;s owner revoked or changed the token, ask them for the current one and paste it here. It has to be the same bot (@{bot.username}).
+          </p>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              type="password"
+              value={newToken}
+              onChange={(e) => setNewToken(e.target.value)}
+              placeholder="123456789:AAH…"
+              aria-label="New bot token"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <Button size="sm" variant="outline" onClick={() => void replaceToken()} loading={replacing} disabled={!newToken || Boolean(tokenError)}>
+              Replace
+            </Button>
+          </div>
+          {tokenError && <p className="text-xs text-[var(--danger)]">{tokenError}</p>}
+        </div>
+      )}
     </Card>
   );
 }
@@ -176,6 +222,13 @@ export function CapabilitiesCard({ bot, info, onChange }: { bot: BotDetail; info
         These switches talk to @BotFather for you, which takes a few seconds. If BotFather&apos;s wording differs from what the dashboard expects, it stops and shows what BotFather said.
         {hasUnconfirmedSettings && " Not yet checked against BotFather's real replies, so try a change on a throwaway bot first."}
       </p>
+      {bot.source === "token" && (
+        <p className="mb-3 rounded-md bg-black/5 px-3 py-2 text-xs dark:bg-white/5">
+          Only the bot&apos;s owner can change these (they talk to @BotFather as the owner). Ask them, or do it in BotFather yourself.
+        </p>
+      )}
+      {/* A disabled fieldset disables every native control inside it, so the BotFather switches stay visible but inert for a bot added by token. */}
+      <fieldset disabled={bot.source === "token"} className="m-0 min-w-0 border-0 p-0">
       <ul className="space-y-4 text-sm">
         <li className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -246,6 +299,7 @@ export function CapabilitiesCard({ bot, info, onChange }: { bot: BotDetail; info
           </li>
         ))}
       </ul>
+      </fieldset>
 
       <details className="mt-4 text-sm">
         <summary className="cursor-pointer font-medium">Advanced (not confirmed by Telegram)</summary>

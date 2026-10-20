@@ -8,10 +8,10 @@ import { NextResponse } from "next/server";
 /** A token-added bot's token is missing or was rejected; only a new token from its owner fixes it. Routes answer 422, never 401/409. */
 export class TokenBotTokenError extends Error {}
 
-/** Another dashboard account already manages this bot (one account per bot, enforced by `bots_telegram_id_unique`). */
+/** This bot is already managed in this dashboard (one account per bot, enforced by `bots_telegram_id_unique`). */
 export class BotHeldByAnotherAccountError extends Error {
-  constructor(public username: string) {
-    super(`@${username} is already managed by another account in this dashboard.`);
+  constructor(public username: string, sameAccount = false) {
+    super(sameAccount ? `@${username} is already in your dashboard.` : `@${username} is already managed by another account in this dashboard.`);
   }
 }
 

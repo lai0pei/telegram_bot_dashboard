@@ -34,6 +34,8 @@ export interface BotDetail {
   id: number;
   username: string;
   firstName: string;
+  /** "token": added by pasting someone else's bot token; owner-only features (BotFather, photo, usernames) are off. */
+  source?: "owned" | "token";
   hasToken: boolean;
   token?: string;
   monitorEnabled: boolean;

@@ -218,12 +218,13 @@ export default function BotDetailPage() {
           </div>
         )}
         {section === "stats" && <StatsTab bot={bot} />}
-        {section === "apps" && <AppsTab bot={bot} />}
+        {/* An old ?s=apps link on a bot added by token: the section isn't offered for it, so don't render it either. */}
+        {section === "apps" && bot.source !== "token" && <AppsTab bot={bot} />}
         {section === "revenue" && <RevenueTab bot={bot} />}
         {section === "advanced" && (
           <div className="grid items-start gap-4 xl:grid-cols-2">
             <div className="space-y-4">
-              <TokenCard bot={bot} onFetchToken={fetchToken} fetchingToken={fetchingToken} />
+              <TokenCard bot={bot} onFetchToken={fetchToken} fetchingToken={fetchingToken} onChange={load} />
               <HealthCard bot={bot} onChange={load} />
               {bot.hasToken && <CloneCard bot={bot} />}
             </div>
@@ -231,7 +232,11 @@ export default function BotDetailPage() {
           </div>
         )}
         {!bot.hasToken && section !== "advanced" && section !== "overview" && (
-          <Card className="mt-4 text-sm">Some actions need the bot&apos;s token. Use &ldquo;No token — fetch it&rdquo; in the header.</Card>
+          <Card className="mt-4 text-sm">
+            {bot.source === "token"
+              ? "Some actions need the bot's token. Paste its current token under Token & danger."
+              : "Some actions need the bot's token. Use “No token — fetch it” in the header."}
+          </Card>
         )}
       </BotShell>
     </FadeIn>

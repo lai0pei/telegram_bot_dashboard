@@ -42,6 +42,8 @@ export interface Section {
   id: SectionId;
   label: string;
   icon: LucideIcon;
+  /** Needs the owner's Telegram session or a BotFather chat, so a bot added by token doesn't get it. */
+  ownerOnly?: boolean;
 }
 
 export interface SectionGroup {
@@ -83,7 +85,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
     label: "Extras",
     sections: [
       { id: "stats", label: "Stats", icon: BarChart3 },
-      { id: "apps", label: "Apps & games", icon: Boxes },
+      { id: "apps", label: "Apps & games", icon: Boxes, ownerOnly: true },
       { id: "revenue", label: "Revenue", icon: Coins },
     ],
   },
@@ -91,6 +93,12 @@ export const SECTION_GROUPS: SectionGroup[] = [
 ];
 
 export const SECTIONS: Section[] = SECTION_GROUPS.flatMap((g) => g.sections);
+
+/** The groups a bot gets: owner-only sections are dropped for a bot added by token, and so is a group left empty by that. */
+export function sectionGroupsFor(source: "owned" | "token" | undefined): SectionGroup[] {
+  if (source !== "token") return SECTION_GROUPS;
+  return SECTION_GROUPS.map((g) => ({ ...g, sections: g.sections.filter((s) => !s.ownerOnly) })).filter((g) => g.sections.length > 0);
+}
 
 /** The old `?tab=` values, so existing links keep opening the right place. */
 const TAB_ALIASES: Record<string, SectionId> = {

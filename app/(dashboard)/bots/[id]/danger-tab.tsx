@@ -62,13 +62,39 @@ export function DangerTab({
     setDeleting(true);
     try {
       await apiFetch(`/api/bots/${bot.id}`, { method: "DELETE" });
-      toast.success("Bot deleted.");
+      toast.success(bot.source === "token" ? "Removed from the dashboard." : "Bot deleted.");
       onDeleted();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to delete bot.");
     } finally {
       setDeleting(false);
     }
+  }
+
+  // A bot added by token isn't this account's to revoke, transfer or delete: only its local records can go.
+  if (bot.source === "token") {
+    return (
+      <div className="space-y-4">
+        <Card className="border-[var(--danger)]/50">
+          <h3 className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-[var(--danger)]">
+            <Trash2 className="h-4 w-4" />
+            Remove from dashboard
+          </h3>
+          <p className="mb-3 text-sm text-[var(--muted)]">
+            Deletes @{bot.username} and everything stored for it here: messages, contacts, auto-replies, scheduled messages and broadcasts. The bot itself is
+            not touched: its token stays valid and any webhook stays set, so its owner should revoke the token in BotFather if you no longer need access.
+            Type <strong>{bot.username}</strong> to confirm.
+          </p>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder={bot.username} className="sm:max-w-xs" aria-label="Confirm bot username" />
+            <Button variant="danger" onClick={handleDelete} loading={deleting} disabled={!confirmed}>
+              <Trash2 className="h-3.5 w-3.5" />
+              Remove
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
   }
 
   return (

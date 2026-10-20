@@ -35,8 +35,19 @@ export function ProfileSection({ bot, photoSrc, onPhotoChanged, onSaved }: { bot
       </div>
       <div className="space-y-4">
         <SettingsTab bot={bot} onSaved={onSaved} onDraftChange={setDraft} />
-        <ProfilePhotoCard endpoint={`/api/bots/${bot.id}/photo`} name={bot.username} photoSrc={photoSrc} onChanged={onPhotoChanged} allowVideo />
-        <UsernamesCard bot={bot} />
+        {bot.source === "token" ? (
+          <Card className="text-sm">
+            <h3 className="mb-1 font-semibold">Photo and usernames</h3>
+            <p className="text-[var(--muted)]">
+              The profile photo, video and collectible usernames can only be changed by the bot&apos;s owner (in @BotFather). Everything else on this page works.
+            </p>
+          </Card>
+        ) : (
+          <>
+            <ProfilePhotoCard endpoint={`/api/bots/${bot.id}/photo`} name={bot.username} photoSrc={photoSrc} onChanged={onPhotoChanged} allowVideo />
+            <UsernamesCard bot={bot} />
+          </>
+        )}
       </div>
     </div>
   );

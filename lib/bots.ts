@@ -21,10 +21,11 @@ import { decrypt, encrypt } from "./crypto";
 import { fetchBotToken } from "./botfather";
 import { getClient } from "./mtproto";
 import { asPhotoBuffer } from "./photos";
-import { BotApiError } from "./botapi";
+import { BotApiError, botApi } from "./botapi";
 import { recordSetup } from "./setup-cache";
 import { singleFlight } from "./single-flight";
 import { BotHeldByAnotherAccountError, TokenBotTokenError } from "./token-bot";
+import { validateBotToken } from "./validation";
 
 export type BotRow = typeof bots.$inferSelect;
 
@@ -95,6 +96,74 @@ export async function upsertBotFromTelegram(info: {
   } catch (err) {
     return await rethrowIfHeldElsewhere(err, info.ownerUserId, info.telegramId, info.username);
   }
+}
+
+/** Turns the Bot API's rejection of a pasted token into something a person can act on (a bad token is a 401, a malformed one a 404). */
+async function getMeForPastedToken(token: string) {
+  try {
+    const me = await botApi.getMe(token);
+    if (!me.is_bot || !me.username) throw new TokenBotTokenError("That token doesn't belong to a bot.");
+    return { ...me, username: me.username };
+  } catch (err) {
+    if (err instanceof BotApiError && (err.errorCode === 401 || err.errorCode === 404)) {
+      throw new TokenBotTokenError("Telegram doesn't accept this token. Check it, or ask the bot's owner for the current one.");
+    }
+    throw err;
+  }
+}
+
+/**
+ * Adds a bot this account doesn't own, from its token. The token is verified with `getMe`, so the row's id, username
+ * and name come from Telegram, never from the caller. Rejects a bot any dashboard account already manages. Also
+ * reports the bot's webhook, since an owner's own server using it conflicts with monitoring (the dashboard polls).
+ */
+export async function addBotByToken(accountId: string, rawToken: string): Promise<{ bot: BotRow; webhookUrl: string | null }> {
+  const token = rawToken.trim();
+  const invalid = validateBotToken(token);
+  if (invalid) throw new TokenBotTokenError(invalid);
+  // Keyed by the bot id in the token, so a double click can't race two verifications into one insert.
+  return singleFlight(`add-token:${accountId}:${token.split(":")[0]}`, async () => {
+    const me = await getMeForPastedToken(token);
+    const telegramId = me.id.toString();
+    const existing = (await db.select({ ownerUserId: bots.ownerUserId }).from(bots).where(eq(bots.telegramId, telegramId)))[0];
+    if (existing) throw new BotHeldByAnotherAccountError(me.username, existing.ownerUserId === accountId);
+
+    const now = new Date();
+    let bot: BotRow;
+    try {
+      [bot] = await db
+        .insert(bots)
+        .values({
+          ownerUserId: accountId,
+          telegramId,
+          username: me.username,
+          firstName: me.first_name,
+          source: "token",
+          encryptedToken: encrypt(token),
+          tokenFetchedAt: now,
+          monitorEnabled: false,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning();
+    } catch (err) {
+      return await rethrowIfHeldElsewhere(err, accountId, telegramId, me.username);
+    }
+    const webhookUrl = (await botApi.getWebhookInfo(token).catch(() => null))?.url || null;
+    return { bot, webhookUrl };
+  });
+}
+
+/** Replaces a token-added bot's token (the owner rotated it). It must be the same bot: a token for a different bot is refused. */
+export async function replaceBotToken(bot: BotRow, rawToken: string): Promise<void> {
+  const token = rawToken.trim();
+  const invalid = validateBotToken(token);
+  if (invalid) throw new TokenBotTokenError(invalid);
+  const me = await getMeForPastedToken(token);
+  if (me.id.toString() !== bot.telegramId) throw new TokenBotTokenError(`That token belongs to @${me.username}, not @${bot.username}.`);
+  await db.update(bots)
+    .set({ encryptedToken: encrypt(token), tokenFetchedAt: new Date(), healthStatus: null, healthMessage: null, healthCheckedAt: null, updatedAt: new Date() })
+    .where(eq(bots.id, bot.id));
 }
 
 export async function saveBotToken(id: number, token: string): Promise<void> {
