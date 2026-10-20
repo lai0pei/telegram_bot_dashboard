@@ -1,24 +1,20 @@
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import * as schema from "./schema";
-
-const DB_PATH = process.env.DATABASE_PATH || "./data/app.db";
 
 declare global {
   var __tgDashDb: ReturnType<typeof drizzle<typeof schema>> | undefined;
-  var __tgDashSqlite: Database.Database | undefined;
+  var __tgDashPg: ReturnType<typeof postgres> | undefined;
 }
 
 function createDb() {
-  mkdirSync(dirname(DB_PATH), { recursive: true });
-  const sqlite = new Database(DB_PATH);
-  sqlite.pragma("journal_mode = WAL");
-  sqlite.pragma("foreign_keys = ON");
-  globalThis.__tgDashSqlite = sqlite;
-  return drizzle(sqlite, { schema });
+  // postgres-js connects lazily, so a missing URL must not throw at import: `next build` imports every route
+  // module without the runtime env. Without DATABASE_URL the first query fails with a connection error instead.
+  const url = process.env.DATABASE_URL || "postgres://tgdash:tgdash@localhost:5432/tgdash";
+  // The pool lives on globalThis so dev hot-reload doesn't open a new one per module re-evaluation.
+  const client = postgres(url, { max: 10 });
+  globalThis.__tgDashPg = client;
+  return drizzle(client, { schema });
 }
 
 export const db = globalThis.__tgDashDb ?? (globalThis.__tgDashDb = createDb());
-export const sqlite = globalThis.__tgDashSqlite!;

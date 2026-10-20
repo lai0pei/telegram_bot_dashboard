@@ -1,21 +1,26 @@
 /**
- * Runs pending Drizzle migrations against the SQLite file at DATABASE_PATH.
+ * Runs pending Drizzle migrations against the Postgres database at DATABASE_URL.
  * Invoked both via `npm run db:migrate` and automatically at container
- * startup (see Dockerfile/entrypoint).
+ * startup (see Dockerfile; scripts/migrate.cjs is the plain-JS copy of this file).
  */
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { drizzle } from "drizzle-orm/postgres-js";
+import { migrate } from "drizzle-orm/postgres-js/migrator";
+import postgres from "postgres";
 
-const DB_PATH = process.env.DATABASE_PATH || "./data/app.db";
+async function main() {
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error("DATABASE_URL is not set.");
+  // One connection: migrations run sequentially, and a pool would only keep the process alive.
+  const client = postgres(url, { max: 1 });
+  try {
+    await migrate(drizzle(client), { migrationsFolder: "./lib/db/migrations" });
+    console.log("Migrations applied.");
+  } finally {
+    await client.end();
+  }
+}
 
-mkdirSync(dirname(DB_PATH), { recursive: true });
-const sqlite = new Database(DB_PATH);
-sqlite.pragma("journal_mode = WAL");
-const db = drizzle(sqlite);
-
-migrate(db, { migrationsFolder: "./lib/db/migrations" });
-console.log("Migrations applied.");
-sqlite.close();
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

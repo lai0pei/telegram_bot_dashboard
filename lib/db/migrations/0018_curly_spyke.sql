@@ -1,1 +1,0 @@
-DROP TABLE `bot_sticker_sets`;
