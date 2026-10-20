@@ -11,6 +11,7 @@ const LABELS: Record<AdminActionDto["action"], string> = {
   suspend: "suspended",
   unsuspend: "unsuspended",
   delete_user: "deleted",
+  update_access: "changed",
 };
 
 /** The master admin's own trail: who did what to whom. Append-only on the server; `refreshKey` reloads it after an action. */

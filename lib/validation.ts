@@ -24,6 +24,26 @@ export function validateBotUsername(username: string): string | null {
   return null;
 }
 
+const TELEGRAM_ID_PATTERN = /^\d{1,15}$/;
+export const MAX_ALLOWLIST_IDS = 500;
+
+/** The Telegram-ID allowlist as submitted by the Access tab (an array of numeric-ID strings). Shared by the form and the route. */
+export function validateTelegramIdList(ids: unknown): string | null {
+  if (!Array.isArray(ids)) return "Send the Telegram IDs as a list.";
+  if (ids.length > MAX_ALLOWLIST_IDS) return `At most ${MAX_ALLOWLIST_IDS} IDs.`;
+  for (const id of ids) {
+    if (typeof id !== "string" || !TELEGRAM_ID_PATTERN.test(id.trim())) {
+      return `"${String(id).slice(0, 40)}" isn't a Telegram user ID (digits only).`;
+    }
+  }
+  return null;
+}
+
+/** Splits free text (commas, spaces or new lines) into trimmed, de-duplicated IDs, keeping the order. */
+export function parseTelegramIdText(text: string): string[] {
+  return [...new Set(text.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean))];
+}
+
 /** A BotFather token: the bot's numeric id, a colon, and a 35-ish character secret. Shared by the add dialog and the routes. */
 export function validateBotToken(value: string): string | null {
   const token = value.trim();

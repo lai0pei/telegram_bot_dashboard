@@ -33,7 +33,8 @@ export const adminActions = pgTable(
   {
     id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
     adminUserId: text("admin_user_id").notNull(),
-    action: text("action", { enum: ["sign_out", "suspend", "unsuspend", "delete_user"] }).notNull(),
+    action: text("action", { enum: ["sign_out", "suspend", "unsuspend", "delete_user", "update_access"] }).notNull(),
+    /** The user acted on; for `update_access` (no user involved) the admin's own ID, with `targetName` "Access settings". */
     targetUserId: text("target_user_id").notNull(),
     targetName: text("target_name").notNull(),
     /** Human-readable summary, e.g. what a delete removed. */
@@ -42,6 +43,17 @@ export const adminActions = pgTable(
   },
   (table) => [index("admin_actions_created_idx").on(table.createdAt)]
 );
+
+/**
+ * Settings the master admin edits from the dashboard (lib/app-settings.ts). A
+ * row here overrides the matching environment variable; deleting the row
+ * ("Reset to .env") falls back to it. `value` is plain text or JSON per key.
+ */
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+});
 
 /**
  * One row per Telegram account linked to a dashboard user. `id` is what

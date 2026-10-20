@@ -22,14 +22,6 @@ function getSecretKey() {
   return new TextEncoder().encode(secret);
 }
 
-/** Optional allowlist of Telegram user IDs permitted to be linked. Empty = anyone can link any account. */
-export function isTelegramUserAllowed(telegramUserId: string): boolean {
-  const raw = process.env.ALLOWED_TELEGRAM_USER_IDS;
-  if (!raw || !raw.trim()) return true;
-  const allowed = raw.split(",").map((s) => s.trim()).filter(Boolean);
-  return allowed.includes(telegramUserId);
-}
-
 export async function createSessionCookie(
   userId: string,
   sessionVersion: number,
