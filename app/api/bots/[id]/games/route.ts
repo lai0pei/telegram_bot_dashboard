@@ -11,9 +11,9 @@ type Ctx = { params: Promise<{ id: string }> };
 
 export const GET = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
-    const bot = getBotById(Number((await ctx.params).id), telegramAccountId);
+    const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
-    return NextResponse.json({ games: listGames(bot.id) });
+    return NextResponse.json({ games: (await listGames(bot.id)) });
   } catch (err) {
     return errorResponse(err);
   }
@@ -26,7 +26,7 @@ export const GET = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId: s
  */
 export const POST = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
-    const bot = getBotById(Number((await ctx.params).id), telegramAccountId);
+    const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
     const form = await req.formData().catch(() => null);
     const title = form?.get("title");
@@ -45,7 +45,7 @@ export const POST = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: s
     await singleFlight(`newgame:${telegramAccountId}:${bot.id}:${game.shortName}`, () =>
       createGame(telegramAccountId, bot.username, { ...game, photo: { name: photo.name || "game.png", data } })
     );
-    return NextResponse.json({ game: saveGame(bot.id, { ...game, url: url || null }) });
+    return NextResponse.json({ game: (await saveGame(bot.id, { ...game, url: url || null })) });
   } catch (err) {
     return err instanceof BotFatherError ? NextResponse.json({ error: err.message }, { status: 502 }) : errorResponse(err);
   }

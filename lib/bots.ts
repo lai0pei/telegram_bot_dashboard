@@ -26,17 +26,16 @@ import { singleFlight } from "./single-flight";
 
 export type BotRow = typeof bots.$inferSelect;
 
-export function listBots(ownerUserId: string): BotRow[] {
-  return db.select().from(bots).where(eq(bots.ownerUserId, ownerUserId)).all();
+export async function listBots(ownerUserId: string): Promise<BotRow[]> {
+  return await db.select().from(bots).where(eq(bots.ownerUserId, ownerUserId));
 }
 
 /** Scoped to the owner, so a bot ID that belongs to someone else returns undefined (-> 404). */
-export function getBotById(id: number, ownerUserId: string): BotRow | undefined {
-  return db
+export async function getBotById(id: number, ownerUserId: string): Promise<BotRow | undefined> {
+  return (await db
     .select()
     .from(bots)
-    .where(and(eq(bots.id, id), eq(bots.ownerUserId, ownerUserId)))
-    .all()[0];
+    .where(and(eq(bots.id, id), eq(bots.ownerUserId, ownerUserId))))[0];
 }
 
 /** The last background health check as the dashboard shows it, or null before the first check. */
@@ -48,26 +47,15 @@ export function getBotToken(bot: BotRow): string | null {
   return bot.encryptedToken ? decrypt(bot.encryptedToken) : null;
 }
 
-export function upsertBotFromTelegram(info: {
+export async function upsertBotFromTelegram(info: {
   ownerUserId: string;
   telegramId: string;
   username: string;
   firstName: string;
-}): BotRow {
+}): Promise<BotRow> {
   const now = new Date();
-  const existing = db
-    .select()
-    .from(bots)
-    .where(and(eq(bots.ownerUserId, info.ownerUserId), eq(bots.telegramId, info.telegramId)))
-    .all()[0];
-  if (existing) {
-    db.update(bots)
-      .set({ username: info.username, firstName: info.firstName, updatedAt: now })
-      .where(eq(bots.id, existing.id))
-      .run();
-    return { ...existing, username: info.username, firstName: info.firstName, updatedAt: now };
-  }
-  const result = db
+  // One statement, so two parallel bot-list syncs can't both pass a select and then collide on the unique index.
+  const result = await db
     .insert(bots)
     .values({
       ownerUserId: info.ownerUserId,
@@ -78,23 +66,24 @@ export function upsertBotFromTelegram(info: {
       createdAt: now,
       updatedAt: now,
     })
-    .returning()
-    .all();
+    .onConflictDoUpdate({
+      target: [bots.ownerUserId, bots.telegramId],
+      set: { username: info.username, firstName: info.firstName, updatedAt: now },
+    })
+    .returning();
   return result[0];
 }
 
-export function saveBotToken(id: number, token: string): void {
-  db.update(bots)
+export async function saveBotToken(id: number, token: string): Promise<void> {
+  await db.update(bots)
     .set({ encryptedToken: encrypt(token), tokenFetchedAt: new Date(), updatedAt: new Date() })
-    .where(eq(bots.id, id))
-    .run();
+    .where(eq(bots.id, id));
 }
 
-export function clearBotToken(id: number): void {
-  db.update(bots)
+export async function clearBotToken(id: number): Promise<void> {
+  await db.update(bots)
     .set({ encryptedToken: null, tokenFetchedAt: null, updatedAt: new Date() })
-    .where(eq(bots.id, id))
-    .run();
+    .where(eq(bots.id, id));
 }
 
 /** How long a just-healed token is trusted before a renewed 401 is allowed to re-trigger BotFather. */
@@ -140,87 +129,84 @@ export async function withLiveBotToken<T>(
 
 function healToken(bot: BotRow, userId: string): Promise<string> {
   return singleFlight(`heal-token:${bot.id}`, async () => {
-    clearBotToken(bot.id);
+    await clearBotToken(bot.id);
     const fetched = await fetchBotToken(userId, bot.username);
-    saveBotToken(bot.id, fetched);
+    await saveBotToken(bot.id, fetched);
     return fetched;
   });
 }
 
-export function setMonitorEnabled(id: number, enabled: boolean): void {
-  db.update(bots)
+export async function setMonitorEnabled(id: number, enabled: boolean): Promise<void> {
+  await db.update(bots)
     .set({ monitorEnabled: enabled, updatedAt: new Date() })
-    .where(eq(bots.id, id))
-    .run();
+    .where(eq(bots.id, id));
   // Monitoring and a webhook exclude each other, so "listening" is exactly this switch.
-  recordSetup(id, { listening: enabled });
+  await recordSetup(id, { listening: enabled });
 }
 
-export function setLastUpdateId(id: number, updateId: number): void {
-  db.update(bots).set({ lastUpdateId: updateId }).where(eq(bots.id, id)).run();
+export async function setLastUpdateId(id: number, updateId: number): Promise<void> {
+  await db.update(bots).set({ lastUpdateId: updateId }).where(eq(bots.id, id));
 }
 
 /** Records the outcome of a poller cycle for this bot, so a stalled poller can be surfaced in the attention panel. */
-export function setPollHealth(id: number, error: string | null): void {
-  db.update(bots).set({ lastPolledAt: new Date(), pollError: error }).where(eq(bots.id, id)).run();
+export async function setPollHealth(id: number, error: string | null): Promise<void> {
+  await db.update(bots).set({ lastPolledAt: new Date(), pollError: error }).where(eq(bots.id, id));
 }
 
 /** Caches the bot's webhook health, fetched lazily whenever something already called getWebhookInfo. */
-export function setWebhookHealth(id: number, lastError: string | null, pendingCount: number | null): void {
-  db.update(bots)
+export async function setWebhookHealth(id: number, lastError: string | null, pendingCount: number | null): Promise<void> {
+  await db.update(bots)
     .set({ webhookLastError: lastError, webhookPendingCount: pendingCount })
-    .where(eq(bots.id, id))
-    .run();
+    .where(eq(bots.id, id));
 }
 
-export function deleteBotRow(id: number): void {
-  db.transaction((tx) => {
-    tx.delete(botMessages).where(eq(botMessages.botId, id)).run();
-    tx.delete(botUsers).where(eq(botUsers.botId, id)).run();
-    tx.delete(botChats).where(eq(botChats.botId, id)).run();
-    tx.delete(autoReplies).where(eq(autoReplies.botId, id)).run();
-    tx.delete(scheduledMessages).where(eq(scheduledMessages.botId, id)).run();
-    tx.delete(broadcasts).where(eq(broadcasts.botId, id)).run();
-    tx.delete(botJoinRequests).where(eq(botJoinRequests.botId, id)).run();
-    tx.delete(inlineResults).where(eq(inlineResults.botId, id)).run();
-    tx.delete(botBusinessConnections).where(eq(botBusinessConnections.botId, id)).run();
-    tx.delete(bots).where(eq(bots.id, id)).run();
+export async function deleteBotRow(id: number): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.delete(botMessages).where(eq(botMessages.botId, id));
+    await tx.delete(botUsers).where(eq(botUsers.botId, id));
+    await tx.delete(botChats).where(eq(botChats.botId, id));
+    await tx.delete(autoReplies).where(eq(autoReplies.botId, id));
+    await tx.delete(scheduledMessages).where(eq(scheduledMessages.botId, id));
+    await tx.delete(broadcasts).where(eq(broadcasts.botId, id));
+    await tx.delete(botJoinRequests).where(eq(botJoinRequests.botId, id));
+    await tx.delete(inlineResults).where(eq(inlineResults.botId, id));
+    await tx.delete(botBusinessConnections).where(eq(botBusinessConnections.botId, id));
+    await tx.delete(bots).where(eq(bots.id, id));
   });
 }
 
 /** Removes local rows for bots Telegram no longer lists as owned by this user (e.g. deleted from a phone). */
-export function pruneBotsNotIn(ownerUserId: string, telegramIds: Set<string>): void {
-  for (const bot of listBots(ownerUserId)) {
-    if (!telegramIds.has(bot.telegramId)) deleteBotRow(bot.id);
+export async function pruneBotsNotIn(ownerUserId: string, telegramIds: Set<string>): Promise<void> {
+  for (const bot of (await listBots(ownerUserId))) {
+    if (!telegramIds.has(bot.telegramId)) await deleteBotRow(bot.id);
   }
 }
 
 /** A bot by ID with no owner check: for background jobs (lib/jobs.ts) acting on rows they created, never for request handlers. */
-export function getBotForJob(id: number): BotRow | undefined {
-  return db.select().from(bots).where(eq(bots.id, id)).all()[0];
+export async function getBotForJob(id: number): Promise<BotRow | undefined> {
+  return (await db.select().from(bots).where(eq(bots.id, id)))[0];
 }
 
 /** Every bot that has a stored token, across all users — used only by the health check job. */
-export function listAllBotsWithToken(): BotRow[] {
-  return db.select().from(bots).where(isNotNull(bots.encryptedToken)).all();
+export async function listAllBotsWithToken(): Promise<BotRow[]> {
+  return await db.select().from(bots).where(isNotNull(bots.encryptedToken));
 }
 
-export function saveBotHealth(id: number, status: "ok" | "warning" | "error", message: string | null): void {
-  db.update(bots).set({ healthStatus: status, healthMessage: message, healthCheckedAt: new Date() }).where(eq(bots.id, id)).run();
+export async function saveBotHealth(id: number, status: "ok" | "warning" | "error", message: string | null): Promise<void> {
+  await db.update(bots).set({ healthStatus: status, healthMessage: message, healthCheckedAt: new Date() }).where(eq(bots.id, id));
 }
 
 /** Every monitored bot across all users — used only by the background poller. */
-export function listAllMonitoredBots(): BotRow[] {
-  return db.select().from(bots).where(eq(bots.monitorEnabled, true)).all();
+export async function listAllMonitoredBots(): Promise<BotRow[]> {
+  return await db.select().from(bots).where(eq(bots.monitorEnabled, true));
 }
 
 /** The bot's current row if monitoring is still on for it. Unscoped: for the background poller only, never for request handlers. */
-export function getMonitoredBot(id: number): BotRow | undefined {
-  return db
+export async function getMonitoredBot(id: number): Promise<BotRow | undefined> {
+  return (await db
     .select()
     .from(bots)
-    .where(and(eq(bots.id, id), eq(bots.monitorEnabled, true)))
-    .all()[0];
+    .where(and(eq(bots.id, id), eq(bots.monitorEnabled, true))))[0];
 }
 
 // --- Profile photo (MTProto, as the owning Telegram account: no bot token needed) ------------

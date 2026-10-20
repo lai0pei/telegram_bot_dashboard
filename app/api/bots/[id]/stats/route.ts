@@ -7,9 +7,9 @@ import { getBotStats } from "@/lib/bot-stats";
 export const GET = withAuth(async (_req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
   try {
     const { id } = await ctx.params;
-    const bot = getBotById(Number(id), userId);
+    const bot = await getBotById(Number(id), userId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
-    return NextResponse.json({ ...getBotStats(bot.id), monitorEnabled: bot.monitorEnabled });
+    return NextResponse.json({ ...(await getBotStats(bot.id)), monitorEnabled: bot.monitorEnabled });
   } catch (err) {
     return errorResponse(err);
   }

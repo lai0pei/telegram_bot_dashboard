@@ -7,31 +7,29 @@ import { botUsers } from "./db/schema";
  * (a person's first name, or a group/channel title). Fields passed as undefined are left as they were.
  * `startPayload` is stored only when the contact is created. `touch: false` keeps an existing row's lastSeenAt (for refreshes that aren't the user writing to the bot).
  */
-export function upsertBotUser(
+export async function upsertBotUser(
   botId: number,
   chatId: string,
   info: { username?: string | null; firstName?: string | null; seenAt?: Date; touch?: boolean; startPayload?: string | null }
-): void {
+): Promise<void> {
   const now = info.seenAt ?? new Date();
-  const existing = db
+  const existing = (await db
     .select()
     .from(botUsers)
-    .where(and(eq(botUsers.botId, botId), eq(botUsers.chatId, chatId)))
-    .all()[0];
+    .where(and(eq(botUsers.botId, botId), eq(botUsers.chatId, chatId))))[0];
 
   if (existing) {
-    db.update(botUsers)
+    await db.update(botUsers)
       .set({
         // The user writing to the bot (touch) also proves they haven't blocked it.
         ...(info.touch !== false && { lastSeenAt: now, blockedAt: null }),
         ...(info.username !== undefined && { username: info.username }),
         ...(info.firstName !== undefined && { firstName: info.firstName }),
       })
-      .where(eq(botUsers.id, existing.id))
-      .run();
+      .where(eq(botUsers.id, existing.id));
     return;
   }
-  db.insert(botUsers)
+  await db.insert(botUsers)
     .values({
       botId,
       chatId,
@@ -41,14 +39,12 @@ export function upsertBotUser(
       startPayload: info.startPayload ?? null,
       lastSeenAt: now,
       createdAt: now,
-    })
-    .run();
+    });
 }
 
 /** Marks (or unmarks) a contact as having blocked the bot. Does nothing for an unknown chat. */
-export function setBotUserBlocked(botId: number, chatId: string, blocked: boolean): void {
-  db.update(botUsers)
+export async function setBotUserBlocked(botId: number, chatId: string, blocked: boolean): Promise<void> {
+  await db.update(botUsers)
     .set({ blockedAt: blocked ? new Date() : null })
-    .where(and(eq(botUsers.botId, botId), eq(botUsers.chatId, chatId)))
-    .run();
+    .where(and(eq(botUsers.botId, botId), eq(botUsers.chatId, chatId)));
 }

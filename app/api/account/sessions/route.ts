@@ -6,7 +6,7 @@ import { signOutOtherSessions } from "@/lib/users";
 /** Bumps sessionVersion so every other browser's session cookie stops working, then re-signs the caller's own cookie onto the new version. */
 export const POST = withSession(async (_req, _ctx, userId) => {
   try {
-    const sessionVersion = signOutOtherSessions(userId);
+    const sessionVersion = await signOutOtherSessions(userId);
     const claims = await readSessionClaims();
     await createSessionCookie(userId, sessionVersion, claims?.activeTelegramAccountId ?? null);
     return NextResponse.json({ ok: true });

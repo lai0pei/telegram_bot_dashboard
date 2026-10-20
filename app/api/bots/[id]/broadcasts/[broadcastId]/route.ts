@@ -7,9 +7,9 @@ import { getBotById } from "@/lib/bots";
 export const DELETE = withAuth(async (_req: Request, ctx: { params: Promise<{ id: string; broadcastId: string }> }, telegramAccountId: string) => {
   try {
     const { id, broadcastId } = await ctx.params;
-    const bot = getBotById(Number(id), telegramAccountId);
+    const bot = await getBotById(Number(id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
-    if (!cancelBroadcast(bot.id, Number(broadcastId))) {
+    if (!(await cancelBroadcast(bot.id, Number(broadcastId)))) {
       return NextResponse.json({ error: "That broadcast isn't running any more." }, { status: 422 });
     }
     return NextResponse.json({ ok: true });

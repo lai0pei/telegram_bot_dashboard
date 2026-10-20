@@ -1,1 +1,0 @@
-ALTER TABLE `auto_replies` ADD `reply_keyboard` text;

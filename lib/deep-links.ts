@@ -15,28 +15,26 @@ export function deepLinkUrl(botUsername: string, link: Pick<DeepLinkRow, "kind" 
 }
 
 /** Saved links with how many contacts first arrived through each `start` payload. */
-export function listDeepLinks(botId: number): (DeepLinkRow & { arrivals: number | null })[] {
+export async function listDeepLinks(botId: number): Promise<(DeepLinkRow & { arrivals: number | null })[]> {
   const counts = new Map(
-    db
-      .select({ payload: botUsers.startPayload, n: sql<number>`count(*)` })
+    (await db
+      .select({ payload: botUsers.startPayload, n: sql<number>`count(*)::int` })
       .from(botUsers)
       .where(and(eq(botUsers.botId, botId), sql`${botUsers.startPayload} is not null`))
-      .groupBy(botUsers.startPayload)
-      .all()
+      .groupBy(botUsers.startPayload))
       .map((r) => [r.payload, r.n])
   );
-  return db
+  return (await db
     .select()
     .from(botDeepLinks)
     .where(eq(botDeepLinks.botId, botId))
-    .orderBy(desc(botDeepLinks.id))
-    .all()
+    .orderBy(desc(botDeepLinks.id)))
     // Only /start payloads are recorded on contacts; the other kinds arrive as other updates.
     .map((l) => ({ ...l, arrivals: l.kind === "start" ? counts.get(l.payload) ?? 0 : null }));
 }
 
-export function createDeepLink(botId: number, input: DeepLinkInput): DeepLinkRow {
-  return db
+export async function createDeepLink(botId: number, input: DeepLinkInput): Promise<DeepLinkRow> {
+  return (await db
     .insert(botDeepLinks)
     .values({
       botId,
@@ -47,10 +45,9 @@ export function createDeepLink(botId: number, input: DeepLinkInput): DeepLinkRow
       admin: input.admin?.length ? input.admin.join(",") : null,
       createdAt: new Date(),
     })
-    .returning()
-    .get();
+    .returning())[0];
 }
 
-export function deleteDeepLink(botId: number, id: number): boolean {
-  return db.delete(botDeepLinks).where(and(eq(botDeepLinks.botId, botId), eq(botDeepLinks.id, id))).run().changes > 0;
+export async function deleteDeepLink(botId: number, id: number): Promise<boolean> {
+  return (await db.delete(botDeepLinks).where(and(eq(botDeepLinks.botId, botId), eq(botDeepLinks.id, id)))).count > 0;
 }

@@ -7,7 +7,7 @@ export const POST = withAuth(
   async (_req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
     try {
       const { id } = await ctx.params;
-      const chat = getChatById(Number(id), userId);
+      const chat = await getChatById(Number(id), userId);
       if (!chat) return NextResponse.json({ error: "Chat not found." }, { status: 404 });
 
       const inviteLink = await regenerateInviteLink(userId, chat);

@@ -17,7 +17,7 @@ interface Content {
 }
 
 /** The dashboard user behind a linked Telegram account (what custom templates belong to). */
-export const ownerOf = (telegramAccountId: string): string | null => getTelegramAccountById(telegramAccountId)?.ownerUserId ?? null;
+export const ownerOf = async (telegramAccountId: string): Promise<string | null> => (await getTelegramAccountById(telegramAccountId))?.ownerUserId ?? null;
 
 function shows(c: Content): string[] {
   const tags: string[] = [];
@@ -33,25 +33,25 @@ export function toBotTemplate(row: Row): BotTemplate {
   return { id: `${CUSTOM_TEMPLATE_PREFIX}${row.id}`, title: row.title, blurb: row.blurb, emoji: row.emoji, category: CUSTOM_CATEGORY, custom: true, shows: shows(c), profile: c.profile, commands: c.commands, rules: c.rules };
 }
 
-export function listCustomTemplates(ownerUserId: string): BotTemplate[] {
-  return db.select().from(customTemplates).where(eq(customTemplates.ownerUserId, ownerUserId)).orderBy(desc(customTemplates.id)).all().map(toBotTemplate);
+export async function listCustomTemplates(ownerUserId: string): Promise<BotTemplate[]> {
+  return (await db.select().from(customTemplates).where(eq(customTemplates.ownerUserId, ownerUserId)).orderBy(desc(customTemplates.id))).map(toBotTemplate);
 }
 
-export function getCustomTemplate(ownerUserId: string, id: number): BotTemplate | undefined {
-  const row = db.select().from(customTemplates).where(and(eq(customTemplates.id, id), eq(customTemplates.ownerUserId, ownerUserId))).all()[0];
+export async function getCustomTemplate(ownerUserId: string, id: number): Promise<BotTemplate | undefined> {
+  const row = (await db.select().from(customTemplates).where(and(eq(customTemplates.id, id), eq(customTemplates.ownerUserId, ownerUserId))))[0];
   return row ? toBotTemplate(row) : undefined;
 }
 
-export function deleteCustomTemplate(ownerUserId: string, id: number): boolean {
-  return db.delete(customTemplates).where(and(eq(customTemplates.id, id), eq(customTemplates.ownerUserId, ownerUserId))).run().changes > 0;
+export async function deleteCustomTemplate(ownerUserId: string, id: number): Promise<boolean> {
+  return (await db.delete(customTemplates).where(and(eq(customTemplates.id, id), eq(customTemplates.ownerUserId, ownerUserId)))).count > 0;
 }
 
 /** A template by ID for a request made as `telegramAccountId`: built-ins, or `custom-<n>` only if that account's owner saved it. */
-export function resolveTemplate(telegramAccountId: string, templateId: string): BotTemplate | undefined {
+export async function resolveTemplate(telegramAccountId: string, templateId: string): Promise<BotTemplate | undefined> {
   if (!templateId.startsWith(CUSTOM_TEMPLATE_PREFIX)) return getBotTemplate(templateId);
-  const owner = ownerOf(telegramAccountId);
+  const owner = await ownerOf(telegramAccountId);
   const n = Number(templateId.slice(CUSTOM_TEMPLATE_PREFIX.length));
-  return owner && Number.isInteger(n) ? getCustomTemplate(owner, n) : undefined;
+  return owner && Number.isInteger(n) ? (await getCustomTemplate(owner, n)) : undefined;
 }
 
 export type SnapshotPart = "rules" | "commands" | "profile";
@@ -71,7 +71,7 @@ export async function createCustomTemplate(
   const content: Content = { commands: [], rules: [] };
 
   if (input.parts.includes("rules")) {
-    for (const r of listAutoReplies(bot.id)) {
+    for (const r of (await listAutoReplies(bot.id))) {
       const buttons = parseButtons(r.buttons) ?? undefined;
       const replyKeyboard = parseReplyKeyboard(r.replyKeyboard);
       const rule: TemplateRule = {
@@ -113,13 +113,12 @@ export async function createCustomTemplate(
   }
 
   if (!content.rules.length && !content.commands.length && !content.profile) throw new EmptyTemplateError();
-  const taken = db.select({ id: customTemplates.id }).from(customTemplates).where(eq(customTemplates.ownerUserId, ownerUserId)).all().length;
+  const taken = (await db.select({ id: customTemplates.id }).from(customTemplates).where(eq(customTemplates.ownerUserId, ownerUserId))).length;
   if (taken >= MAX_CUSTOM_TEMPLATES) throw new TooManyTemplatesError();
-  const row = db
+  const row = (await db
     .insert(customTemplates)
     .values({ ownerUserId, title: input.title, emoji: input.emoji, blurb: input.blurb, content: JSON.stringify(content), createdAt: new Date() })
-    .returning()
-    .get();
+    .returning())[0];
   return { template: toBotTemplate(row), notes };
 }
 

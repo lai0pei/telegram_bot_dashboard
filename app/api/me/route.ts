@@ -8,7 +8,7 @@ export const GET = withSession(async () => {
   try {
     const claims = await readSessionClaims();
     const accountId = claims?.activeTelegramAccountId ?? null;
-    if (!accountId || !isLoggedIn(accountId)) {
+    if (!accountId || !(await isLoggedIn(accountId))) {
       return NextResponse.json({ hasActiveAccount: false, loggedIn: false });
     }
     const client = await getClient(accountId);

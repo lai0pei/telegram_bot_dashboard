@@ -22,8 +22,8 @@ function isDue(account: TelegramAccountRow, now: Date): boolean {
 /** Checked once per poller tick: sends a Saved Messages digest to any account whose schedule is due. */
 export async function maybeSendDigests(): Promise<void> {
   const now = new Date();
-  const due = db.select().from(telegramAccounts).where(eq(telegramAccounts.digestFrequency, "daily")).all();
-  const dueWeekly = db.select().from(telegramAccounts).where(eq(telegramAccounts.digestFrequency, "weekly")).all();
+  const due = await db.select().from(telegramAccounts).where(eq(telegramAccounts.digestFrequency, "daily"));
+  const dueWeekly = await db.select().from(telegramAccounts).where(eq(telegramAccounts.digestFrequency, "weekly"));
   for (const account of [...due, ...dueWeekly]) {
     if (!isDue(account, now)) continue;
     await singleFlight(`digest:${account.id}`, () => sendDigest(account)).catch((err) =>
@@ -42,14 +42,14 @@ async function sendDigest(account: TelegramAccountRow): Promise<void> {
   if (!client) return; // session revoked or not connected; attention panel already flags this
 
   const label = account.username ? `@${account.username}` : account.firstName || "your account";
-  const items = getAttentionItems(account.ownerUserId!).filter((item) => item.accountId === account.id);
+  const items = (await getAttentionItems(account.ownerUserId!)).filter((item) => item.accountId === account.id);
   const text = formatDigest(label, items);
 
   await client.sendMessage("me", { message: text });
-  db.update(telegramAccounts).set({ lastDigestAt: new Date() }).where(eq(telegramAccounts.id, account.id)).run();
+  await db.update(telegramAccounts).set({ lastDigestAt: new Date() }).where(eq(telegramAccounts.id, account.id));
 }
 
-function formatDigest(label: string, items: ReturnType<typeof getAttentionItems>): string {
+function formatDigest(label: string, items: Awaited<ReturnType<typeof getAttentionItems>>): string {
   if (items.length === 0) return `📋 Dashboard digest for ${label}\n\nAll good — nothing needs your attention.`;
 
   const lines = items.slice(0, 20).map((item) => `• ${item.title} — ${item.detail}`);

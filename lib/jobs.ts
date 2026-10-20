@@ -24,7 +24,7 @@ export function startJobs() {
 
 async function run() {
   try {
-    failInterruptedScheduled();
+    await failInterruptedScheduled();
   } catch (err) {
     console.error("[jobs] couldn't recover interrupted scheduled messages:", err);
   }
@@ -32,7 +32,7 @@ async function run() {
 
   while (globalThis.__tgDashJobsRunning) {
     await guarded("scheduled messages", () => sendDueScheduled());
-    for (const id of safeIds()) await guarded(`broadcast ${id}`, () => runBroadcastStep(id, BROADCAST_BUDGET_MS));
+    for (const id of (await safeIds())) await guarded(`broadcast ${id}`, () => runBroadcastStep(id, BROADCAST_BUDGET_MS));
     if (Date.now() >= nextHealthAt) {
       nextHealthAt = Date.now() + HEALTH_INTERVAL_MS;
       await guarded("health checks", () => refreshAllBotHealth());
@@ -41,9 +41,9 @@ async function run() {
   }
 }
 
-function safeIds(): number[] {
+async function safeIds(): Promise<number[]> {
   try {
-    return activeBroadcastIds();
+    return await activeBroadcastIds();
   } catch (err) {
     console.error("[jobs] couldn't list broadcasts:", err);
     return [];

@@ -26,21 +26,20 @@ export function toBusinessConnectionDto(row: BusinessConnectionRow) {
   };
 }
 
-export function listBusinessConnections(botId: number): BusinessConnectionRow[] {
-  return db.select().from(botBusinessConnections).where(eq(botBusinessConnections.botId, botId)).all();
+export async function listBusinessConnections(botId: number): Promise<BusinessConnectionRow[]> {
+  return await db.select().from(botBusinessConnections).where(eq(botBusinessConnections.botId, botId));
 }
 
 /** Scoped to the bot, so another bot's connection ID returns undefined. */
-export function getBusinessConnection(botId: number, connectionId: string): BusinessConnectionRow | undefined {
-  return db
+export async function getBusinessConnection(botId: number, connectionId: string): Promise<BusinessConnectionRow | undefined> {
+  return (await db
     .select()
     .from(botBusinessConnections)
-    .where(and(eq(botBusinessConnections.botId, botId), eq(botBusinessConnections.connectionId, connectionId)))
-    .all()[0];
+    .where(and(eq(botBusinessConnections.botId, botId), eq(botBusinessConnections.connectionId, connectionId))))[0];
 }
 
 /** A business_connection update: a new connection, or an existing one enabled/disabled/with changed rights. */
-export function upsertBusinessConnection(botId: number, c: BusinessConnection): void {
+export async function upsertBusinessConnection(botId: number, c: BusinessConnection): Promise<void> {
   const now = new Date();
   const values = {
     userId: String(c.user.id),
@@ -51,16 +50,15 @@ export function upsertBusinessConnection(botId: number, c: BusinessConnection): 
     connectedAt: new Date(c.date * 1000),
     updatedAt: now,
   };
-  db.insert(botBusinessConnections)
+  await db.insert(botBusinessConnections)
     .values({ botId, connectionId: c.id, ...values })
-    .onConflictDoUpdate({ target: [botBusinessConnections.botId, botBusinessConnections.connectionId], set: values })
-    .run();
+    .onConflictDoUpdate({ target: [botBusinessConnections.botId, botBusinessConnections.connectionId], set: values });
 }
 
 /** Keeps the rows as history but marks them deleted. Scoped by connection and chat: message IDs repeat across chats. */
-export function markBusinessMessagesDeleted(botId: number, connectionId: string, chatId: string, messageIds: number[]): void {
+export async function markBusinessMessagesDeleted(botId: number, connectionId: string, chatId: string, messageIds: number[]): Promise<void> {
   if (!messageIds.length) return;
-  db.update(botMessages)
+  await db.update(botMessages)
     .set({ deletedAt: new Date() })
     .where(
       and(
@@ -69,6 +67,5 @@ export function markBusinessMessagesDeleted(botId: number, connectionId: string,
         eq(botMessages.chatId, chatId),
         inArray(botMessages.telegramMessageId, messageIds)
       )
-    )
-    .run();
+    );
 }

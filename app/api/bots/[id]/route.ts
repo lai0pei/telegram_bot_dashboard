@@ -17,7 +17,7 @@ import {
 export const GET = withAuth(async (_req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
   try {
     const { id } = await ctx.params;
-    const bot = getBotById(Number(id), userId);
+    const bot = await getBotById(Number(id), userId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
     const token = getBotToken(bot);
@@ -51,13 +51,13 @@ export const GET = withAuth(async (_req: Request, ctx: { params: Promise<{ id: s
       return { info, name, description, shortDescription, commands, webhook };
     });
 
-    setWebhookHealth(
+    await setWebhookHealth(
       bot.id,
       result.webhook?.last_error_message ?? null,
       result.webhook?.pending_update_count ?? null
     );
 
-    recordSetup(bot.id, {
+    await recordSetup(bot.id, {
       ...(failed.has("short") ? {} : { short: Boolean(result.shortDescription.short_description.trim()) }),
       ...(failed.has("about") ? {} : { about: Boolean(result.description.description.trim()) }),
       ...(failed.has("commands") ? {} : { commands: result.commands.length > 0 }),
@@ -89,7 +89,7 @@ export const PATCH = withAuth(
   async (req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
     try {
       const { id } = await ctx.params;
-      const bot = getBotById(Number(id), userId);
+      const bot = await getBotById(Number(id), userId);
       if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
       const token = getBotToken(bot);
       if (!token) return NextResponse.json({ error: "No token stored for this bot." }, { status: 400 });
@@ -144,12 +144,12 @@ export const DELETE = withAuth(
   async (_req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
     try {
       const { id } = await ctx.params;
-      const bot = getBotById(Number(id), userId);
+      const bot = await getBotById(Number(id), userId);
       if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
       await singleFlight(`delete:${userId}:${bot.id}`, async () => {
         await botFatherDelete(userId, bot.username);
-        deleteBotRow(bot.id);
+        await deleteBotRow(bot.id);
       });
 
       return NextResponse.json({ ok: true });

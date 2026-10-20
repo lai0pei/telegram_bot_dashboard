@@ -13,14 +13,14 @@ type Ctx = { params: Promise<{ id: string; gameId: string }> };
 export const PATCH = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
     const { id, gameId } = await ctx.params;
-    const bot = getBotById(Number(id), telegramAccountId);
-    if (!bot || !getGame(bot.id, Number(gameId))) return NextResponse.json({ error: "Game not found." }, { status: 404 });
+    const bot = await getBotById(Number(id), telegramAccountId);
+    if (!bot || !(await getGame(bot.id, Number(gameId)))) return NextResponse.json({ error: "Game not found." }, { status: 404 });
     const body = await req.json().catch(() => null);
     const url = typeof body?.url === "string" ? body.url.trim() : null;
     if (url === null) return NextResponse.json({ error: "A url is required (empty to clear it)." }, { status: 400 });
     const error = url ? validateHttpsUrlOrNull(url, "Game URL") : null;
     if (error) return NextResponse.json({ error }, { status: 400 });
-    return NextResponse.json({ game: setGameUrl(bot.id, Number(gameId), url || null) });
+    return NextResponse.json({ game: (await setGameUrl(bot.id, Number(gameId), url || null)) });
   } catch (err) {
     return errorResponse(err);
   }
@@ -30,12 +30,12 @@ export const PATCH = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: 
 export const DELETE = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
     const { id, gameId } = await ctx.params;
-    const bot = getBotById(Number(id), telegramAccountId);
-    const game = bot && getGame(bot.id, Number(gameId));
+    const bot = await getBotById(Number(id), telegramAccountId);
+    const game = bot && (await getGame(bot.id, Number(gameId)));
     if (!bot || !game) return NextResponse.json({ error: "Game not found." }, { status: 404 });
     await singleFlight(`deletegame:${telegramAccountId}:${game.id}`, async () => {
       await deleteGame(telegramAccountId, bot.username, game);
-      removeGame(bot.id, game.id);
+      await removeGame(bot.id, game.id);
     });
     return NextResponse.json({ ok: true });
   } catch (err) {

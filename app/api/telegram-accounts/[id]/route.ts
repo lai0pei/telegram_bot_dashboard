@@ -16,7 +16,7 @@ const DIGEST_FREQUENCIES = new Set(["off", "daily", "weekly"]);
 export const PATCH = withSession(async (req: Request, ctx: Ctx, userId: string) => {
   try {
     const { id } = await ctx.params;
-    const account = getTelegramAccountById(id);
+    const account = await getTelegramAccountById(id);
     if (!account || account.ownerUserId !== userId) {
       return NextResponse.json({ error: "Telegram account not found." }, { status: 404 });
     }
@@ -30,7 +30,7 @@ export const PATCH = withSession(async (req: Request, ctx: Ctx, userId: string) 
       return NextResponse.json({ error: "Digest hour must be 0-23." }, { status: 400 });
     }
 
-    setDigestSettings(id, { digestFrequency: body.digestFrequency, digestHour });
+    await setDigestSettings(id, { digestFrequency: body.digestFrequency, digestHour });
     return NextResponse.json({ ok: true });
   } catch (err) {
     return errorResponse(err, 400);
@@ -41,24 +41,24 @@ export const PATCH = withSession(async (req: Request, ctx: Ctx, userId: string) 
 export const DELETE = withSession(async (_req: Request, ctx: Ctx, userId: string) => {
   try {
     const { id } = await ctx.params;
-    const account = getTelegramAccountById(id);
+    const account = await getTelegramAccountById(id);
     if (!account || account.ownerUserId !== userId) {
       return NextResponse.json({ error: "Telegram account not found." }, { status: 404 });
     }
 
     await singleFlight(`unbind-account:${id}`, async () => {
-      // auth.LogOut is async; better-sqlite3 transactions are synchronous, so this runs first, outside one.
+      // auth.LogOut is a network call: run it first and keep it out of any database transaction.
       await logout(id).catch(() => {});
 
-      for (const bot of listBots(id)) deleteBotRow(bot.id);
-      for (const chat of listChats(id)) deleteChatRow(chat.id);
+      for (const bot of (await listBots(id))) await deleteBotRow(bot.id);
+      for (const chat of (await listChats(id))) await deleteChatRow(chat.id);
     });
 
     const claims = await readSessionClaims();
     let newActiveTelegramAccountId: string | null = claims?.activeTelegramAccountId ?? null;
     if (newActiveTelegramAccountId === id) {
-      newActiveTelegramAccountId = pickDefaultTelegramAccountId(userId);
-      const user = getUserById(userId);
+      newActiveTelegramAccountId = await pickDefaultTelegramAccountId(userId);
+      const user = await getUserById(userId);
       await createSessionCookie(userId, user?.sessionVersion ?? 0, newActiveTelegramAccountId);
     }
 

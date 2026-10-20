@@ -20,19 +20,19 @@ type Ctx = { params: Promise<{ id: string }> };
 
 export const GET = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
-    const bot = getBotById(Number((await ctx.params).id), telegramAccountId);
+    const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
     // Suggestions for the "send to" picker: people who wrote to the bot, and chats it's currently in.
-    const contacts = db.select().from(botUsers).where(eq(botUsers.botId, bot.id)).all();
+    const contacts = await db.select().from(botUsers).where(eq(botUsers.botId, bot.id));
     const destinations = [
       ...contacts
         .filter((u) => !u.chatId.startsWith("-"))
         .map((u) => ({ chatId: u.chatId, name: u.firstName || (u.username ? `@${u.username}` : u.chatId), kind: "user" as const })),
-      ...listBotChats(bot.id)
+      ...(await listBotChats(bot.id))
         .filter((c) => c.status === "member" || c.status === "administrator")
         .map((c) => ({ chatId: c.chatId, name: c.title, kind: c.type === "channel" ? ("channel" as const) : ("group" as const) })),
     ];
-    return NextResponse.json({ scheduled: listScheduled(bot.id).map(toScheduledDto), destinations });
+    return NextResponse.json({ scheduled: (await listScheduled(bot.id)).map(toScheduledDto), destinations });
   } catch (err) {
     return errorResponse(err);
   }
@@ -41,7 +41,7 @@ export const GET = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId: s
 /** POST { chatId, text, parseMode?, buttons?, sendAt }: `sendAt` is epoch milliseconds. */
 export const POST = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
-    const bot = getBotById(Number((await ctx.params).id), telegramAccountId);
+    const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
     if (!bot.encryptedToken) return NextResponse.json({ error: "This bot has no stored token yet." }, { status: 400 });
 
@@ -57,7 +57,7 @@ export const POST = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: s
       validateSendAt(body.sendAt);
     if (error) return NextResponse.json({ error }, { status: 400 });
 
-    const row = createScheduled(bot.id, {
+    const row = await createScheduled(bot.id, {
       chatId: body.chatId.trim(),
       text: body.text,
       parseMode: body.parseMode || null,

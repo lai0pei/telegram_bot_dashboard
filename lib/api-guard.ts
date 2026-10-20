@@ -22,7 +22,7 @@ export function withSession<Ctx extends RouteContext = RouteContext>(
   return async (req: Request, ctx: Ctx) => {
     const claims = await readSessionClaims();
     if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const user = getUserById(claims.userId);
+    const user = await getUserById(claims.userId);
     if (!user || user.sessionVersion !== claims.sessionVersion) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -47,7 +47,7 @@ export function withAuth<Ctx extends RouteContext = RouteContext>(
   return async (req: Request, ctx: Ctx) => {
     const claims = await readSessionClaims();
     if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const user = getUserById(claims.userId);
+    const user = await getUserById(claims.userId);
     if (!user || user.sessionVersion !== claims.sessionVersion) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -57,7 +57,7 @@ export function withAuth<Ctx extends RouteContext = RouteContext>(
         { status: 409 }
       );
     }
-    const account = getTelegramAccountById(claims.activeTelegramAccountId);
+    const account = await getTelegramAccountById(claims.activeTelegramAccountId);
     if (!account || account.ownerUserId !== claims.userId) {
       return NextResponse.json(
         { error: "No Telegram account is active.", code: "NO_ACTIVE_ACCOUNT" },

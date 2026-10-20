@@ -14,8 +14,8 @@ export interface RemoveResult {
 const message = (err: unknown) => (err instanceof BotApiError ? err.description : err instanceof Error ? err.message : String(err));
 
 /** Rows as `planRemoval` reads them (JSON columns parsed). */
-export const storedRules = (botId: number) =>
-  listAutoReplies(botId).map((r) => ({ ...r, buttons: parseButtons(r.buttons), replyKeyboard: parseReplyKeyboard(r.replyKeyboard) }));
+export const storedRules = async (botId: number) =>
+  (await listAutoReplies(botId)).map((r) => ({ ...r, buttons: parseButtons(r.buttons), replyKeyboard: parseReplyKeyboard(r.replyKeyboard) }));
 
 /**
  * Removes what a template added and nobody has changed since: rules and default-scope commands that still match it
@@ -37,10 +37,10 @@ export async function removeTemplate(bot: { id: number; token: string | null }, 
     }
   }
 
-  const plan = planRemoval(template, storedRules(bot.id), commands);
+  const plan = planRemoval(template, (await storedRules(bot.id)), commands);
 
   const rules: RemoveResult = { part: "rules", removed: 0, kept: plan.keptRules.map((r) => r.pattern), errors: [] };
-  for (const rule of plan.rules) if (deleteAutoReply(bot.id, rule.id)) rules.removed++;
+  for (const rule of plan.rules) if ((await deleteAutoReply(bot.id, rule.id))) rules.removed++;
   results.push(rules);
 
   if (template.commands.length) {

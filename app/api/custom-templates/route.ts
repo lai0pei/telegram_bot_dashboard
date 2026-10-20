@@ -8,7 +8,7 @@ const PARTS: SnapshotPart[] = ["rules", "commands", "profile"];
 /** GET — the templates this dashboard user saved (usable on every linked Telegram account). */
 export const GET = withSession(async (_req: Request, _ctx: unknown, userId: string) => {
   try {
-    return NextResponse.json({ templates: listCustomTemplates(userId) });
+    return NextResponse.json({ templates: (await listCustomTemplates(userId)) });
   } catch (err) {
     return errorResponse(err);
   }
@@ -18,7 +18,7 @@ export const GET = withSession(async (_req: Request, _ctx: unknown, userId: stri
 export const POST = withAuth(async (req: Request, _ctx: unknown, telegramAccountId: string) => {
   try {
     const body = await req.json().catch(() => null);
-    const owner = ownerOf(telegramAccountId);
+    const owner = await ownerOf(telegramAccountId);
     if (!owner) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const title = typeof body?.title === "string" ? body.title.trim() : "";
     if (title.length < 1 || title.length > 64) return NextResponse.json({ error: "Give the template a name of 1–64 characters." }, { status: 400 });
@@ -27,7 +27,7 @@ export const POST = withAuth(async (req: Request, _ctx: unknown, telegramAccount
     const emoji = typeof body?.emoji === "string" && body.emoji.trim() && [...body.emoji.trim()].length <= 4 ? body.emoji.trim() : "⭐";
     const parts = Array.isArray(body?.parts) ? (body.parts as unknown[]).filter((p): p is SnapshotPart => PARTS.includes(p as SnapshotPart)) : [];
     if (!parts.length) return NextResponse.json({ error: "Choose what to save." }, { status: 400 });
-    const bot = getBotById(Number(body?.botId), telegramAccountId);
+    const bot = await getBotById(Number(body?.botId), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
     const { template, notes } = await createCustomTemplate(owner, bot, getBotToken(bot), { title, emoji, blurb: blurb || "Saved from one of your bots.", parts });
     return NextResponse.json({ template, notes });

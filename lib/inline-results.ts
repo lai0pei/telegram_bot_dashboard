@@ -17,29 +17,27 @@ export function toInlineResultDto(row: InlineResultRow) {
   return { ...row, buttons: parseButtons(row.buttons) };
 }
 
-export function listInlineResults(botId: number): InlineResultRow[] {
-  return db.select().from(inlineResults).where(eq(inlineResults.botId, botId)).orderBy(asc(inlineResults.position), asc(inlineResults.id)).all();
+export async function listInlineResults(botId: number): Promise<InlineResultRow[]> {
+  return await db.select().from(inlineResults).where(eq(inlineResults.botId, botId)).orderBy(asc(inlineResults.position), asc(inlineResults.id));
 }
 
-export function getInlineResult(botId: number, id: number): InlineResultRow | undefined {
-  return db
+export async function getInlineResult(botId: number, id: number): Promise<InlineResultRow | undefined> {
+  return (await db
     .select()
     .from(inlineResults)
-    .where(and(eq(inlineResults.botId, botId), eq(inlineResults.id, id)))
-    .all()[0];
+    .where(and(eq(inlineResults.botId, botId), eq(inlineResults.id, id))))[0];
 }
 
 const storedButtons = (buttons: InlineButton[][] | null | undefined) => (buttons?.length ? JSON.stringify(buttons) : null);
 
-export function createInlineResult(botId: number, input: InlineResultInput): InlineResultRow {
-  const last = db
+export async function createInlineResult(botId: number, input: InlineResultInput): Promise<InlineResultRow> {
+  const last = (await db
     .select({ position: inlineResults.position })
     .from(inlineResults)
     .where(eq(inlineResults.botId, botId))
     .orderBy(desc(inlineResults.position))
-    .limit(1)
-    .all()[0];
-  return db
+    .limit(1))[0];
+  return (await db
     .insert(inlineResults)
     .values({
       botId,
@@ -53,12 +51,11 @@ export function createInlineResult(botId: number, input: InlineResultInput): Inl
       position: (last?.position ?? -1) + 1,
       createdAt: new Date(),
     })
-    .returning()
-    .get();
+    .returning())[0];
 }
 
-export function updateInlineResult(botId: number, id: number, input: InlineResultInput): InlineResultRow | undefined {
-  return db
+export async function updateInlineResult(botId: number, id: number, input: InlineResultInput): Promise<InlineResultRow | undefined> {
+  return (await db
     .update(inlineResults)
     .set({
       prefix: input.prefix.trim(),
@@ -70,45 +67,43 @@ export function updateInlineResult(botId: number, id: number, input: InlineResul
       enabled: input.enabled,
     })
     .where(and(eq(inlineResults.botId, botId), eq(inlineResults.id, id)))
-    .returning()
-    .get();
+    .returning())[0];
 }
 
-export function deleteInlineResult(botId: number, id: number): boolean {
-  return db.delete(inlineResults).where(and(eq(inlineResults.botId, botId), eq(inlineResults.id, id))).run().changes > 0;
+export async function deleteInlineResult(botId: number, id: number): Promise<boolean> {
+  return (await db.delete(inlineResults).where(and(eq(inlineResults.botId, botId), eq(inlineResults.id, id)))).count > 0;
 }
 
 /** Swaps a result with its neighbour in list order. */
-export function moveInlineResult(botId: number, id: number, direction: "up" | "down"): void {
-  const rows = listInlineResults(botId);
+export async function moveInlineResult(botId: number, id: number, direction: "up" | "down"): Promise<void> {
+  const rows = await listInlineResults(botId);
   const index = rows.findIndex((r) => r.id === id);
   const other = rows[direction === "up" ? index - 1 : index + 1];
   if (index < 0 || !other) return;
-  db.transaction((tx) => {
+  await db.transaction(async (tx) => {
     // Positions can tie (default 0), so assign the whole order explicitly.
     const order = rows.map((r) => r.id);
     [order[index], order[order.indexOf(other.id)]] = [other.id, id];
-    order.forEach((rowId, position) => {
-      tx.update(inlineResults).set({ position }).where(and(eq(inlineResults.botId, botId), eq(inlineResults.id, rowId))).run();
-    });
+    for (const [position, rowId] of order.entries()) {
+      await tx.update(inlineResults).set({ position }).where(and(eq(inlineResults.botId, botId), eq(inlineResults.id, rowId)));
+    }
   });
 }
 
 /** Enabled results whose prefix the query starts with (case-insensitive; an empty prefix matches everything). */
-export function matchInlineResults(botId: number, query: string): InlineResultRow[] {
+export async function matchInlineResults(botId: number, query: string): Promise<InlineResultRow[]> {
   const q = query.trim().toLowerCase();
-  return listInlineResults(botId)
+  return (await listInlineResults(botId))
     .filter((r) => r.enabled && q.startsWith(r.prefix.trim().toLowerCase()))
     .slice(0, MAX_RESULTS);
 }
 
 /** Counts a chosen result. Scoped by bot as well as row, so a stray ID from another bot's query can't touch it. */
-export function recordChosenInlineResult(botId: number, resultId: string): void {
+export async function recordChosenInlineResult(botId: number, resultId: string): Promise<void> {
   if (!/^\d{1,15}$/.test(resultId)) return;
-  db.update(inlineResults)
+  await db.update(inlineResults)
     .set({ uses: sql`${inlineResults.uses} + 1` })
-    .where(and(eq(inlineResults.botId, botId), eq(inlineResults.id, Number(resultId))))
-    .run();
+    .where(and(eq(inlineResults.botId, botId), eq(inlineResults.id, Number(resultId))));
 }
 
 function toArticle(row: InlineResultRow): InlineArticle {
@@ -130,10 +125,10 @@ function toArticle(row: InlineResultRow): InlineArticle {
  * Answers an inline query: always, even with no matches (Telegram otherwise shows a spinner until it times out).
  * Never throws and doesn't record the asker, since inline users never started the bot.
  */
-export function answerInline(botId: number, token: string, query: TelegramInlineQuery): void {
+export async function answerInline(botId: number, token: string, query: TelegramInlineQuery): Promise<void> {
   let results: InlineArticle[] = [];
   try {
-    results = matchInlineResults(botId, query.query).map(toArticle);
+    results = (await matchInlineResults(botId, query.query)).map(toArticle);
   } catch (err) {
     console.error(`[inline] bot ${botId} result lookup failed:`, err);
   }

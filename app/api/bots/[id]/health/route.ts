@@ -7,7 +7,7 @@ import { singleFlight } from "@/lib/single-flight";
 /** POST: runs the health check now (the same one the background job runs every 10 minutes) and returns the result. */
 export const POST = withAuth(async (_req: Request, ctx: { params: Promise<{ id: string }> }, telegramAccountId: string) => {
   try {
-    const bot = getBotById(Number((await ctx.params).id), telegramAccountId);
+    const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
     const result = await singleFlight(`health:${bot.id}`, () => refreshBotHealth(bot));

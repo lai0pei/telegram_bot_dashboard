@@ -9,7 +9,7 @@ type Ctx = { params: Promise<{ id: string }> };
 export const POST = withSession(async (_req: Request, ctx: Ctx, userId: string) => {
   try {
     const { id } = await ctx.params;
-    const account = getTelegramAccountById(id);
+    const account = await getTelegramAccountById(id);
     if (!account || account.ownerUserId !== userId) {
       return NextResponse.json({ error: "Telegram account not found." }, { status: 404 });
     }
@@ -19,7 +19,7 @@ export const POST = withSession(async (_req: Request, ctx: Ctx, userId: string) 
         { status: 409 }
       );
     }
-    const user = getUserById(userId);
+    const user = await getUserById(userId);
     await createSessionCookie(userId, user?.sessionVersion ?? 0, account.id);
     return NextResponse.json({ ok: true });
   } catch (err) {

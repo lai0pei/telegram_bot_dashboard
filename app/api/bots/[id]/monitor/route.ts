@@ -11,7 +11,7 @@ import { botApi } from "@/lib/botapi";
 export const PUT = withAuth(async (req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
   try {
     const { id } = await ctx.params;
-    const bot = getBotById(Number(id), userId);
+    const bot = await getBotById(Number(id), userId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
     const { enabled } = await req.json();
@@ -28,7 +28,7 @@ export const PUT = withAuth(async (req: Request, ctx: { params: Promise<{ id: st
       }
     }
 
-    setMonitorEnabled(bot.id, Boolean(enabled));
+    await setMonitorEnabled(bot.id, Boolean(enabled));
     return NextResponse.json({ ok: true, monitorEnabled: Boolean(enabled) });
   } catch (err) {
     return errorResponse(err, 400);

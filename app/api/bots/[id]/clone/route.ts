@@ -9,11 +9,11 @@ import { getBotById, getBotToken } from "@/lib/bots";
  */
 export const POST = withAuth(async (req: Request, ctx: { params: Promise<{ id: string }> }, telegramAccountId: string) => {
   try {
-    const source = getBotById(Number((await ctx.params).id), telegramAccountId);
+    const source = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!source) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
     const body = await req.json().catch(() => null);
-    const target = getBotById(Number(body?.targetBotId), telegramAccountId);
+    const target = await getBotById(Number(body?.targetBotId), telegramAccountId);
     if (!target) return NextResponse.json({ error: "Target bot not found." }, { status: 404 });
     if (target.id === source.id) return NextResponse.json({ error: "Pick a different bot to copy to." }, { status: 400 });
 

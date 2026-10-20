@@ -92,17 +92,17 @@ function pruneExpiredLoginStates() {
   }
 }
 
-export function clearPersistedSession(accountId: string): void {
-  const row = getTelegramAccountById(accountId);
+export async function clearPersistedSession(accountId: string): Promise<void> {
+  const row = await getTelegramAccountById(accountId);
   if (!row) return;
-  deleteTelegramAccount(accountId);
+  await deleteTelegramAccount(accountId);
   const clients = getClientsMap();
   clients.get(row.telegramId)?.destroy().catch(() => {});
   clients.delete(row.telegramId);
 }
 
-export function isLoggedIn(accountId: string): boolean {
-  const row = getTelegramAccountById(accountId);
+export async function isLoggedIn(accountId: string): Promise<boolean> {
+  const row = await getTelegramAccountById(accountId);
   return !!row && !row.revokedAt;
 }
 
@@ -116,14 +116,14 @@ function isRevokedSessionError(err: unknown): boolean {
   return err instanceof RPCError && err.code === 401 && err.errorMessage !== "SESSION_PASSWORD_NEEDED";
 }
 
-function handleRevokedSession(accountId: string, telegramId: string, client: TelegramClient): void {
+async function handleRevokedSession(accountId: string, telegramId: string, client: TelegramClient): Promise<void> {
   const clients = getClientsMap();
   const current = clients.get(telegramId);
   // Only the account's current connection speaks for it. An old one replaced
   // by a newer sign-in (see endPreviousSession) failing late must not mark
   // the fresh session revoked.
   if (!current || current === client) {
-    markTelegramAccountRevoked(accountId);
+    await markTelegramAccountRevoked(accountId);
     clients.delete(telegramId);
   }
   client.destroy().catch(() => {});
@@ -150,7 +150,7 @@ function watchForRevocation(client: TelegramClient, accountId: string, telegramI
       if (revoked) throw new TelegramSessionRevokedError();
       if (isRevokedSessionError(err)) {
         revoked = true;
-        handleRevokedSession(accountId, telegramId, client);
+        await handleRevokedSession(accountId, telegramId, client);
         throw new TelegramSessionRevokedError();
       }
       throw err;
@@ -163,7 +163,7 @@ function watchForRevocation(client: TelegramClient, accountId: string, telegramI
  * if not bound. Throws TelegramSessionRevokedError if its session has ended.
  */
 export async function getClient(accountId: string): Promise<TelegramClient | null> {
-  const row = getTelegramAccountById(accountId);
+  const row = await getTelegramAccountById(accountId);
   if (!row) return null;
   if (row.revokedAt) throw new TelegramSessionRevokedError();
   const sessionString = decrypt(row.encryptedSessionString);
@@ -183,7 +183,7 @@ export async function getClient(accountId: string): Promise<TelegramClient | nul
     await client.connect();
   } catch (err) {
     if (isRevokedSessionError(err)) {
-      handleRevokedSession(row.id, row.telegramId, client);
+      await handleRevokedSession(row.id, row.telegramId, client);
       throw new TelegramSessionRevokedError();
     }
     throw err;
@@ -433,9 +433,9 @@ async function finishLogin(
     return { status: "not_allowed", telegramId };
   }
 
-  const existing = getTelegramAccountByTelegramId(telegramId);
+  const existing = await getTelegramAccountByTelegramId(telegramId);
   if (mode === "link") {
-    if (isTelegramAccountLinkedToAnotherUser(telegramId, ownerUserId!)) {
+    if ((await isTelegramAccountLinkedToAnotherUser(telegramId, ownerUserId!))) {
       client.destroy().catch(() => {});
       return { status: "already_linked", telegramId };
     }
@@ -445,7 +445,7 @@ async function finishLogin(
     client.destroy().catch(() => {});
     return { status: "registration_closed", telegramId };
   } else {
-    ownerUserId = createUserForTelegram(me).id;
+    ownerUserId = (await createUserForTelegram(me)).id;
   }
 
   // Keep one dashboard session per Telegram account: an existing login
@@ -454,7 +454,7 @@ async function finishLogin(
   if (existing) await endPreviousSession(existing, telegramId);
 
   const sessionString = (client.session as StringSession).save();
-  const accountId = upsertTelegramAccount({ ownerUserId: ownerUserId!, telegramId, sessionString, me });
+  const accountId = await upsertTelegramAccount({ ownerUserId: ownerUserId!, telegramId, sessionString, me });
   watchForRevocation(client, accountId, telegramId);
   getClientsMap().set(telegramId, client);
   globalThis.__tgDashSessionChecks?.delete(accountId);
@@ -497,5 +497,5 @@ export async function logout(accountId: string): Promise<void> {
     }
     await client.destroy();
   }
-  clearPersistedSession(accountId);
+  await clearPersistedSession(accountId);
 }

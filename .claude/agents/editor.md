@@ -5,7 +5,7 @@ tools: Read, Edit, Write, Grep, Glob, Bash
 model: sonnet
 ---
 
-You carry out a given implementation plan in this repository (Next.js 16 / React 19 / Tailwind 4, SQLite + Drizzle). Apply it exactly. Do not make design changes. If a step is ambiguous or conflicts with the actual code, stop and report that instead of improvising.
+You carry out a given implementation plan in this repository (Next.js 16 / React 19 / Tailwind 4, Postgres + Drizzle). Apply it exactly. Do not make design changes. If a step is ambiguous or conflicts with the actual code, stop and report that instead of improvising.
 
 ## How to edit
 - Read `CLAUDE.md` before your first edit.

@@ -14,7 +14,7 @@ import { validateChatId, validatePoll } from "@/lib/validation";
  */
 export const POST = withAuth(async (req: Request, ctx: { params: Promise<{ id: string }> }, telegramAccountId: string) => {
   try {
-    const bot = getBotById(Number((await ctx.params).id), telegramAccountId);
+    const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
     const body = await req.json().catch(() => null);
@@ -34,9 +34,9 @@ export const POST = withAuth(async (req: Request, ctx: { params: Promise<{ id: s
     );
 
     if (sent.chat.type === "private") {
-      upsertBotUser(bot.id, String(sent.chat.id), { username: sent.chat.username ?? null, firstName: sent.chat.first_name ?? null, touch: false });
+      await upsertBotUser(bot.id, String(sent.chat.id), { username: sent.chat.username ?? null, firstName: sent.chat.first_name ?? null, touch: false });
     }
-    return NextResponse.json({ message: toMessageRow(recordOutgoing(bot.id, sent)) });
+    return NextResponse.json({ message: toMessageRow((await recordOutgoing(bot.id, sent))) });
   } catch (err) {
     return botApiErrorResponse(err) ?? errorResponse(err);
   }

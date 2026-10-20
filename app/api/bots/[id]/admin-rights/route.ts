@@ -23,7 +23,7 @@ const RIGHT_KEYS: (keyof ChatAdministratorRights)[] = [
 
 async function resolve(ctx: Ctx, userId: string) {
   const { id } = await ctx.params;
-  const bot = getBotById(Number(id), userId);
+  const bot = await getBotById(Number(id), userId);
   if (!bot) return { error: NextResponse.json({ error: "Bot not found." }, { status: 404 }) };
   const token = getBotToken(bot);
   if (!token) return { error: NextResponse.json({ error: "No token stored for this bot." }, { status: 400 }) };

@@ -1,21 +1,25 @@
 /**
  * Plain-JS migration runner used by the Docker image's startup command
  * (no tsx/ts-node needed at runtime — the production image only ships
- * compiled output + this script).
+ * compiled output + this script). Keep in sync with lib/db/migrate.ts.
  */
-const Database = require("better-sqlite3");
-const { drizzle } = require("drizzle-orm/better-sqlite3");
-const { migrate } = require("drizzle-orm/better-sqlite3/migrator");
-const { mkdirSync } = require("node:fs");
-const { dirname } = require("node:path");
+const postgres = require("postgres");
+const { drizzle } = require("drizzle-orm/postgres-js");
+const { migrate } = require("drizzle-orm/postgres-js/migrator");
 
-const DB_PATH = process.env.DATABASE_PATH || "./data/app.db";
+async function main() {
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error("DATABASE_URL is not set.");
+  const client = postgres(url, { max: 1 });
+  try {
+    await migrate(drizzle(client), { migrationsFolder: "./lib/db/migrations" });
+    console.log("Migrations applied.");
+  } finally {
+    await client.end();
+  }
+}
 
-mkdirSync(dirname(DB_PATH), { recursive: true });
-const sqlite = new Database(DB_PATH);
-sqlite.pragma("journal_mode = WAL");
-const db = drizzle(sqlite);
-
-migrate(db, { migrationsFolder: "./lib/db/migrations" });
-console.log("Migrations applied.");
-sqlite.close();
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

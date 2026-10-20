@@ -19,6 +19,7 @@ import { describeMessage } from "./messages";
 import { noteBotChatFromMessage, rightsOf, statusOf, trackedType, upsertBotChat } from "./bot-chats";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { getBusinessConnection, markBusinessMessagesDeleted, upsertBusinessConnection } from "./business";
+import { isDatabaseError } from "./db/errors";
 import { maybeSendDigests } from "./digest";
 import { snapshotDailyStats, utcDay } from "./stats";
 
@@ -66,10 +67,10 @@ export function startPoller() {
 async function supervise() {
   const workers = globalThis.__tgDashPollerWorkers!;
   while (globalThis.__tgDashPollerRunning) {
-    maybeSnapshotDailyStats();
+    await maybeSnapshotDailyStats();
     // Has its own schedule guard (lastDigestAt) and a per-account single-flight, so a tick overlapping a slow send is safe.
     maybeSendDigests().catch((err) => console.error("[poller] digest check failed:", err));
-    for (const bot of listAllMonitoredBots()) {
+    for (const bot of (await listAllMonitoredBots())) {
       if (!bot.encryptedToken || workers.has(bot.id)) continue;
       workers.add(bot.id);
       pollBot(bot.id)
@@ -81,12 +82,12 @@ async function supervise() {
 }
 
 /** Runs the stats snapshot at most once per UTC day per process (every other supervisor tick is a cheap no-op check). */
-function maybeSnapshotDailyStats() {
+async function maybeSnapshotDailyStats() {
   const today = utcDay(new Date());
   if (globalThis.__tgDashLastSnapshotDay === today) return;
   globalThis.__tgDashLastSnapshotDay = today;
   try {
-    snapshotDailyStats();
+    await snapshotDailyStats();
   } catch (err) {
     console.error("[poller] daily stats snapshot failed:", err);
   }
@@ -96,9 +97,9 @@ function maybeSnapshotDailyStats() {
  * Records the outcome of a poll cycle for the attention panel. Never throws: it runs in the failure path, where the
  * problem may itself be a database error, and a throw there would skip the backoff sleep and respawn the worker in a loop.
  */
-function recordPollHealth(botId: number, error: string | null) {
+async function recordPollHealth(botId: number, error: string | null) {
   try {
-    setPollHealth(botId, error);
+    await setPollHealth(botId, error);
   } catch (err) {
     console.error(`[poller] couldn't record poll health for bot ${botId}:`, err);
   }
@@ -109,7 +110,7 @@ async function pollBot(botId: number) {
   let failures = 0;
   while (globalThis.__tgDashPollerRunning) {
     // Re-read every round so a new token, a toggled switch or a deletion takes effect without a restart.
-    const bot = getMonitoredBot(botId);
+    const bot = await getMonitoredBot(botId);
     const token = bot && getBotToken(bot);
     if (!bot || !token) {
       pollerFailures().delete(botId);
@@ -121,19 +122,19 @@ async function pollBot(botId: number) {
       pollerFailures().delete(botId);
       for (const update of updates) {
         try {
-          handleUpdate(bot.id, bot.username, token, update);
+          await handleUpdate(bot.id, bot.username, token, update);
         } catch (err) {
           // A database error (e.g. a migration that hasn't been applied yet) must not drop updates: leave the
           // offset where it is so they're fetched again. Anything else is a bad update; skip it, don't wedge.
           if (isDatabaseError(err)) throw err;
           console.error(`[poller] bot ${bot.username} skipped update ${update.update_id}:`, err);
         }
-        setLastUpdateId(bot.id, update.update_id);
+        await setLastUpdateId(bot.id, update.update_id);
       }
-      recordPollHealth(bot.id, null);
+      await recordPollHealth(bot.id, null);
     } catch (err) {
       console.error(`[poller] bot ${bot.username} getUpdates failed:`, err);
-      recordPollHealth(bot.id, err instanceof Error ? err.message : String(err));
+      await recordPollHealth(bot.id, err instanceof Error ? err.message : String(err));
       // Per-bot backoff (5s growing to 60s) so a dead token neither stalls other bots nor retries every few seconds.
       failures++;
       pollerFailures().set(botId, failures);
@@ -142,63 +143,56 @@ async function pollBot(botId: number) {
   }
 }
 
-function isDatabaseError(err: unknown): boolean {
-  const code = (err as { code?: unknown } | null)?.code;
-  return typeof code === "string" && code.startsWith("SQLITE_");
-}
-
-export function handleUpdate(botId: number, botUsername: string, token: string, update: TelegramUpdate) {
-  if (update.message) recordIncomingMessage(botId, botUsername, token, update.message);
-  else if (update.edited_message) applyEdit(botId, botUsername, token, update.edited_message);
-  else if (update.callback_query) recordCallback(botId, token, update.callback_query);
-  else if (update.my_chat_member) recordMembership(botId, update.my_chat_member);
-  else if (update.chat_join_request) recordJoinRequestUpdate(botId, update.chat_join_request);
-  else if (update.poll) applyPollUpdate(botId, update.poll);
-  else if (update.inline_query) answerInline(botId, token, update.inline_query);
-  else if (update.chosen_inline_result) recordChosenInlineResult(botId, update.chosen_inline_result.result_id);
-  else if (update.business_connection) upsertBusinessConnection(botId, update.business_connection);
-  else if (update.business_message) recordIncomingMessage(botId, botUsername, token, update.business_message);
-  else if (update.edited_business_message) applyEdit(botId, botUsername, token, update.edited_business_message);
+export async function handleUpdate(botId: number, botUsername: string, token: string, update: TelegramUpdate) {
+  if (update.message) await recordIncomingMessage(botId, botUsername, token, update.message);
+  else if (update.edited_message) await applyEdit(botId, botUsername, token, update.edited_message);
+  else if (update.callback_query) await recordCallback(botId, token, update.callback_query);
+  else if (update.my_chat_member) await recordMembership(botId, update.my_chat_member);
+  else if (update.chat_join_request) await recordJoinRequestUpdate(botId, update.chat_join_request);
+  else if (update.poll) await applyPollUpdate(botId, update.poll);
+  else if (update.inline_query) await answerInline(botId, token, update.inline_query);
+  else if (update.chosen_inline_result) await recordChosenInlineResult(botId, update.chosen_inline_result.result_id);
+  else if (update.business_connection) await upsertBusinessConnection(botId, update.business_connection);
+  else if (update.business_message) await recordIncomingMessage(botId, botUsername, token, update.business_message);
+  else if (update.edited_business_message) await applyEdit(botId, botUsername, token, update.edited_business_message);
   else if (update.deleted_business_messages) {
     const d = update.deleted_business_messages;
-    markBusinessMessagesDeleted(botId, d.business_connection_id, String(d.chat.id), d.message_ids);
+    await markBusinessMessagesDeleted(botId, d.business_connection_id, String(d.chat.id), d.message_ids);
   }
 }
 
-function recordJoinRequestUpdate(botId: number, request: TelegramChatJoinRequest) {
-  recordJoinRequest(botId, request);
-  noteBotChatFromMessage(botId, request.chat);
+async function recordJoinRequestUpdate(botId: number, request: TelegramChatJoinRequest) {
+  await recordJoinRequest(botId, request);
+  await noteBotChatFromMessage(botId, request.chat);
 }
 
 /** A poll's new state (a vote, or it was stopped): replace the poll inside the stored message. */
-function applyPollUpdate(botId: number, poll: TelegramPoll) {
-  const rows = db
+async function applyPollUpdate(botId: number, poll: TelegramPoll) {
+  const rows = await db
     .select({ id: botMessages.id, raw: botMessages.raw })
     .from(botMessages)
-    .where(and(eq(botMessages.botId, botId), eq(botMessages.mediaType, "poll"), sql`json_extract(${botMessages.raw}, '$.poll.id') = ${poll.id}`))
-    .all();
+    .where(and(eq(botMessages.botId, botId), eq(botMessages.mediaType, "poll"), sql`(${botMessages.raw}::jsonb -> 'poll' ->> 'id') = ${poll.id}`));
   for (const row of rows) {
     const message = JSON.parse(row.raw ?? "{}") as TelegramMessage;
-    db.update(botMessages)
+    await db.update(botMessages)
       .set({ raw: JSON.stringify({ ...message, poll }) })
-      .where(eq(botMessages.id, row.id))
-      .run();
+      .where(eq(botMessages.id, row.id));
   }
 }
 
 /** The bot was added to, promoted/demoted in, or removed from a chat. */
-function recordMembership(botId: number, update: TelegramChatMemberUpdate) {
+async function recordMembership(botId: number, update: TelegramChatMemberUpdate) {
   const type = trackedType(update.chat.type);
   if (!type) {
     // Private chat: the user blocked or unblocked the bot. Not tracked as a chat, but the broadcast skips blockers.
     if (update.chat.type === "private") {
       const status = update.new_chat_member.status;
-      if (status === "kicked") setBotUserBlocked(botId, String(update.chat.id), true);
-      else if (status === "member") setBotUserBlocked(botId, String(update.chat.id), false);
+      if (status === "kicked") await setBotUserBlocked(botId, String(update.chat.id), true);
+      else if (status === "member") await setBotUserBlocked(botId, String(update.chat.id), false);
     }
     return;
   }
-  upsertBotChat(botId, {
+  await upsertBotChat(botId, {
     chatId: String(update.chat.id),
     type,
     title: update.chat.title ?? String(update.chat.id),
@@ -209,10 +203,10 @@ function recordMembership(botId: number, update: TelegramChatMemberUpdate) {
 }
 
 /** Edited message: update the stored copy in place (or store it if it predates monitoring). */
-function applyEdit(botId: number, botUsername: string, token: string, message: TelegramMessage) {
+async function applyEdit(botId: number, botUsername: string, token: string, message: TelegramMessage) {
   const { text, mediaType } = describeMessage(message);
   const chatId = String(message.chat.id);
-  const existing = db
+  const existing = (await db
     .select({ id: botMessages.id })
     .from(botMessages)
     .where(
@@ -225,29 +219,27 @@ function applyEdit(botId: number, botUsername: string, token: string, message: T
           ? eq(botMessages.businessConnectionId, message.business_connection_id)
           : isNull(botMessages.businessConnectionId)
       )
-    )
-    .all()[0];
+    ))[0];
   if (!existing) {
-    recordIncomingMessage(botId, botUsername, token, message, false);
+    await recordIncomingMessage(botId, botUsername, token, message, false);
     return;
   }
-  db.update(botMessages)
+  await db.update(botMessages)
     .set({
       text,
       mediaType,
       raw: JSON.stringify(message),
       editedAt: new Date((message.edit_date ?? message.date) * 1000),
     })
-    .where(eq(botMessages.id, existing.id))
-    .run();
+    .where(eq(botMessages.id, existing.id));
 }
 
 /** A pressed inline button: stored as an incoming row, and the user's button spinner is stopped. */
-function recordCallback(botId: number, token: string, query: TelegramCallbackQuery) {
+async function recordCallback(botId: number, token: string, query: TelegramCallbackQuery) {
   const chat = query.message?.chat;
   if (chat) {
     const now = new Date();
-    db.insert(botMessages)
+    await db.insert(botMessages)
       .values({
         botId,
         chatId: String(chat.id),
@@ -259,33 +251,32 @@ function recordCallback(botId: number, token: string, query: TelegramCallbackQue
         raw: JSON.stringify(query),
         telegramMessageId: null,
         createdAt: now,
-      })
-      .run();
-    upsertBotUser(botId, String(chat.id), { username: query.from.username ?? null, firstName: query.from.first_name, seenAt: now });
+      });
+    await upsertBotUser(botId, String(chat.id), { username: query.from.username ?? null, firstName: query.from.first_name, seenAt: now });
   }
   // Best effort, and without waiting. A matching rule answers (toast, edit or new message); the Play button of a game
   // opens the game's URL; otherwise the press only clears the spinner.
-  let rule: ReturnType<typeof matchCallbackRule>;
+  let rule: Awaited<ReturnType<typeof matchCallbackRule>>;
   let gameUrl: string | null = null;
   try {
-    rule = query.data ? matchCallbackRule(botId, query.data) : undefined;
-    if (query.game_short_name) gameUrl = gameUrlFor(botId, query.game_short_name);
+    rule = query.data ? (await matchCallbackRule(botId, query.data)) : undefined;
+    if (query.game_short_name) gameUrl = await gameUrlFor(botId, query.game_short_name);
   } catch (err) {
     console.error(`[poller] callback rule lookup failed for bot ${botId}:`, err);
   }
-  if (rule) answerCallbackWithRule(botId, token, rule, query);
+  if (rule) await answerCallbackWithRule(botId, token, rule, query);
   else botApi.answerCallbackQuery(token, query.id, gameUrl ? { url: gameUrl } : {}).catch(() => {});
 }
 
-function recordIncomingMessage(botId: number, botUsername: string, token: string, message: TelegramMessage, autoReply = true) {
+async function recordIncomingMessage(botId: number, botUsername: string, token: string, message: TelegramMessage, autoReply = true) {
   const now = new Date();
   const described = describeMessage(message);
   // A business chat belongs to the business owner, not to the bot. The owner's own messages in it arrive as business
   // messages too: those are "out" (default to "in" while the connection isn't stored yet).
   const businessConnectionId = message.business_connection_id ?? null;
-  const connection = businessConnectionId ? getBusinessConnection(botId, businessConnectionId) : undefined;
+  const connection = businessConnectionId ? (await getBusinessConnection(botId, businessConnectionId)) : undefined;
   const fromOwner = Boolean(connection && message.from && String(message.from.id) === connection.userId);
-  db.insert(botMessages)
+  await db.insert(botMessages)
     .values({
       botId,
       chatId: String(message.chat.id),
@@ -300,18 +291,17 @@ function recordIncomingMessage(botId: number, botUsername: string, token: string
       raw: JSON.stringify(message),
       telegramMessageId: message.message_id,
       createdAt: now,
-    })
-    .run();
+    });
 
   // Business customers never started the bot: recording them as contacts or chats would put them in broadcasts
   // (which can't reach them), and auto-replies would answer as the business owner.
   if (businessConnectionId) return;
 
-  noteBotChatFromMessage(botId, message.chat);
+  await noteBotChatFromMessage(botId, message.chat);
 
   // Contacts are people who wrote to the bot privately; a group's messages must not name the group after its sender.
   if (message.from && message.chat.type === "private") {
-    upsertBotUser(botId, String(message.chat.id), {
+    await upsertBotUser(botId, String(message.chat.id), {
       username: message.from.username ?? null,
       firstName: message.from.first_name,
       seenAt: now,
@@ -323,8 +313,8 @@ function recordIncomingMessage(botId: number, botUsername: string, token: string
   // Only a rule-lookup failure is swallowed here (the message is already stored, so a retry would duplicate it).
   if (!autoReply) return;
   try {
-    const rule = matchAutoReply(botId, botUsername, message);
-    if (rule) sendAutoReply(botId, token, rule, message, botUsername);
+    const rule = await matchAutoReply(botId, botUsername, message);
+    if (rule) await sendAutoReply(botId, token, rule, message, botUsername);
   } catch (err) {
     console.error(`[poller] auto-reply lookup failed for bot ${botId}:`, err);
   }

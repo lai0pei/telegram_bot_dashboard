@@ -18,7 +18,7 @@ const SESSION_CHECK_BUDGET_MS = 5_000;
  */
 export const GET = withSession(async (_req, _ctx, userId) => {
   try {
-    const live = listTelegramAccountsForUser(userId).filter((a) => !a.revokedAt);
+    const live = (await listTelegramAccountsForUser(userId)).filter((a) => !a.revokedAt);
     await Promise.race([
       Promise.all(live.map((a) => checkTelegramSession(a.id))),
       new Promise((resolve) => setTimeout(resolve, SESSION_CHECK_BUDGET_MS)),
@@ -28,16 +28,16 @@ export const GET = withSession(async (_req, _ctx, userId) => {
     let activeId = claims?.activeTelegramAccountId ?? null;
     let activeChanged = false;
     if (activeId) {
-      const active = getTelegramAccountById(activeId);
+      const active = await getTelegramAccountById(activeId);
       if (!active || active.ownerUserId !== userId || active.revokedAt) {
-        activeId = pickDefaultTelegramAccountId(userId);
+        activeId = await pickDefaultTelegramAccountId(userId);
         activeChanged = true;
-        const user = getUserById(userId);
+        const user = await getUserById(userId);
         await createSessionCookie(userId, user?.sessionVersion ?? 0, activeId);
       }
     }
 
-    const accounts = listTelegramAccountsForUser(userId);
+    const accounts = await listTelegramAccountsForUser(userId);
     return NextResponse.json({
       // Tells the client the cookie was just re-pointed, so a page already
       // loaded as the old account must reload — even on the very first fetch.

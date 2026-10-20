@@ -15,14 +15,13 @@ export const DELETE = withAuth(
   async (_req: Request, ctx: { params: Promise<{ id: string; messageId: string }> }, userId: string) => {
     try {
       const { id, messageId } = await ctx.params;
-      const bot = getBotById(Number(id), userId);
+      const bot = await getBotById(Number(id), userId);
       if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
-      const row = db
+      const row = (await db
         .select()
         .from(botMessages)
-        .where(and(eq(botMessages.id, Number(messageId)), eq(botMessages.botId, bot.id)))
-        .all()[0];
+        .where(and(eq(botMessages.id, Number(messageId)), eq(botMessages.botId, bot.id))))[0];
       if (!row) return NextResponse.json({ error: "Message not found." }, { status: 404 });
 
       let deletedInTelegram = false;
@@ -37,7 +36,7 @@ export const DELETE = withAuth(
         }
       }
 
-      db.delete(botMessages).where(eq(botMessages.id, row.id)).run();
+      await db.delete(botMessages).where(eq(botMessages.id, row.id));
       return NextResponse.json({ ok: true, deletedInTelegram });
     } catch (err) {
       return errorResponse(err);
@@ -50,14 +49,13 @@ export const PATCH = withAuth(
   async (req: Request, ctx: { params: Promise<{ id: string; messageId: string }> }, userId: string) => {
     try {
       const { id, messageId } = await ctx.params;
-      const bot = getBotById(Number(id), userId);
+      const bot = await getBotById(Number(id), userId);
       if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
-      const row = db
+      const row = (await db
         .select()
         .from(botMessages)
-        .where(and(eq(botMessages.id, Number(messageId)), eq(botMessages.botId, bot.id)))
-        .all()[0];
+        .where(and(eq(botMessages.id, Number(messageId)), eq(botMessages.botId, bot.id))))[0];
       if (!row) return NextResponse.json({ error: "Message not found." }, { status: 404 });
       if (row.businessConnectionId) return NextResponse.json({ error: "That action isn't available for business chats." }, { status: 422 });
       if (row.direction !== "out" || row.telegramMessageId == null) {
@@ -84,12 +82,11 @@ export const PATCH = withAuth(
         if (!(err instanceof BotApiError && /message is not modified/i.test(err.description))) throw err;
       });
 
-      const updated = db
+      const updated = (await db
         .update(botMessages)
         .set({ text, editedAt: new Date() })
         .where(eq(botMessages.id, row.id))
-        .returning()
-        .get();
+        .returning())[0];
       return NextResponse.json({ message: toMessageRow(updated) });
     } catch (err) {
       return botApiErrorResponse(err) ?? errorResponse(err);

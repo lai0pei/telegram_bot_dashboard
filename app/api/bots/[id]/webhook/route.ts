@@ -18,7 +18,7 @@ import {
 export const PUT = withAuth(async (req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
   try {
     const { id } = await ctx.params;
-    const bot = getBotById(Number(id), userId);
+    const bot = await getBotById(Number(id), userId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
     const token = getBotToken(bot);
     if (!token) return NextResponse.json({ error: "No token stored for this bot." }, { status: 400 });
@@ -41,11 +41,11 @@ export const PUT = withAuth(async (req: Request, ctx: { params: Promise<{ id: st
         maxConnections,
         dropPendingUpdates: Boolean(dropPendingUpdates),
       });
-      setMonitorEnabled(bot.id, false);
+      await setMonitorEnabled(bot.id, false);
     }
 
     const webhook = await botApi.getWebhookInfo(token);
-    setWebhookHealth(bot.id, webhook.last_error_message ?? null, webhook.pending_update_count ?? null);
+    await setWebhookHealth(bot.id, webhook.last_error_message ?? null, webhook.pending_update_count ?? null);
     return NextResponse.json({ ok: true, webhook });
   } catch (err) {
     return botApiErrorResponse(err) ?? errorResponse(err, 400);

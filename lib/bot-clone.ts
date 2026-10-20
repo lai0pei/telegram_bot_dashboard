@@ -119,9 +119,9 @@ export async function cloneBotSettings(
   if (include.includes("autoReplies")) {
     const r = start("autoReplies");
     // Appended after the target's own rules, in the source's order; nothing existing is replaced.
-    for (const rule of listAutoReplies(source.id)) {
+    for (const rule of (await listAutoReplies(source.id))) {
       try {
-        createAutoReply(target.id, { ...rule, buttons: parseButtons(rule.buttons), replyKeyboard: parseReplyKeyboard(rule.replyKeyboard) });
+        await createAutoReply(target.id, { ...rule, buttons: parseButtons(rule.buttons), replyKeyboard: parseReplyKeyboard(rule.replyKeyboard) });
         r.copied++;
       } catch (err) {
         // The target keeps its own "anything else" rule; that's not a failure.

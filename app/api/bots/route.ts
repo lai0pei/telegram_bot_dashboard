@@ -31,16 +31,16 @@ export const GET = withAuth(async (_req, _ctx, userId) => {
     const adminedBots = (await client.invoke(new Api.bots.GetAdminedBots())) as Api.User[];
     for (const b of adminedBots) {
       if (!b.username) continue;
-      upsertBotFromTelegram({
+      await upsertBotFromTelegram({
         ownerUserId: userId,
         telegramId: b.id.toString(),
         username: b.username,
         firstName: b.firstName ?? b.username,
       });
     }
-    pruneBotsNotIn(userId, new Set(adminedBots.map((b) => b.id.toString())));
+    await pruneBotsNotIn(userId, new Set(adminedBots.map((b) => b.id.toString())));
 
-    const rows = listBots(userId);
+    const rows = await listBots(userId);
     const results = await Promise.all(
       rows.map(async (bot) => {
         const token = getBotToken(bot);
@@ -100,13 +100,13 @@ export const POST = withAuth(async (req, _ctx, userId) => {
     const { row, token } = await singleFlight(`create:${userId}:${username.trim().toLowerCase()}`, async () => {
       const created = await createBot(userId, name.trim(), username.trim());
       const me = await botApi.getMe(created.token);
-      const upserted = upsertBotFromTelegram({
+      const upserted = await upsertBotFromTelegram({
         ownerUserId: userId,
         telegramId: me.id.toString(),
         username: created.username.replace(/^@/, ""),
         firstName: me.first_name,
       });
-      saveBotToken(upserted.id, created.token);
+      await saveBotToken(upserted.id, created.token);
       return { row: upserted, token: created.token };
     });
 

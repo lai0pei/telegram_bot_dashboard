@@ -11,7 +11,7 @@ type Ctx = { params: Promise<{ id: string; chatId: string }> };
 export const GET = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
     const { id, chatId } = await ctx.params;
-    const bot = getBotById(Number(id), telegramAccountId);
+    const bot = await getBotById(Number(id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
     if (validateChatId(chatId)) return NextResponse.json({ error: "Invalid chat ID." }, { status: 400 });
     // No stored token: an avatar isn't worth opening a BotFather conversation for.

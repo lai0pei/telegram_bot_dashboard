@@ -56,7 +56,7 @@ export const GET = withAuth(async (req: Request, ctx: { params: Promise<{ id: st
   try {
     const { id } = await ctx.params;
     const botId = Number(id);
-    const bot = getBotById(botId, userId);
+    const bot = await getBotById(botId, userId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
     const url = new URL(req.url);
@@ -64,30 +64,31 @@ export const GET = withAuth(async (req: Request, ctx: { params: Promise<{ id: st
     const connectionId = url.searchParams.get("connectionId") || null;
     const limit = Math.min(Number(url.searchParams.get("limit") ?? 200) || 200, 500);
 
-    const users = db.select().from(botUsers).where(eq(botUsers.botId, botId)).all();
+    const users = await db.select().from(botUsers).where(eq(botUsers.botId, botId));
     const userNames = new Map(users.map((u) => [u.chatId, u.firstName || (u.username ? `@${u.username}` : null)]));
     // Group/channel conversations have no contact row: use the chat title.
-    for (const c of listBotChats(botId)) if (!userNames.get(c.chatId)) userNames.set(c.chatId, c.title);
+    for (const c of (await listBotChats(botId))) if (!userNames.get(c.chatId)) userNames.set(c.chatId, c.title);
 
     // One row per chat (and per business connection, since a business chat can share its ID with a direct one):
     // its newest message (same ordering the chat pane uses) plus the count. `bc` is '' for direct chats.
-    const rows = db.all<{
+    const rows = await db.execute<{
       chat_id: string;
       bc: string;
       text: string | null;
       media_type: string | null;
-      created_at: number;
+      created_at: number; // epoch ms: raw execute() returns timestamps as strings, so convert in SQL
       cnt: number;
       peer: string | null;
     }>(sql`
-      SELECT m.chat_id, coalesce(m.business_connection_id, '') AS bc, m.text, m.media_type, m.created_at, c.cnt,
+      SELECT m.chat_id, coalesce(m.business_connection_id, '') AS bc, m.text, m.media_type,
+        (floor(extract(epoch FROM m.created_at) * 1000))::float8 AS created_at, c.cnt,
         (SELECT x.from_first_name FROM bot_messages x
           WHERE x.bot_id = ${botId} AND x.chat_id = m.chat_id AND x.direction = 'in'
             AND coalesce(x.business_connection_id, '') = coalesce(m.business_connection_id, '')
           ORDER BY x.id DESC LIMIT 1) AS peer
       FROM bot_messages m
       JOIN (
-        SELECT chat_id, coalesce(business_connection_id, '') AS bc, count(*) AS cnt
+        SELECT chat_id, coalesce(business_connection_id, '') AS bc, count(*)::int AS cnt
         FROM bot_messages WHERE bot_id = ${botId} GROUP BY chat_id, coalesce(business_connection_id, '')
       ) c ON c.chat_id = m.chat_id AND c.bc = coalesce(m.business_connection_id, '')
       WHERE m.bot_id = ${botId}
@@ -129,7 +130,7 @@ export const GET = withAuth(async (req: Request, ctx: { params: Promise<{ id: st
     const conversations = [...byChat.values()].sort((a, b) => b.lastAt - a.lastAt);
 
     const messages = chatId
-      ? db
+      ? (await db
           .select()
           .from(botMessages)
           .where(
@@ -140,8 +141,7 @@ export const GET = withAuth(async (req: Request, ctx: { params: Promise<{ id: st
             )
           )
           .orderBy(desc(botMessages.createdAt), desc(botMessages.id))
-          .limit(limit)
-          .all()
+          .limit(limit))
           .reverse()
           .map(toMessageRow)
       : [];
@@ -158,7 +158,7 @@ export const GET = withAuth(async (req: Request, ctx: { params: Promise<{ id: st
 export const POST = withAuth(async (req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
   try {
     const { id } = await ctx.params;
-    const bot = getBotById(Number(id), userId);
+    const bot = await getBotById(Number(id), userId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
     const bad = (error: string) => NextResponse.json({ error }, { status: 400 });
@@ -213,7 +213,7 @@ export const POST = withAuth(async (req: Request, ctx: { params: Promise<{ id: s
     let connectionId: string | undefined;
     if (businessConnectionId !== undefined && businessConnectionId !== null && businessConnectionId !== "") {
       if (typeof businessConnectionId !== "string") return bad("Invalid business connection.");
-      const connection = getBusinessConnection(bot.id, businessConnectionId);
+      const connection = await getBusinessConnection(bot.id, businessConnectionId);
       if (!connection) return bad("That business connection doesn't belong to this bot.");
       if (!connection.isEnabled) return NextResponse.json({ error: "That business connection is turned off." }, { status: 422 });
       if (!parseBusinessRights(connection).can_reply) {
@@ -258,14 +258,14 @@ export const POST = withAuth(async (req: Request, ctx: { params: Promise<{ id: s
     // A private chat's name comes back with the sent message: fills in contacts added by a manual chat ID.
     // Groups/channels are skipped so they don't count as "people who wrote to the bot".
     if (sent.chat.type === "private" && !connectionId) {
-      upsertBotUser(bot.id, String(sent.chat.id), {
+      await upsertBotUser(bot.id, String(sent.chat.id), {
         username: sent.chat.username ?? null,
         firstName: sent.chat.first_name ?? null,
         touch: false,
       });
     }
 
-    const row = recordOutgoing(bot.id, sent, replyToId, connectionId);
+    const row = await recordOutgoing(bot.id, sent, replyToId, connectionId);
 
     return NextResponse.json({ message: toMessageRow(row) });
   } catch (err) {
@@ -277,7 +277,7 @@ export const POST = withAuth(async (req: Request, ctx: { params: Promise<{ id: s
 export const DELETE = withAuth(async (req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
   try {
     const { id } = await ctx.params;
-    const bot = getBotById(Number(id), userId);
+    const bot = await getBotById(Number(id), userId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
     const chatId = new URL(req.url).searchParams.get("chatId") ?? "";
@@ -285,17 +285,16 @@ export const DELETE = withAuth(async (req: Request, ctx: { params: Promise<{ id:
     if (chatIdError) return NextResponse.json({ error: chatIdError }, { status: 400 });
 
     const connectionId = new URL(req.url).searchParams.get("connectionId") || null;
-    db.delete(botMessages)
+    await db.delete(botMessages)
       .where(
         and(
           eq(botMessages.botId, bot.id),
           eq(botMessages.chatId, chatId),
           connectionId ? eq(botMessages.businessConnectionId, connectionId) : isNull(botMessages.businessConnectionId)
         )
-      )
-      .run();
+      );
     // Business customers have no contact row, and a direct contact must survive clearing a business chat.
-    if (!connectionId) db.delete(botUsers).where(and(eq(botUsers.botId, bot.id), eq(botUsers.chatId, chatId))).run();
+    if (!connectionId) await db.delete(botUsers).where(and(eq(botUsers.botId, bot.id), eq(botUsers.chatId, chatId)));
     return NextResponse.json({ ok: true });
   } catch (err) {
     return errorResponse(err);

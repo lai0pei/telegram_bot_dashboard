@@ -8,7 +8,7 @@ import { validateChatId } from "@/lib/validation";
 /** POST { chatId }: shows "typing…" in that chat for a few seconds. Best effort; skipped when no token is stored. */
 export const POST = withAuth(async (req: Request, ctx: { params: Promise<{ id: string }> }, userId: string) => {
   try {
-    const bot = getBotById(Number((await ctx.params).id), userId);
+    const bot = await getBotById(Number((await ctx.params).id), userId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
     const body = await req.json().catch(() => null);
     if (typeof body?.chatId !== "string" || validateChatId(body.chatId)) {

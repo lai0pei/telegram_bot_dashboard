@@ -12,9 +12,9 @@ function toDto(botUsername: string, link: DeepLinkRow & { arrivals: number | nul
 
 export const GET = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
-    const bot = getBotById(Number((await ctx.params).id), telegramAccountId);
+    const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
-    return NextResponse.json({ links: listDeepLinks(bot.id).map((l) => toDto(bot.username, l)) });
+    return NextResponse.json({ links: (await listDeepLinks(bot.id)).map((l) => toDto(bot.username, l)) });
   } catch (err) {
     return errorResponse(err);
   }
@@ -23,12 +23,12 @@ export const GET = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId: s
 /** POST { label, kind, payload, appShortName?, admin? } */
 export const POST = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
-    const bot = getBotById(Number((await ctx.params).id), telegramAccountId);
+    const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
     const body = await req.json().catch(() => null);
     const error = body ? validateDeepLink(body) : "Invalid JSON body.";
     if (error) return NextResponse.json({ error }, { status: 400 });
-    const link = createDeepLink(bot.id, body);
+    const link = await createDeepLink(bot.id, body);
     return NextResponse.json({ link: toDto(bot.username, { ...link, arrivals: link.kind === "start" ? 0 : null }) });
   } catch (err) {
     return errorResponse(err);

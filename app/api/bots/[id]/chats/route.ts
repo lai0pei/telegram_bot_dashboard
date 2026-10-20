@@ -13,10 +13,10 @@ const USERNAME_REF = /^@[A-Za-z][A-Za-z0-9_]{3,31}$/;
 /** GET: the groups/supergroups/channels this bot is tracked in (from updates, adds and imports), newest first. */
 export const GET = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
-    const bot = getBotById(Number((await ctx.params).id), telegramAccountId);
+    const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
-    const pending = pendingJoinRequestCounts(bot.id);
-    const chats = listBotChats(bot.id)
+    const pending = await pendingJoinRequestCounts(bot.id);
+    const chats = (await listBotChats(bot.id))
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
       .map((c) => ({
         chatId: c.chatId,
@@ -37,7 +37,7 @@ export const GET = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId: s
 /** POST { chat }: adds a chat by numeric ID or @username after checking with Telegram that the bot is a member. */
 export const POST = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
-    const bot = getBotById(Number((await ctx.params).id), telegramAccountId);
+    const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
     const body = await req.json().catch(() => null);
     const ref = typeof body?.chat === "string" ? body.chat.trim() : "";
