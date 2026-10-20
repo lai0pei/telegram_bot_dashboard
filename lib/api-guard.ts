@@ -25,7 +25,8 @@ export function withSession<Ctx extends RouteContext = RouteContext>(
     const claims = await readSessionClaims();
     if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const user = await getUserById(claims.userId);
-    if (!user || user.sessionVersion !== claims.sessionVersion) {
+    // A suspended user's sessions are also invalidated when they're suspended (sessionVersion bump); this is the backstop. 401 on purpose: the client already turns it into "back to the sign-in page".
+    if (!user || user.sessionVersion !== claims.sessionVersion || user.suspendedAt) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     touchLastActive(user.id);
@@ -69,7 +70,8 @@ export function withAuth<Ctx extends RouteContext = RouteContext>(
     const claims = await readSessionClaims();
     if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const user = await getUserById(claims.userId);
-    if (!user || user.sessionVersion !== claims.sessionVersion) {
+    // A suspended user's sessions are also invalidated when they're suspended (sessionVersion bump); this is the backstop. 401 on purpose: the client already turns it into "back to the sign-in page".
+    if (!user || user.sessionVersion !== claims.sessionVersion || user.suspendedAt) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     if (!claims.activeTelegramAccountId) {

@@ -6,6 +6,7 @@ import { getBotForJob, getBotToken } from "./bots";
 import { db } from "./db";
 import { scheduledMessages } from "./db/schema";
 import { recordOutgoing } from "./outgoing";
+import { botNotSuspended } from "./suspension";
 
 export type ScheduledRow = typeof scheduledMessages.$inferSelect;
 
@@ -60,7 +61,8 @@ export async function sendDueScheduled(now = Date.now(), limit = 10): Promise<vo
   const due = await db
     .select()
     .from(scheduledMessages)
-    .where(and(eq(scheduledMessages.status, "pending"), lte(scheduledMessages.sendAt, new Date(now))))
+    // A suspended user's messages are never selected (not failed), so they go out after an unsuspend.
+    .where(and(eq(scheduledMessages.status, "pending"), lte(scheduledMessages.sendAt, new Date(now)), botNotSuspended(scheduledMessages.botId)))
     .orderBy(scheduledMessages.sendAt)
     .limit(limit);
 

@@ -1,12 +1,9 @@
 import { NextResponse } from "next/server";
 import { withSession, errorResponse } from "@/lib/api-guard";
 import { createSessionCookie, readSessionClaims } from "@/lib/auth";
-import { logout } from "@/lib/mtproto";
 import { getTelegramAccountById, pickDefaultTelegramAccountId, setDigestSettings } from "@/lib/telegram-accounts";
-import { deleteBotRow, listBots } from "@/lib/bots";
-import { deleteChatRow, listChats } from "@/lib/chats";
+import { unbindTelegramAccount } from "@/lib/unbind-account";
 import { getUserById } from "@/lib/users";
-import { singleFlight } from "@/lib/single-flight";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -46,13 +43,7 @@ export const DELETE = withSession(async (_req: Request, ctx: Ctx, userId: string
       return NextResponse.json({ error: "Telegram account not found." }, { status: 404 });
     }
 
-    await singleFlight(`unbind-account:${id}`, async () => {
-      // auth.LogOut is a network call: run it first and keep it out of any database transaction.
-      await logout(id).catch(() => {});
-
-      for (const bot of (await listBots(id))) await deleteBotRow(bot.id);
-      for (const chat of (await listChats(id))) await deleteChatRow(chat.id);
-    });
+    await unbindTelegramAccount(id);
 
     const claims = await readSessionClaims();
     let newActiveTelegramAccountId: string | null = claims?.activeTelegramAccountId ?? null;

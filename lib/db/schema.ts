@@ -16,9 +16,32 @@ export const users = pgTable("users", {
   sessionVersion: integer("session_version").notNull().default(0),
   /** Last authenticated request (throttled to one write per few minutes, see touchLastActive in lib/users.ts). Shown to the master admin as "last seen". */
   lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
+  /** Set by the master admin: the user can't sign in or use the API, and their bots stop polling and sending (lib/suspension.ts). */
+  suspendedAt: timestamp("suspended_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
 });
+
+/**
+ * What the master admin did to whom (lib/admin-actions.ts), written in the same
+ * transaction as the action itself. `targetName` is a copy of the user's display
+ * name because the row outlives a deleted user; there is deliberately no way to
+ * edit or delete these rows from the dashboard.
+ */
+export const adminActions = pgTable(
+  "admin_actions",
+  {
+    id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+    adminUserId: text("admin_user_id").notNull(),
+    action: text("action", { enum: ["sign_out", "suspend", "unsuspend", "delete_user"] }).notNull(),
+    targetUserId: text("target_user_id").notNull(),
+    targetName: text("target_name").notNull(),
+    /** Human-readable summary, e.g. what a delete removed. */
+    detail: text("detail"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [index("admin_actions_created_idx").on(table.createdAt)]
+);
 
 /**
  * One row per Telegram account linked to a dashboard user. `id` is what

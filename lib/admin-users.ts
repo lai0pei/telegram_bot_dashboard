@@ -18,6 +18,7 @@ export interface AdminUserRow {
   /** Epoch ms of the last authenticated request, or null for a user who has never been seen since this column existed. */
   lastActiveAt: number | null;
   isAdmin: boolean;
+  suspended: boolean;
   accounts: AdminAccountRow[];
   bots: number;
   monitoredBots: number;
@@ -92,6 +93,7 @@ export async function getAdminUsersOverview(): Promise<AdminUsersOverview> {
       createdAt: u.createdAt.getTime(),
       lastActiveAt: u.lastActiveAt?.getTime() ?? null,
       isAdmin: accounts.some((a) => admins.has(a.telegramId)),
+      suspended: !!u.suspendedAt,
       accounts: accounts.map((a) => ({
         telegramId: a.telegramId,
         username: a.username,
