@@ -4,7 +4,7 @@ import { Info, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
-import { emptySim, simulatePress, simulateSend, type SimRule } from "@/lib/simulate";
+import { emptySim, simulatePress, simulateSend, simulateShare, type SimRule } from "@/lib/simulate";
 import { TelegramPreview } from "./telegram-preview";
 import type { AutoReplyRule, BotDetail } from "./types";
 
@@ -94,6 +94,7 @@ export function TestChat({
         messages={sim.messages}
         keyboard={sim.keyboard}
         onSend={send}
+        onShare={(kind) => setSim((s) => simulateShare(s, simRules, bot.username, kind))}
         onButtonPress={(index, button) => setSim((s) => simulatePress(s, simRules, index, button))}
       />
       {sim.messages.length === 0 && <p className="mt-3 text-center text-xs text-[var(--muted)]">Start with one of the suggestions above, or type your own message.</p>}

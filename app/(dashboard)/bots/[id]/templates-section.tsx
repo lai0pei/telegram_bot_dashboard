@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Input } from "@/components/ui/input";
 import { apiFetch } from "@/lib/api-client";
 import { planRemoval, templateRuleKey, type BotTemplate, type TemplatePart } from "@/lib/bot-templates";
-import { emptySim, simulatePress, simulateSend, type SimRule } from "@/lib/simulate";
+import { emptySim, simulatePress, simulateSend, simulateShare, type SimRule } from "@/lib/simulate";
 import type { SectionId } from "./sections";
 import { PART_LABELS, TemplatePicker, availableParts, useApplyTemplate, useTemplates } from "./template-picker";
 import { TelegramPreview } from "./telegram-preview";
@@ -473,6 +473,7 @@ function TemplateTry({ template, bot, photoSrc }: { template: BotTemplate; bot: 
         messages={sim.messages}
         keyboard={sim.keyboard}
         onSend={(text) => setSim((s) => simulateSend(s, rules, bot.username, text))}
+        onShare={(kind) => setSim((s) => simulateShare(s, rules, bot.username, kind))}
         onButtonPress={(index, button) => setSim((s) => simulatePress(s, rules, index, button))}
       />
     </div>

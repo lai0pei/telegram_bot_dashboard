@@ -1,4 +1,4 @@
-import type { InlineButton, ReplyKeyboard } from "./botapi";
+import type { InlineButton, KeyboardButton, ReplyKeyboard } from "./botapi";
 import { normalizeInlineButtons, normalizeReplyKeyboard, type AUTO_REPLY_MATCH_TYPES } from "./validation";
 
 /**
@@ -16,7 +16,7 @@ export interface TemplateRule {
   buttons?: InlineButton[][];
   /** Callback rules only; defaults to "toast". */
   callbackAction?: "toast" | "edit" | "reply";
-  // The rest only come from templates people save themselves (the built-in ones leave them out).
+  // The rest come from templates people save themselves; only `replyKeyboard` is also used by some built-in ones.
   replyKeyboard?: ReplyKeyboard | null;
   showAlert?: boolean;
   /** Defaults to true; a saved template keeps a rule that was switched off, so its buttons' targets stay in place. */
@@ -398,7 +398,179 @@ const COMMUNITY: BotTemplate = {
   ],
 };
 
-export const BOT_TEMPLATES: BotTemplate[] = [WELCOME_MENU, LINK_HUB, FAQ, SUPPORT, CAFE, SHOP, BOOKING, QUIZ, EVENT, COURSE, FEEDBACK, NEWSLETTER, COMMUNITY];
+// --- Templates built on reply keyboards, deep links and Mini Apps ---------------------------------------------------
+// Rules keep no state: a free-text answer can't be "the name" of a form. These flows move on with buttons or keyboard
+// labels only, so every keyboard label is unique inside its template (an `exact` rule matches the text alone).
+
+const kb = (rows: KeyboardButton[][], placeholder?: string): ReplyKeyboard => ({ kind: "keyboard", rows, resize: true, ...(placeholder ? { placeholder } : {}) });
+const REMOVE_KB: ReplyKeyboard = { kind: "remove" };
+
+const LEAD_CAPTURE: BotTemplate = (() => {
+  const welcome = "Hi {first_name}! 👋 Want us to call you back?\n\nTap “Share my number” and we'll get in touch.";
+  return {
+    id: "lead-capture",
+    title: "Lead capture",
+    blurb: "Visitors tap one button to share their phone number so you can call them back. They can decline politely.",
+    emoji: "📞",
+    category: "Business",
+    shows: ["Share-contact keyboard button", "Reply to a shared contact", "Keyboard removed afterwards"],
+    profile: {
+      shortDescription: "Leave your number and we'll call you back.",
+      description: "Press Start, tap “Share my number” and we'll call you back. Your number is only used to contact you.",
+    },
+    commands: [{ command: "start", description: "Leave your number" }],
+    rules: [
+      {
+        matchType: "command",
+        pattern: "start",
+        replyText: welcome,
+        replyKeyboard: kb([[{ text: "📱 Share my number", request_contact: true }], [{ text: "No thanks" }]], "Share your number or say no thanks"),
+      },
+      { matchType: "media", pattern: "contact", replyText: "✅ Thanks {first_name}! We got your number and will call you back soon.", replyKeyboard: REMOVE_KB },
+      { matchType: "exact", pattern: "No thanks", replyText: "No problem! You can write to us here any time.", replyKeyboard: REMOVE_KB },
+      { matchType: "fallback", pattern: "*", replyText: "Thanks, we got your message! We'll reply here as soon as we can." },
+    ],
+  };
+})();
+
+const CAMPAIGN_LINKS: BotTemplate = {
+  id: "campaign-links",
+  title: "Campaign links",
+  blurb: "A different welcome depending on which link brought the person (Instagram, a flyer, a friend). Great for ads and QR codes.",
+  emoji: "🎯",
+  category: "Business",
+  shows: ["Deep-link welcomes", "Beats the plain /start rule", "Copy-code button"],
+  profile: {
+    shortDescription: "Welcome! Press Start to claim your offer.",
+    description: "Press Start to see what we have for you.",
+  },
+  commands: [{ command: "start", description: "Get your welcome offer" }],
+  rules: [
+    // Deep-link payloads are case-sensitive; templates keep them lowercase. Create matching links in “Links & inline”.
+    {
+      matchType: "deeplink",
+      pattern: "instagram",
+      replyText: "Hi {first_name}! 📸 Thanks for coming from Instagram. Here's your welcome code:",
+      buttons: [[copy("📋 Copy code INSTA10", "INSTA10")]],
+    },
+    {
+      matchType: "deeplink",
+      pattern: "flyer",
+      replyText: "Hi {first_name}! 📄 Nice to see you from our flyer. Here's your welcome code:",
+      buttons: [[copy("📋 Copy code FLYER10", "FLYER10")]],
+    },
+    {
+      matchType: "deeplink",
+      pattern: "friend",
+      replyText: "Hi {first_name}! 🤝 A friend sent you here (link: {payload}). Here's your welcome code:",
+      buttons: [[copy("📋 Copy code FRIEND10", "FRIEND10")]],
+    },
+    {
+      matchType: "command",
+      pattern: "start",
+      replyText: "Welcome, {first_name}! 🎉 Here's a code for your first order:",
+      buttons: [[copy("📋 Copy code WELCOME10", "WELCOME10")], [link("🌐 Visit our website", "https://example.com")]],
+    },
+  ],
+};
+
+const STORE_LOCATOR: BotTemplate = (() => {
+  const list = "• City centre – Main Street 1\n• Riverside – River Road 25\n• Airport – Terminal 2\n\n(Replace with your own stores.)";
+  const stores = `🏬 Our stores\n\n${list}`;
+  const storeButtons = [[link("🗺 City centre", "https://maps.google.com")], [link("🗺 Riverside", "https://maps.google.com")], [link("🗺 Airport", "https://maps.google.com")]];
+  return {
+    id: "store-locator",
+    title: "Store locator",
+    blurb: "People share their location (or ask for the full list) and get your stores with map links.",
+    emoji: "📍",
+    category: "Business",
+    shows: ["Share-location keyboard button", "Reply to a shared location", "Map link buttons"],
+    profile: {
+      shortDescription: "Find the nearest store.",
+      description: "Press Start, share your location and we'll show you our stores with directions.",
+    },
+    commands: [{ command: "start", description: "Find a store near you" }],
+    rules: [
+      {
+        matchType: "command",
+        pattern: "start",
+        replyText: "Hi {first_name}! 📍 Share your location and we'll show you our stores, or browse them all.",
+        replyKeyboard: kb([[{ text: "📍 Send my location", request_location: true }], [{ text: "🏬 See all stores" }]]),
+      },
+      { matchType: "media", pattern: "location", replyText: `Thanks for sharing! Here are our stores, tap one for directions:\n\n${list}`, buttons: storeButtons },
+      { matchType: "exact", pattern: "🏬 See all stores", replyText: stores, buttons: storeButtons },
+      { matchType: "fallback", pattern: "*", replyText: "Tap “Send my location” or “See all stores” below, or write to us and we'll answer here." },
+    ],
+  };
+})();
+
+const KEYBOARD_SURVEY: BotTemplate = (() => {
+  const q2 = "Question 2 of 3\n\nHow often would you use us?";
+  const q3 = "Question 3 of 3\n\nWould you recommend us to a friend?";
+  const kb2 = kb([[{ text: "📅 Daily" }, { text: "🗓 Weekly" }, { text: "🌙 Rarely" }]]);
+  const kb3 = kb([[{ text: "👍 Yes" }, { text: "🤔 Maybe" }, { text: "👎 No" }]]);
+  const answers = (labels: string[], replyText: string, replyKeyboard: ReplyKeyboard): TemplateRule[] =>
+    labels.map((pattern) => ({ matchType: "exact", pattern, replyText, replyKeyboard }));
+  return {
+    id: "keyboard-survey",
+    title: "Quick survey",
+    blurb: "Three questions answered with big keyboard buttons, one after the other. Read the answers in Messages.",
+    emoji: "📝",
+    category: "Engagement",
+    shows: ["Step-by-step keyboard flow", "Keyboard replaced each step", "Keyboard removed at the end"],
+    profile: {
+      shortDescription: "Answer 3 quick questions.",
+      description: "Press Start and tap an answer for each question. It takes less than a minute.",
+    },
+    commands: [{ command: "start", description: "Start the survey" }],
+    rules: [
+      {
+        matchType: "command",
+        pattern: "start",
+        replyText: "Hi {first_name}! 📝 Three quick questions.\n\nQuestion 1 of 3\n\nHow did you hear about us?",
+        replyKeyboard: kb([[{ text: "👥 Friends" }, { text: "📱 Social media" }], [{ text: "🔎 Search" }, { text: "✨ Other" }]]),
+      },
+      ...answers(["👥 Friends", "📱 Social media", "🔎 Search", "✨ Other"], q2, kb2),
+      ...answers(["📅 Daily", "🗓 Weekly", "🌙 Rarely"], q3, kb3),
+      ...answers(["👍 Yes", "🤔 Maybe", "👎 No"], "🎉 Thank you {first_name}, that's all! Your answers will help us improve.", REMOVE_KB),
+      { matchType: "fallback", pattern: "*", replyText: "Please tap one of the answer buttons, or press /start to begin again." },
+    ],
+  };
+})();
+
+const MINI_APP: BotTemplate = (() => {
+  const home = "Welcome, {first_name}! 🚀\nOpen our app below, or ask us anything.";
+  const menu = [[{ text: "🚀 Open the app", web_app: { url: "https://example.com/app" } }], [cb("❓ Help", "tpl_app_help")], [cb("📬 Contact", "tpl_app_contact")]];
+  const back = [[cb("⬅️ Back", "tpl_app_home")]];
+  return {
+    id: "mini-app",
+    title: "Mini App launcher",
+    blurb: "A welcome with a button that opens your web app inside Telegram. Replace the address with your own app.",
+    emoji: "🚀",
+    category: "Getting started",
+    shows: ["Mini App button", "Button menu", "Back buttons"],
+    profile: {
+      shortDescription: "Open our app right here in Telegram.",
+      description: "Press Start, then tap “Open the app”. No download needed.",
+    },
+    commands: [
+      { command: "start", description: "Open the app" },
+      { command: "help", description: "How to use the app" },
+    ],
+    rules: [
+      { matchType: "command", pattern: "start", replyText: home, buttons: menu },
+      { matchType: "command", pattern: "help", replyText: "Tap “Open the app” in the /start message. Questions? Just write to us here.\n\n{commands}" },
+      { matchType: "callback", pattern: "tpl_app_help", callbackAction: "edit", replyText: "❓ Help\n\nTap “Open the app” to use it inside Telegram. The app button only works in a private chat with the bot.", buttons: back },
+      { matchType: "callback", pattern: "tpl_app_contact", callbackAction: "edit", replyText: "📬 Contact\n\nWrite your message here and we'll reply.\n(Replace with your contact details.)", buttons: back },
+      { matchType: "callback", pattern: "tpl_app_home", callbackAction: "edit", replyText: home, buttons: menu },
+    ],
+  };
+})();
+
+export const BOT_TEMPLATES: BotTemplate[] = [
+  WELCOME_MENU, LINK_HUB, FAQ, SUPPORT, CAFE, SHOP, BOOKING, QUIZ, EVENT, COURSE, FEEDBACK, NEWSLETTER, COMMUNITY,
+  LEAD_CAPTURE, CAMPAIGN_LINKS, STORE_LOCATOR, KEYBOARD_SURVEY, MINI_APP,
+];
 
 export const getBotTemplate = (id: string): BotTemplate | undefined => BOT_TEMPLATES.find((t) => t.id === id);
 
