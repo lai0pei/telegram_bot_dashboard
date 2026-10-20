@@ -41,6 +41,7 @@ export function TelegramPreview({
   showCommands = false,
   fill = true,
   onSend,
+  onShare,
   onButtonPress,
   className = "",
 }: {
@@ -65,6 +66,8 @@ export function TelegramPreview({
   fill?: boolean;
   /** Test mode: typing in the input bar (or pressing a reply-keyboard button) calls this. Without it the input is decorative. */
   onSend?: (text: string) => void;
+  /** Test mode: a keyboard button that asks for a contact or location shares a sample one through this instead of sending its label. */
+  onShare?: (kind: "contact" | "location") => void;
   /** Test mode: inline buttons become pressable and call this with the message's index. Without it nothing is clickable. */
   onButtonPress?: (messageIndex: number, button: InlineButton) => void;
   className?: string;
@@ -137,7 +140,11 @@ export function TelegramPreview({
                 <div key={r} className="flex gap-1">
                   {row.map((b, c) =>
                     onSend ? (
-                      <button key={c} type="button" onClick={() => onSend(b.text)} className="min-w-0 flex-1 truncate rounded-md bg-[var(--tg-in)] px-2 py-1.5 text-center shadow-sm">
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => (onShare && (b.request_contact || b.request_location) ? onShare(b.request_contact ? "contact" : "location") : onSend(b.text))}
+                        className="min-w-0 flex-1 truncate rounded-md bg-[var(--tg-in)] px-2 py-1.5 text-center shadow-sm">
                         {b.text}
                       </button>
                     ) : (
