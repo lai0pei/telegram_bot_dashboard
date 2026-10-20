@@ -54,16 +54,7 @@ export async function upsertBotFromTelegram(info: {
   firstName: string;
 }): Promise<BotRow> {
   const now = new Date();
-  const existing = (await db
-    .select()
-    .from(bots)
-    .where(and(eq(bots.ownerUserId, info.ownerUserId), eq(bots.telegramId, info.telegramId))))[0];
-  if (existing) {
-    await db.update(bots)
-      .set({ username: info.username, firstName: info.firstName, updatedAt: now })
-      .where(eq(bots.id, existing.id));
-    return { ...existing, username: info.username, firstName: info.firstName, updatedAt: now };
-  }
+  // One statement, so two parallel bot-list syncs can't both pass a select and then collide on the unique index.
   const result = await db
     .insert(bots)
     .values({
@@ -74,6 +65,10 @@ export async function upsertBotFromTelegram(info: {
       monitorEnabled: false,
       createdAt: now,
       updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [bots.ownerUserId, bots.telegramId],
+      set: { username: info.username, firstName: info.firstName, updatedAt: now },
     })
     .returning();
   return result[0];

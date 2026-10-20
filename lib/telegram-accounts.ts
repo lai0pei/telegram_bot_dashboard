@@ -53,7 +53,6 @@ export async function upsertTelegramAccount(info: {
   me: Api.User;
 }): Promise<string> {
   const now = new Date();
-  const existing = await getTelegramAccountByTelegramId(info.telegramId);
   const values = {
     encryptedSessionString: encrypt(info.sessionString),
     username: info.me.username ?? null,
@@ -63,16 +62,16 @@ export async function upsertTelegramAccount(info: {
     revokedAt: null,
     updatedAt: now,
   };
-  if (existing) {
-    await db.update(telegramAccounts)
-      .set({ ...values, ownerUserId: info.ownerUserId })
-      .where(eq(telegramAccounts.id, existing.id));
-    return existing.id;
-  }
-  const id = crypto.randomUUID();
-  await db.insert(telegramAccounts)
-    .values({ id, ownerUserId: info.ownerUserId, telegramId: info.telegramId, ...values, createdAt: now });
-  return id;
+  // One statement keyed on the unique telegram_id: an existing row (owned or unclaimed) keeps its id and is re-bound.
+  const [row] = await db
+    .insert(telegramAccounts)
+    .values({ id: crypto.randomUUID(), ownerUserId: info.ownerUserId, telegramId: info.telegramId, ...values, createdAt: now })
+    .onConflictDoUpdate({
+      target: telegramAccounts.telegramId,
+      set: { ...values, ownerUserId: info.ownerUserId },
+    })
+    .returning({ id: telegramAccounts.id });
+  return row.id;
 }
 
 export async function deleteTelegramAccount(id: string): Promise<void> {

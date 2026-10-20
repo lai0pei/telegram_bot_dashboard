@@ -47,7 +47,7 @@ export const DELETE = withSession(async (_req: Request, ctx: Ctx, userId: string
     }
 
     await singleFlight(`unbind-account:${id}`, async () => {
-      // auth.LogOut is async; better-sqlite3 transactions are synchronous, so this runs first, outside one.
+      // auth.LogOut is a network call: run it first and keep it out of any database transaction.
       await logout(id).catch(() => {});
 
       for (const bot of (await listBots(id))) await deleteBotRow(bot.id);

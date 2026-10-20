@@ -32,19 +32,11 @@ type ChatInfo = Pick<ChatRow, "telegramId" | "kind" | "accessHash" | "title" | "
 
 export async function upsertChatFromTelegram(ownerUserId: string, info: ChatInfo): Promise<ChatRow> {
   const now = new Date();
-  const existing = (await db
-    .select()
-    .from(chats)
-    .where(and(eq(chats.ownerUserId, ownerUserId), eq(chats.telegramId, info.telegramId))))[0];
-  if (existing) {
-    await db.update(chats)
-      .set({ ...info, updatedAt: now })
-      .where(eq(chats.id, existing.id));
-    return { ...existing, ...info, updatedAt: now };
-  }
+  // One statement, so two parallel syncs of the same chat can't both pass a select and then collide on the unique index.
   return (await db
     .insert(chats)
     .values({ ownerUserId, ...info, createdAt: now, updatedAt: now })
+    .onConflictDoUpdate({ target: [chats.ownerUserId, chats.telegramId], set: { ...info, updatedAt: now } })
     .returning())[0];
 }
 

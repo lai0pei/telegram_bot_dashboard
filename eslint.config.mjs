@@ -10,8 +10,9 @@ const config = [
     files: ["lib/**/*.ts", "app/api/**/*.ts", "instrumentation.ts", "proxy.ts"],
     languageOptions: { parserOptions: { projectService: true } },
     rules: {
-      "@typescript-eslint/no-floating-promises": "error",
-      "@typescript-eslint/no-misused-promises": "error",
+      // Drizzle query builders are thenables, not native Promises: without checkThenables a bare `db.delete(x);` is not flagged.
+      "@typescript-eslint/no-floating-promises": ["error", { checkThenables: true }],
+      "@typescript-eslint/no-misused-promises": ["error", { checksVoidReturn: { arguments: true } }],
       "@typescript-eslint/await-thenable": "error",
     },
   },

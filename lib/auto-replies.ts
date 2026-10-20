@@ -218,7 +218,7 @@ function templateContext(token: string, sender: TelegramMessage["from"], payload
 /**
  * Sends the rule's reply to `message`'s chat and stores it. Never throws: a failed reply (blocked user, revoked
  * token) is logged so the update still counts as handled. Call it after the update's database writes, so a
- * SQLite retry of the update can't reply twice.
+ * retry of the update after a database error can't reply twice.
  */
 export async function sendAutoReply(botId: number, token: string, rule: AutoReplyRow, message: TelegramMessage, botUsername = ""): Promise<void> {
   await bumpHits(rule.id);

@@ -29,7 +29,7 @@ export function isDatabaseError(err: unknown): boolean {
     if (e.name === "PostgresError") return true;
     const code = e.code;
     if (typeof code !== "string") return false;
-    // postgres-js connection errors (CONNECTION_CLOSED, CONNECTION_ENDED, …) and Node socket errors.
-    return code.startsWith("CONNECTION_") || code.startsWith("ECONN") || code === "ETIMEDOUT" || code === "ENOTFOUND";
+    // postgres-js connection errors (CONNECTION_CLOSED / _ENDED / _DESTROYED, CONNECT_TIMEOUT) and Node socket errors.
+    return code.startsWith("CONNECT") || code.startsWith("ECONN") || ["EPIPE", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN"].includes(code);
   });
 }
