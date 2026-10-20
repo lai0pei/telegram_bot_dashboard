@@ -95,7 +95,8 @@ function fetchLimits(accountId: string): Promise<Limits> {
 export async function getAccountLimits(accountId: string): Promise<AccountLimits> {
   const limits = await fetchLimits(accountId);
 
-  const botCount = (await db.select({ id: bots.id }).from(bots).where(eq(bots.ownerUserId, accountId))).length;
+  // Bots added by token belong to someone else's BotFather quota, so they don't count against this account's cap.
+  const botCount = (await db.select({ id: bots.id }).from(bots).where(and(eq(bots.ownerUserId, accountId), eq(bots.source, "owned")))).length;
   const rows = await db
     .select({ kind: chats.kind })
     .from(chats)

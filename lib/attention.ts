@@ -61,7 +61,7 @@ export async function getAttentionItems(dashboardUserId: string): Promise<Attent
           botId: bot.id,
           botUsername: bot.username,
           title: `@${bot.username}: no token stored`,
-          detail: "Open the bot to fetch its token from BotFather.",
+          detail: bot.source === "token" ? "Open the bot and paste its current token." : "Open the bot to fetch its token from BotFather.",
           href: botHref,
           since: bot.updatedAt.getTime(),
         });

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ownedBotOnly } from "@/lib/token-bot";
 import { withAuth, errorResponse } from "@/lib/api-guard";
 import { fetchBotToken } from "@/lib/botfather";
 import { getBotById, getBotToken, saveBotToken } from "@/lib/bots";
@@ -10,6 +11,8 @@ export const GET = withAuth(async (_req: Request, ctx: { params: Promise<{ id: s
     const { id } = await ctx.params;
     const bot = await getBotById(Number(id), userId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
+    const owned = ownedBotOnly(bot);
+    if (owned) return owned;
 
     const token =
       getBotToken(bot) ??

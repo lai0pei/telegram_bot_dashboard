@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ownedBotOnly } from "@/lib/token-bot";
 import { withAuth, errorResponse } from "@/lib/api-guard";
 import { BotFatherError } from "@/lib/botfather";
 import { deleteGame } from "@/lib/botfather-apps";
@@ -33,6 +34,8 @@ export const DELETE = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId
     const bot = await getBotById(Number(id), telegramAccountId);
     const game = bot && (await getGame(bot.id, Number(gameId)));
     if (!bot || !game) return NextResponse.json({ error: "Game not found." }, { status: 404 });
+    const owned = ownedBotOnly(bot);
+    if (owned) return owned;
     await singleFlight(`deletegame:${telegramAccountId}:${game.id}`, async () => {
       await deleteGame(telegramAccountId, bot.username, game);
       await removeGame(bot.id, game.id);

@@ -63,6 +63,12 @@ export const bots = pgTable(
     telegramId: text("telegram_id").notNull(),
     username: text("username").notNull(),
     firstName: text("first_name").notNull(),
+    /**
+     * "owned": listed by Telegram as administered by the linked account (synced, token healed through BotFather).
+     * "token": added by pasting someone else's bot token; the account has no BotFather relationship with it, so the
+     * list sync never prunes it and a dead token is reported, never re-fetched.
+     */
+    source: text("source", { enum: ["owned", "token"] }).notNull().default("owned"),
     encryptedToken: text("encrypted_token"),
     tokenFetchedAt: timestamp("token_fetched_at", { withTimezone: true }),
     monitorEnabled: boolean("monitor_enabled").notNull().default(false),
@@ -86,6 +92,9 @@ export const bots = pgTable(
   (table) => [
     uniqueIndex("bots_owner_telegram_id_unique").on(table.ownerUserId, table.telegramId),
     uniqueIndex("bots_owner_username_unique").on(table.ownerUserId, table.username),
+    // One account per bot, across all accounts: two pollers on one token fight over getUpdates (409) and one
+    // tenant's setWebhook would silently break the other's monitoring.
+    uniqueIndex("bots_telegram_id_unique").on(table.telegramId),
   ]
 );
 
