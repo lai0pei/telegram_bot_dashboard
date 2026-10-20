@@ -241,36 +241,6 @@ export interface TelegramChatMemberUpdate {
   new_chat_member: ChatMember;
 }
 
-export type StickerFormat = "static" | "animated" | "video";
-export type StickerSetType = "regular" | "mask" | "custom_emoji";
-
-export interface TelegramSticker {
-  file_id: string;
-  file_unique_id: string;
-  type: StickerSetType;
-  width: number;
-  height: number;
-  is_animated: boolean;
-  is_video: boolean;
-  /** WEBP/JPG preview. The only thing an <img> can show for animated (.tgs) and video (.webm) stickers. */
-  thumbnail?: { file_id: string };
-  emoji?: string;
-}
-
-export interface TelegramStickerSet {
-  name: string;
-  title: string;
-  sticker_type: StickerSetType;
-  stickers: TelegramSticker[];
-}
-
-/** A sticker to add: `sticker` is a file_id from uploadStickerFile. */
-export interface InputSticker {
-  sticker: string;
-  format: StickerFormat;
-  emoji_list: string[];
-}
-
 /** What the business account owner allowed the bot to do (BusinessBotRights). */
 export interface BusinessBotRights {
   can_reply?: boolean;
@@ -796,22 +766,6 @@ export const botApi = {
       is_personal: opts.isPersonal || undefined,
     }),
 
-  /** Uploads a sticker file for the owner and returns its file_id, to pass to create/add. */
-  uploadStickerFile: (token: string, userId: number, file: { name: string; type: string; data: Buffer }, format: StickerFormat) =>
-    callMultipart<{ file_id: string }>(token, "uploadStickerFile", { user_id: userId, sticker_format: format }, { field: "sticker", ...file }),
-  createNewStickerSet: (token: string, userId: number, name: string, title: string, stickers: InputSticker[], type: StickerSetType) =>
-    call<true>(token, "createNewStickerSet", { user_id: userId, name, title, stickers, sticker_type: type }),
-  addStickerToSet: (token: string, userId: number, name: string, sticker: InputSticker) =>
-    call<true>(token, "addStickerToSet", { user_id: userId, name, sticker }),
-  getStickerSet: (token: string, name: string) => call<TelegramStickerSet>(token, "getStickerSet", { name }),
-  /** `sticker` is the sticker's file_id; `position` is zero-based. */
-  setStickerPositionInSet: (token: string, sticker: string, position: number) =>
-    call<true>(token, "setStickerPositionInSet", { sticker, position }),
-  deleteStickerFromSet: (token: string, sticker: string) => call<true>(token, "deleteStickerFromSet", { sticker }),
-  setStickerEmojiList: (token: string, sticker: string, emojiList: string[]) =>
-    call<true>(token, "setStickerEmojiList", { sticker, emoji_list: emojiList }),
-  setStickerSetTitle: (token: string, name: string, title: string) => call<true>(token, "setStickerSetTitle", { name, title }),
-  deleteStickerSet: (token: string, name: string) => call<true>(token, "deleteStickerSet", { name }),
 
   deleteMessage: (token: string, chatId: number | string, messageId: number) =>
     call<true>(token, "deleteMessage", { chat_id: chatId, message_id: messageId }),

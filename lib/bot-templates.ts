@@ -1,4 +1,5 @@
-import type { InlineButton } from "./botapi";
+import type { InlineButton, ReplyKeyboard } from "./botapi";
+import { normalizeInlineButtons, normalizeReplyKeyboard, type AUTO_REPLY_MATCH_TYPES } from "./validation";
 
 /**
  * Starter recipes for a bot. Plain data with no server imports, so the dashboard can preview a template and the API
@@ -8,20 +9,37 @@ import type { InlineButton } from "./botapi";
  * rules are appended last, so a bare "back" would collide with a rule the owner already has and silently lose.
  */
 export interface TemplateRule {
-  matchType: "command" | "exact" | "contains" | "callback" | "media";
+  matchType: (typeof AUTO_REPLY_MATCH_TYPES)[number];
   pattern: string;
   replyText: string;
   parseMode?: "HTML" | "MarkdownV2" | null;
   buttons?: InlineButton[][];
   /** Callback rules only; defaults to "toast". */
   callbackAction?: "toast" | "edit" | "reply";
+  // The rest only come from templates people save themselves (the built-in ones leave them out).
+  replyKeyboard?: ReplyKeyboard | null;
+  showAlert?: boolean;
+  /** Defaults to true; a saved template keeps a rule that was switched off, so its buttons' targets stay in place. */
+  enabled?: boolean;
 }
+
+export const TEMPLATE_CATEGORIES = ["Getting started", "Business", "Engagement", "Community"] as const;
+export type TemplateCategory = (typeof TEMPLATE_CATEGORIES)[number];
+/** Not in TEMPLATE_CATEGORIES: its chip only shows when the person has saved one. */
+export const CUSTOM_CATEGORY = "My templates" as const;
 
 export interface BotTemplate {
   id: string;
   title: string;
   blurb: string;
   emoji: string;
+  category: TemplateCategory | typeof CUSTOM_CATEGORY;
+  /** Short feature tags for the card: what this template demonstrates. */
+  shows: string[];
+  /** The gallery marks it "Start here". */
+  featured?: boolean;
+  /** A template someone saved (id `custom-<n>`), as opposed to a built-in one. */
+  custom?: boolean;
   profile?: { shortDescription?: string; description?: string };
   commands: { command: string; description: string }[];
   rules: TemplateRule[];
@@ -29,6 +47,7 @@ export interface BotTemplate {
 
 const cb = (text: string, id: string): InlineButton => ({ text, callback_data: id });
 const link = (text: string, url: string): InlineButton => ({ text, url });
+const copy = (text: string, value: string): InlineButton => ({ text, copy_text: { text: value } });
 
 const WELCOME_MENU: BotTemplate = (() => {
   const home = "Welcome, {first_name}! 👋\nWhat would you like to do?";
@@ -39,6 +58,9 @@ const WELCOME_MENU: BotTemplate = (() => {
     title: "Welcome + menu",
     blurb: "A friendly greeting with a small button menu (About, Contact) that people can move through.",
     emoji: "👋",
+    category: "Getting started",
+    featured: true,
+    shows: ["Button menu", "Back buttons", "Edits in place"],
     profile: {
       shortDescription: "Hello! Press Start to open the menu.",
       description: "I'm a friendly bot. Press Start to open the menu and find out more about us or get in touch.",
@@ -66,6 +88,8 @@ const FAQ: BotTemplate = (() => {
     title: "FAQ bot",
     blurb: "Answers common questions instantly. People pick a question and the answer replaces the menu.",
     emoji: "❓",
+    category: "Getting started",
+    shows: ["Question menu", "Answers replace the menu"],
     profile: {
       shortDescription: "Quick answers to common questions.",
       description: "Press Start and pick a question. Can't find your answer? Just write to us here.",
@@ -90,6 +114,8 @@ const SUPPORT: BotTemplate = {
   title: "Support inbox",
   blurb: "People write to the bot and you answer from the Messages section. It acknowledges photos and files for you.",
   emoji: "💬",
+  category: "Getting started",
+  shows: ["Reply to photos & files", "Catch-all reply", "Answer from Messages"],
   profile: {
     shortDescription: "Write to us — we reply as soon as we can.",
     description: "Send your question here and our team will answer you personally.",
@@ -100,6 +126,8 @@ const SUPPORT: BotTemplate = {
     { matchType: "media", pattern: "photo", replyText: "Thanks, we got your photo! We'll take a look and get back to you." },
     { matchType: "media", pattern: "document", replyText: "Thanks, we got your file! We'll take a look and get back to you." },
     { matchType: "exact", pattern: "thanks", replyText: "You're welcome! 😊" },
+    // Last resort for anything no rule above knows (it replies to every such private message).
+    { matchType: "fallback", pattern: "*", replyText: "Thanks, we got your message! We'll reply here as soon as we can." },
   ],
 };
 
@@ -108,6 +136,8 @@ const LINK_HUB: BotTemplate = {
   title: "Link hub",
   blurb: "One message with buttons that open your website, shop and channel. Edit the web addresses afterwards.",
   emoji: "🔗",
+  category: "Getting started",
+  shows: ["Link buttons"],
   profile: {
     shortDescription: "All our links in one place.",
     description: "Press Start to open our website, shop and social pages.",
@@ -123,7 +153,252 @@ const LINK_HUB: BotTemplate = {
   ],
 };
 
-export const BOT_TEMPLATES: BotTemplate[] = [WELCOME_MENU, FAQ, SUPPORT, LINK_HUB];
+const CAFE: BotTemplate = (() => {
+  const home = "Welcome to our café, {first_name}! ☕\nWhat can we do for you?";
+  const menu = [[cb("📖 Menu", "tpl_cafe_menu")], [cb("🕒 Hours & location", "tpl_cafe_hours")]];
+  const backHome = [cb("⬅️ Back", "tpl_cafe_home")];
+  const menuText = "📖 Our menu\n\nPick a section:";
+  const menuButtons = [[cb("☕ Drinks", "tpl_cafe_drinks")], [cb("🥐 Food", "tpl_cafe_food")], backHome];
+  const backMenu = [[cb("⬅️ Menu", "tpl_cafe_menu")]];
+  return {
+    id: "cafe",
+    title: "Café / restaurant",
+    blurb: "A two-level menu: Menu → Drinks or Food, plus opening hours with a map button. Swap in your own dishes and prices.",
+    emoji: "☕",
+    category: "Business",
+    shows: ["Menus inside menus", "Back buttons", "Link button"],
+    profile: {
+      shortDescription: "Menu, opening hours and how to find us.",
+      description: "Press Start to see our menu, opening hours and where to find us.",
+    },
+    commands: [
+      { command: "start", description: "Open the main menu" },
+      { command: "menu", description: "See our menu" },
+    ],
+    rules: [
+      { matchType: "command", pattern: "start", replyText: home, buttons: menu },
+      { matchType: "command", pattern: "menu", replyText: menuText, buttons: menuButtons },
+      { matchType: "callback", pattern: "tpl_cafe_menu", callbackAction: "edit", replyText: menuText, buttons: menuButtons },
+      { matchType: "callback", pattern: "tpl_cafe_drinks", callbackAction: "edit", replyText: "☕ Drinks\n\nEspresso — 2.50\nCappuccino — 3.50\nIced tea — 3.00\n\n(Replace these with your own.)", buttons: backMenu },
+      { matchType: "callback", pattern: "tpl_cafe_food", callbackAction: "edit", replyText: "🥐 Food\n\nCroissant — 2.50\nAvocado toast — 7.00\nDaily soup — 6.00\n\n(Replace these with your own.)", buttons: backMenu },
+      { matchType: "callback", pattern: "tpl_cafe_hours", callbackAction: "edit", replyText: "🕒 Opening hours\n\nMon–Fri 8:00–18:00, Sat–Sun 9:00–16:00.\n📍 Replace with your address.", buttons: [[link("🗺 Open the map", "https://maps.google.com")], backHome] },
+      { matchType: "callback", pattern: "tpl_cafe_home", callbackAction: "edit", replyText: home, buttons: menu },
+    ],
+  };
+})();
+
+const SHOP: BotTemplate = (() => {
+  const home = "Hi {first_name}! 🛍 What are you looking for?";
+  const menu = [[cb("👕 Clothing", "tpl_shop_clothing")], [cb("🎧 Gadgets", "tpl_shop_gadgets")]];
+  const back = [cb("⬅️ All categories", "tpl_shop_home")];
+  return {
+    id: "shop",
+    title: "Product catalogue",
+    blurb: "Categories with product cards. Each card has a Buy link and a tap-to-copy promo code. Edit the products and addresses afterwards.",
+    emoji: "🛍",
+    category: "Business",
+    shows: ["Link buttons", "Copy-code button", "Categories"],
+    profile: {
+      shortDescription: "Browse our products right here.",
+      description: "Press Start to browse our categories, see products and grab a promo code.",
+    },
+    commands: [
+      { command: "start", description: "Browse the catalogue" },
+      { command: "shop", description: "Browse the catalogue" },
+    ],
+    rules: [
+      { matchType: "command", pattern: "start", replyText: home, buttons: menu },
+      { matchType: "command", pattern: "shop", replyText: home, buttons: menu },
+      { matchType: "callback", pattern: "tpl_shop_clothing", callbackAction: "edit", replyText: "👕 Classic T-shirt\n\nSoft cotton, five colours.\nPrice: 20.00\n\n(Replace with your own product.)", buttons: [[link("🛒 Buy now", "https://example.com/tshirt")], [copy("📋 Copy code SAVE10", "SAVE10")], back] },
+      { matchType: "callback", pattern: "tpl_shop_gadgets", callbackAction: "edit", replyText: "🎧 Wireless headphones\n\n30 hours of battery.\nPrice: 59.00\n\n(Replace with your own product.)", buttons: [[link("🛒 Buy now", "https://example.com/headphones")], [copy("📋 Copy code SAVE10", "SAVE10")], back] },
+      { matchType: "callback", pattern: "tpl_shop_home", callbackAction: "edit", replyText: home, buttons: menu },
+    ],
+  };
+})();
+
+const BOOKING: BotTemplate = (() => {
+  const home = "Hi {first_name}! 📅 What would you like to book?";
+  const services = [[cb("💇 Haircut", "tpl_book_service")], [cb("💆 Massage", "tpl_book_service")]];
+  const days = [[cb("Mon", "tpl_book_day_mon"), cb("Tue", "tpl_book_day_tue"), cb("Wed", "tpl_book_day_wed")], [cb("⬅️ Back", "tpl_book_home")]];
+  return {
+    id: "booking",
+    title: "Appointment booking",
+    blurb: "People pick a service and a day; you confirm from the Messages section. Anything else they write goes to you.",
+    emoji: "📅",
+    category: "Business",
+    shows: ["Step-by-step flow", "Reply as a new message", "Hand-off to you"],
+    profile: {
+      shortDescription: "Book an appointment in a few taps.",
+      description: "Press Start, pick a service and a day. We'll confirm your booking here.",
+    },
+    commands: [{ command: "start", description: "Book an appointment" }],
+    rules: [
+      { matchType: "command", pattern: "start", replyText: home, buttons: services },
+      { matchType: "callback", pattern: "tpl_book_service", callbackAction: "edit", replyText: "Which day suits you best?", buttons: days },
+      { matchType: "callback", pattern: "tpl_book_day_mon", callbackAction: "reply", replyText: "✅ Thanks {first_name}! We got your request for Monday. We'll confirm the time here shortly." },
+      { matchType: "callback", pattern: "tpl_book_day_tue", callbackAction: "reply", replyText: "✅ Thanks {first_name}! We got your request for Tuesday. We'll confirm the time here shortly." },
+      { matchType: "callback", pattern: "tpl_book_day_wed", callbackAction: "reply", replyText: "✅ Thanks {first_name}! We got your request for Wednesday. We'll confirm the time here shortly." },
+      { matchType: "callback", pattern: "tpl_book_home", callbackAction: "edit", replyText: home, buttons: services },
+      { matchType: "fallback", pattern: "*", replyText: "Thanks, we got your message! We'll reply here as soon as we can." },
+    ],
+  };
+})();
+
+const QUIZ: BotTemplate = (() => {
+  const q1 = "🧠 Quick quiz! Question 1 of 3\n\nWhat is the capital of France?";
+  const q1Buttons = [[cb("Paris", "tpl_quiz_q1_right"), cb("London", "tpl_quiz_wrong")]];
+  return {
+    id: "quiz",
+    title: "Quiz game",
+    blurb: "Three questions with answer buttons. A wrong answer pops up a hint, a right one moves to the next question.",
+    emoji: "🧠",
+    category: "Engagement",
+    shows: ["Pop-up answers", "Moving to the next step", "Play again"],
+    profile: {
+      shortDescription: "Test yourself with a quick quiz.",
+      description: "Press Start to play a short quiz. Three questions, answer by tapping a button.",
+    },
+    commands: [
+      { command: "start", description: "Start the quiz" },
+      { command: "quiz", description: "Play again" },
+    ],
+    rules: [
+      { matchType: "command", pattern: "start", replyText: q1, buttons: q1Buttons },
+      { matchType: "command", pattern: "quiz", replyText: q1, buttons: q1Buttons },
+      { matchType: "callback", pattern: "tpl_quiz_wrong", callbackAction: "toast", replyText: "Not quite — try another answer! 🙂" },
+      { matchType: "callback", pattern: "tpl_quiz_q1_right", callbackAction: "edit", replyText: "✅ Correct!\n\nQuestion 2 of 3\nWhich planet is called the Red Planet?", buttons: [[cb("Venus", "tpl_quiz_wrong"), cb("Mars", "tpl_quiz_q2_right")]] },
+      { matchType: "callback", pattern: "tpl_quiz_q2_right", callbackAction: "edit", replyText: "✅ Correct!\n\nQuestion 3 of 3\nHow many days are in a week?", buttons: [[cb("5", "tpl_quiz_wrong"), cb("7", "tpl_quiz_q3_right")]] },
+      { matchType: "callback", pattern: "tpl_quiz_q3_right", callbackAction: "edit", replyText: "🎉 You finished the quiz, {first_name}! Well done.", buttons: [[cb("🔁 Play again", "tpl_quiz_restart")]] },
+      { matchType: "callback", pattern: "tpl_quiz_restart", callbackAction: "edit", replyText: q1, buttons: q1Buttons },
+    ],
+  };
+})();
+
+const EVENT: BotTemplate = {
+  id: "event",
+  title: "Event invitation",
+  blurb: "An invitation with going / maybe / can't buttons. Every answer arrives in your Messages section, and the rule shows how many tapped it.",
+  emoji: "🎉",
+  category: "Engagement",
+  shows: ["Reply to a button press", "Link button", "See answers in Messages"],
+  profile: {
+    shortDescription: "Join our event — tell us if you're coming.",
+    description: "Press Start to see the event details and let us know if you can make it.",
+  },
+  commands: [{ command: "start", description: "See the event and RSVP" }],
+  rules: [
+    {
+      matchType: "command",
+      pattern: "start",
+      replyText: "🎉 Summer meetup\n📅 Saturday, 14:00\n📍 Replace with your venue\n\nWill you join us, {first_name}?",
+      buttons: [[cb("✅ I'm going", "tpl_event_yes"), cb("🤔 Maybe", "tpl_event_maybe"), cb("❌ Can't", "tpl_event_no")], [link("📍 Location", "https://maps.google.com")]],
+    },
+    { matchType: "callback", pattern: "tpl_event_yes", callbackAction: "reply", replyText: "Great, {first_name}! See you there 🎉" },
+    { matchType: "callback", pattern: "tpl_event_maybe", callbackAction: "reply", replyText: "No problem — let us know when you decide." },
+    { matchType: "callback", pattern: "tpl_event_no", callbackAction: "reply", replyText: "Sorry to miss you! We'll tell you about the next one." },
+  ],
+};
+
+const COURSE: BotTemplate = (() => {
+  const intro = "🎓 Welcome to the mini course, {first_name}!\n\nThree short lessons. Ready?";
+  const introButtons = [[cb("Start lesson 1 ▶", "tpl_course_l1")]];
+  return {
+    id: "course",
+    title: "Mini course",
+    blurb: "Short lessons you move through with Back and Next buttons. Replace the text with your own lessons.",
+    emoji: "🎓",
+    category: "Engagement",
+    shows: ["Next / Back buttons", "Step-by-step flow"],
+    profile: {
+      shortDescription: "A short course, one lesson at a time.",
+      description: "Press Start to begin. Three short lessons, move on with the Next button.",
+    },
+    commands: [{ command: "start", description: "Start the course" }],
+    rules: [
+      { matchType: "command", pattern: "start", replyText: intro, buttons: introButtons },
+      { matchType: "callback", pattern: "tpl_course_home", callbackAction: "edit", replyText: intro, buttons: introButtons },
+      { matchType: "callback", pattern: "tpl_course_l1", callbackAction: "edit", replyText: "📘 Lesson 1\n\nWrite your first lesson here.", buttons: [[cb("Next ▶", "tpl_course_l2")]] },
+      { matchType: "callback", pattern: "tpl_course_l2", callbackAction: "edit", replyText: "📗 Lesson 2\n\nWrite your second lesson here.", buttons: [[cb("◀ Back", "tpl_course_l1"), cb("Next ▶", "tpl_course_l3")]] },
+      { matchType: "callback", pattern: "tpl_course_l3", callbackAction: "edit", replyText: "📙 Lesson 3\n\nWrite your last lesson here.", buttons: [[cb("◀ Back", "tpl_course_l2"), cb("🎓 Finish", "tpl_course_done")]] },
+      { matchType: "callback", pattern: "tpl_course_done", callbackAction: "edit", replyText: "🎉 Congratulations, {first_name} — you finished the course!", buttons: [[cb("🔁 Start over", "tpl_course_home")]] },
+    ],
+  };
+})();
+
+const FEEDBACK: BotTemplate = {
+  id: "feedback",
+  title: "Feedback survey",
+  blurb: "People rate you from 1 to 5 stars and get a fitting answer. Each rating arrives in your Messages section, and written comments are thanked.",
+  emoji: "⭐",
+  category: "Engagement",
+  shows: ["Rating buttons", "Different answer per button", "Catch-all reply"],
+  profile: {
+    shortDescription: "Tell us how we're doing.",
+    description: "Press Start and rate your experience from 1 to 5 stars. Your feedback helps us improve.",
+  },
+  commands: [{ command: "start", description: "Rate your experience" }],
+  rules: [
+    {
+      matchType: "command",
+      pattern: "start",
+      replyText: "Hi {first_name}! How was your experience with us?",
+      buttons: [[cb("1⭐", "tpl_fb_1"), cb("2⭐", "tpl_fb_2"), cb("3⭐", "tpl_fb_3"), cb("4⭐", "tpl_fb_4"), cb("5⭐", "tpl_fb_5")]],
+    },
+    { matchType: "callback", pattern: "tpl_fb_1", callbackAction: "edit", replyText: "😔 We're sorry. Tell us what went wrong — just write a message here." },
+    { matchType: "callback", pattern: "tpl_fb_2", callbackAction: "edit", replyText: "Thanks for being honest. What could we do better? Write it here." },
+    { matchType: "callback", pattern: "tpl_fb_3", callbackAction: "edit", replyText: "Thanks! Anything we could improve? Write it here." },
+    { matchType: "callback", pattern: "tpl_fb_4", callbackAction: "edit", replyText: "😊 Thank you! Glad you liked it." },
+    { matchType: "callback", pattern: "tpl_fb_5", callbackAction: "edit", replyText: "🌟 Thank you so much, {first_name}!" },
+    { matchType: "fallback", pattern: "*", replyText: "🙏 Thanks for your feedback — we read every message." },
+  ],
+};
+
+const NEWSLETTER: BotTemplate = {
+  id: "newsletter",
+  title: "News & updates",
+  blurb: "Greets new people, answers keywords like “price” or “demo”, and has a /news command. Everyone who writes to the bot can later get your updates through Outbox.",
+  emoji: "📣",
+  category: "Engagement",
+  shows: ["Keyword replies", "Commands", "Broadcast via Outbox"],
+  profile: {
+    shortDescription: "News and updates from us.",
+    description: "Press Start to hear from us. Ask about prices or a demo any time.",
+  },
+  commands: [
+    { command: "start", description: "Say hello" },
+    { command: "news", description: "See our latest news" },
+  ],
+  rules: [
+    { matchType: "command", pattern: "start", replyText: "Hi {first_name}! 📣 You're in. We'll send you our news here — send a broadcast from the Outbox section whenever you have something to share." },
+    { matchType: "command", pattern: "news", replyText: "📰 Latest news\n\nWrite your newest announcement here." },
+    { matchType: "contains", pattern: "price", replyText: "💶 You can find our prices here: https://example.com/prices (replace this link)." },
+    { matchType: "contains", pattern: "demo", replyText: "🎬 Want a demo? Reply with your email and we'll set one up." },
+  ],
+};
+
+const COMMUNITY: BotTemplate = {
+  id: "community",
+  title: "Group helper",
+  blurb: "For a group: /rules and /help commands. Add the bot to your group. Keyword answers also need “privacy” turned off in Permissions, otherwise Telegram only sends the bot commands.",
+  emoji: "👥",
+  category: "Community",
+  shows: ["Works in groups", "Commands", "Keyword replies"],
+  profile: {
+    shortDescription: "Rules and help for our community.",
+    description: "Add me to your group. Type /rules to see the rules and /help to see what I can do.",
+  },
+  commands: [
+    { command: "rules", description: "Show the group rules" },
+    { command: "help", description: "See what I can do" },
+  ],
+  rules: [
+    { matchType: "command", pattern: "rules", replyText: "📜 Group rules\n\n1. Be kind.\n2. No spam.\n3. Stay on topic.\n\n(Replace these with your own.)" },
+    { matchType: "command", pattern: "help", replyText: "Hi {first_name}! Here is what I can do:\n{commands}" },
+    { matchType: "contains", pattern: "where are the rules", replyText: "📜 Type /rules to see them." },
+  ],
+};
+
+export const BOT_TEMPLATES: BotTemplate[] = [WELCOME_MENU, LINK_HUB, FAQ, SUPPORT, CAFE, SHOP, BOOKING, QUIZ, EVENT, COURSE, FEEDBACK, NEWSLETTER, COMMUNITY];
 
 export const getBotTemplate = (id: string): BotTemplate | undefined => BOT_TEMPLATES.find((t) => t.id === id);
 
@@ -132,3 +407,92 @@ export const templateRuleKey = (r: { matchType: string; pattern: string }) => `$
 
 export const TEMPLATE_PARTS = ["profile", "commands", "rules", "monitoring"] as const;
 export type TemplatePart = (typeof TEMPLATE_PARTS)[number];
+
+export const CUSTOM_TEMPLATE_PREFIX = "custom-";
+
+// --- Removing a template: only what is still exactly as the template made it ---------------------------------------
+
+/** The slice of a stored rule the comparison needs (a rule row with its JSON columns already parsed). */
+export interface StoredRuleLike {
+  id: number;
+  matchType: string;
+  pattern: string;
+  replyText: string;
+  parseMode: string | null;
+  buttons: InlineButton[][] | null;
+  replyKeyboard: ReplyKeyboard | null;
+  callbackAction: string;
+}
+
+/** JSON with sorted keys, so two buttons that differ only in key order compare equal. */
+function canon(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canon).join(",")}]`;
+  if (value && typeof value === "object") {
+    const o = value as Record<string, unknown>;
+    return `{${Object.keys(o)
+      .filter((k) => o[k] !== undefined)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canon(o[k])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
+/** What storing `rule` keeps (mirrors `columnsFor` in lib/auto-replies.ts), so it can be compared with a stored row. */
+function expectedColumns(rule: TemplateRule) {
+  const isCallback = rule.matchType === "callback" || rule.matchType === "callback_prefix";
+  const action = isCallback ? rule.callbackAction ?? "toast" : "toast";
+  const sends = !isCallback || action !== "toast";
+  const buttons = sends ? normalizeInlineButtons(rule.buttons) : null;
+  return {
+    parseMode: sends ? rule.parseMode ?? null : null,
+    buttons,
+    replyKeyboard: sends && action !== "edit" && !buttons?.length && rule.replyKeyboard ? normalizeReplyKeyboard(rule.replyKeyboard) : null,
+    callbackAction: action,
+  };
+}
+
+/** Whether a stored rule is still what `rule` would create (switching it off does not count as changing it). */
+export function ruleIsUnchanged(stored: StoredRuleLike, rule: TemplateRule): boolean {
+  const want = expectedColumns(rule);
+  return (
+    stored.replyText === rule.replyText &&
+    stored.parseMode === want.parseMode &&
+    stored.callbackAction === want.callbackAction &&
+    canon(stored.buttons?.length ? stored.buttons : null) === canon(want.buttons?.length ? want.buttons : null) &&
+    canon(stored.replyKeyboard ?? null) === canon(want.replyKeyboard ?? null)
+  );
+}
+
+export interface TemplateRemoval<R extends StoredRuleLike> {
+  /** Stored rules that are still as the template made them: these can be deleted. */
+  rules: R[];
+  /** Rules with the template's trigger that were edited since (kept). */
+  keptRules: R[];
+  /** Commands with the template's name and description (removable), and with its name but another description (kept). */
+  commands: string[];
+  keptCommands: string[];
+}
+
+/**
+ * What "remove this template" would delete from a bot with these rules and commands. Pure, so the dashboard can show
+ * the counts (and hide the button when there is nothing to remove) and the server deletes exactly the same set.
+ */
+export function planRemoval<R extends StoredRuleLike>(
+  template: Pick<BotTemplate, "rules" | "commands">,
+  stored: readonly R[],
+  commands: readonly { command: string; description: string }[]
+): TemplateRemoval<R> {
+  const out: TemplateRemoval<R> = { rules: [], keptRules: [], commands: [], keptCommands: [] };
+  for (const rule of template.rules) {
+    const found = stored.find((s) => templateRuleKey(s) === templateRuleKey(rule));
+    if (!found || out.rules.includes(found) || out.keptRules.includes(found)) continue;
+    (ruleIsUnchanged(found, rule) ? out.rules : out.keptRules).push(found);
+  }
+  for (const c of template.commands) {
+    const have = commands.find((x) => x.command.toLowerCase() === c.command);
+    if (!have) continue;
+    (have.description === c.description ? out.commands : out.keptCommands).push(c.command);
+  }
+  return out;
+}

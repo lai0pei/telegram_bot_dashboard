@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { withAuth, errorResponse } from "@/lib/api-guard";
 import { BotPhotoError, deleteBotPhoto, getBotById, getBotPhoto, setBotPhoto } from "@/lib/bots";
 import { getCachedPhoto, invalidatePhoto, photoKey, photoResponse } from "@/lib/photos";
+import { recordSetup } from "@/lib/setup-cache";
 import { validateProfileMedia } from "@/lib/validation";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -14,6 +15,7 @@ export const GET = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: st
     const photo = await getCachedPhoto(photoKey(telegramAccountId, "bot", bot.id), () =>
       getBotPhoto(telegramAccountId, bot)
     );
+    recordSetup(bot.id, { photo: Boolean(photo && photo.length > 0) });
     return photoResponse(req, photo);
   } catch (err) {
     return errorResponse(err);
@@ -39,6 +41,7 @@ export const PUT = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: st
       video,
     });
     invalidatePhoto(photoKey(telegramAccountId, "bot", bot.id));
+    recordSetup(bot.id, { photo: true });
     return NextResponse.json({ ok: true });
   } catch (err) {
     return err instanceof BotPhotoError ? NextResponse.json({ error: err.message }, { status: 400 }) : errorResponse(err);
@@ -52,6 +55,7 @@ export const DELETE = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
     await deleteBotPhoto(telegramAccountId, bot);
     invalidatePhoto(photoKey(telegramAccountId, "bot", bot.id));
+    recordSetup(bot.id, { photo: false });
     return NextResponse.json({ ok: true });
   } catch (err) {
     return err instanceof BotPhotoError ? NextResponse.json({ error: err.message }, { status: 400 }) : errorResponse(err);

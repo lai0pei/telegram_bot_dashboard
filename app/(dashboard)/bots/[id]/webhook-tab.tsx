@@ -178,7 +178,7 @@ export function WebhookTab({ bot, onChange }: { bot: BotDetail; onChange: () => 
       </form>
       <p className="mt-4 text-xs text-[var(--muted)]">
         A bot can receive updates via a webhook or via getUpdates (monitoring), never both. Setting a webhook here
-        disables this dashboard&apos;s monitoring for the bot.
+        disables this dashboard&apos;s monitoring for the bot. Monitoring is the switch in the header.
       </p>
     </Card>
   );

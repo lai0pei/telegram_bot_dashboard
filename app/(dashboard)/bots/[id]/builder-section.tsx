@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, ChevronRight, ExternalLink, Info, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronRight, ExternalLink, Info, LayoutGrid, Columns3, Play, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,9 @@ import { apiFetch } from "@/lib/api-client";
 import { buttonIdFrom } from "@/lib/button-id";
 import { entryRules, flowButtons, isCallbackMatch, newStepId, pointingAt, unusedReplies, type FlowButton } from "@/lib/flow";
 import { previewOf } from "./automation-tab";
+import { FlowMap } from "./flow-map";
+import { TestChat } from "./test-chat";
+import { newButtonUid } from "./buttons-editor";
 import { draftCanSave, draftError, draftToBody, emptyRuleDraft, isToastOnly, ruleToDraft, type RuleDraft } from "./rule-draft";
 import { RuleFields } from "./rule-fields";
 import type { SectionId } from "./sections";
@@ -35,6 +38,8 @@ function triggerTitle(r: AutoReplyRule, via?: string): string {
       return `Sends ${r.pattern.replace("_", " ")}`;
     case "shared":
       return `Shares (request ${r.pattern})`;
+    case "fallback":
+      return "Anything else";
     default:
       return via ? `Presses “${via}”` : `Button “${r.pattern}”`;
   }
@@ -55,6 +60,8 @@ export function BuilderSection({ bot, photoSrc, onOpen }: { bot: BotDetail; phot
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [newLabel, setNewLabel] = useState("");
   const [opens, setOpens] = useState("new");
+  const [view, setView] = useState<"columns" | "map">("columns");
+  const [testing, setTesting] = useState(false);
 
   const load = useCallback(async (): Promise<AutoReplyRule[]> => {
     try {
@@ -77,7 +84,8 @@ export function BuilderSection({ bot, photoSrc, onOpen }: { bot: BotDetail; phot
   const all = rules ?? [];
   const byId = (id: number) => all.find((r) => r.id === id);
   const selected = path.length ? byId(path[path.length - 1]) : undefined;
-  const entries = entryRules(all);
+  // The "anything else" rule is the last resort, so it sits last in the list too.
+  const entries = [...entryRules(all).filter((r) => r.matchType !== "fallback"), ...entryRules(all).filter((r) => r.matchType === "fallback")];
   const unused = unusedReplies(all);
   const listening = bot.monitorEnabled && !bot.webhook?.url;
 
@@ -180,7 +188,7 @@ export function BuilderSection({ bot, photoSrc, onOpen }: { bot: BotDetail; phot
         if (!target) return;
         data = target.pattern;
       }
-      const next: RuleDraft = { ...draft, buttons: [...draft.buttons, { text: label, kind: "callback", value: data, style: "", sameRow: false }] };
+      const next: RuleDraft = { ...draft, buttons: [...draft.buttons, { text: label, kind: "callback", value: data, style: "", sameRow: false, uid: newButtonUid() }] };
       try {
         await apiFetch(`/api/bots/${bot.id}/auto-replies/${selected.id}`, { method: "PATCH", body: draftToBody(next) });
       } catch (err) {
@@ -214,6 +222,7 @@ export function BuilderSection({ bot, photoSrc, onOpen }: { bot: BotDetail; phot
   const referrers = selected ? pointingAt(selected, all) : [];
   const canHoldButtons = Boolean(selected) && !isToastOnly(draft);
   const preview = previewOf(draft);
+  const hasUnsavedChanges = Boolean(selected) && JSON.stringify(draftToBody(draft)) !== JSON.stringify(draftToBody(ruleToDraft(selected!)));
 
   return (
     <div className="space-y-4">
@@ -230,7 +239,35 @@ export function BuilderSection({ bot, photoSrc, onOpen }: { bot: BotDetail; phot
               <CardTitle>How the conversation flows</CardTitle>
               <p className="text-xs text-[var(--muted)]">Pick where a conversation starts, then click a button to follow it. Click any box to edit it.</p>
             </div>
+            <div className="flex flex-wrap gap-1.5">
+              <div className="flex rounded-lg border border-[var(--card-border)] p-0.5" role="group" aria-label="View">
+                <Button type="button" size="sm" variant={view === "columns" ? "default" : "ghost"} aria-pressed={view === "columns"} onClick={() => setView("columns")}>
+                  <Columns3 className="h-3.5 w-3.5" />
+                  Columns
+                </Button>
+                <Button type="button" size="sm" variant={view === "map" ? "default" : "ghost"} aria-pressed={view === "map"} onClick={() => setView("map")}>
+                  <LayoutGrid className="h-3.5 w-3.5" />
+                  Map
+                </Button>
+              </div>
+              <Button type="button" size="sm" variant={testing ? "default" : "outline"} aria-pressed={testing} onClick={() => setTesting((v) => !v)}>
+                <Play className="h-3.5 w-3.5" />
+                Try it
+              </Button>
+            </div>
           </CardHeader>
+          {view === "map" ? (
+            <FlowMap
+              rules={all}
+              selectedId={selected?.id}
+              title={(r) => triggerTitle(r)}
+              onPick={(p) => {
+                pick(p);
+                setTesting(false);
+                setView("columns");
+              }}
+            />
+          ) : (
           <div className="flex gap-3 overflow-x-auto pb-2">
             <div className="w-60 shrink-0 space-y-2">
               <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">Starts when…</p>
@@ -282,8 +319,14 @@ export function BuilderSection({ bot, photoSrc, onOpen }: { bot: BotDetail; phot
               );
             })}
           </div>
+          )}
         </Card>
 
+        {testing ? (
+          <div className="xl:sticky xl:top-6 xl:max-h-[calc(100dvh-3rem)] xl:overflow-y-auto">
+            <TestChat bot={bot} photoSrc={photoSrc} rules={all} unsaved={hasUnsavedChanges} onClose={() => setTesting(false)} />
+          </div>
+        ) : (
         <Card className="xl:sticky xl:top-6 xl:max-h-[calc(100dvh-3rem)] xl:overflow-y-auto">
           {!creating && !selected ? (
             <div className="space-y-2 py-6 text-center text-sm text-[var(--muted)]">
@@ -385,6 +428,7 @@ export function BuilderSection({ bot, photoSrc, onOpen }: { bot: BotDetail; phot
             </>
           )}
         </Card>
+        )}
       </div>
     </div>
   );

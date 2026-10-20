@@ -1,7 +1,8 @@
 "use client";
 
-import { Plus, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { GripVertical, Plus, X } from "lucide-react";
+import { Reorder, useDragControls } from "motion/react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api-client";
@@ -31,9 +32,14 @@ export interface ButtonDraft {
    * buttons loaded from a saved rule, so renaming a saved button can't silently change (and so unlink) its ID.
    */
   idAuto?: boolean;
+  /** A stable identity for dragging the row (the list is otherwise keyed by position). Never sent anywhere. */
+  uid?: string;
 }
 
-export const emptyButtonDraft = (): ButtonDraft => ({ text: "", kind: "url", value: "", style: "", sameRow: false });
+let uidCounter = 0;
+export const newButtonUid = () => `btn-${++uidCounter}`;
+
+export const emptyButtonDraft = (): ButtonDraft => ({ text: "", kind: "url", value: "", style: "", sameRow: false, uid: newButtonUid() });
 
 const MAX_DRAFTS = 8;
 const MAX_PER_ROW = 4;
@@ -122,7 +128,7 @@ export function draftsToButtons(drafts: ButtonDraft[]): InlineButton[][] | undef
 export function buttonsToDrafts(buttons: InlineButton[][] | null | undefined): ButtonDraft[] {
   return (buttons ?? []).flatMap((row) =>
     row.map((b, i): ButtonDraft => {
-      const common = { text: b.text, style: b.style ?? "", sameRow: i > 0 } as const;
+      const common = { text: b.text, style: b.style ?? "", sameRow: i > 0, uid: newButtonUid() } as const;
       if (b.copy_text) return { ...common, kind: "copy", value: b.copy_text.text };
       if (b.web_app) return { ...common, kind: "web_app", value: b.web_app.url };
       if (b.login_url) return { ...common, kind: "login", value: b.login_url.url, writeAccess: b.login_url.request_write_access === true };
@@ -234,6 +240,31 @@ function TemplatesBar({ botId, drafts, onChange }: { botId: number; drafts: Butt
   );
 }
 
+/** One editable button row that can be dragged by its grip, or moved with the arrow keys while the grip is focused. */
+function DraggableRow({ value, onMove, children }: { value: ButtonDraft; onMove: (by: -1 | 1) => void; children: ReactNode }) {
+  const controls = useDragControls();
+  return (
+    <Reorder.Item value={value} as="div" dragListener={false} dragControls={controls} className="flex items-start gap-1">
+      <button
+        type="button"
+        onPointerDown={(e) => controls.start(e)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+            e.preventDefault();
+            onMove(e.key === "ArrowUp" ? -1 : 1);
+          }
+        }}
+        aria-label="Move button (drag, or use the arrow keys)"
+        title="Drag to reorder"
+        className="mt-1.5 shrink-0 cursor-grab touch-none text-[var(--muted)] hover:text-[var(--foreground)] active:cursor-grabbing"
+      >
+        <GripVertical className="h-4 w-4" aria-hidden />
+      </button>
+      <div className="flex min-w-0 flex-1 flex-wrap gap-1.5 sm:flex-nowrap">{children}</div>
+    </Reorder.Item>
+  );
+}
+
 export function ButtonsEditor({
   drafts,
   onChange,
@@ -262,13 +293,24 @@ export function ButtonsEditor({
       (allowCallback || k !== "callback") && (allowWebApp || k !== "web_app") && !(business && (k === "web_app" || k === "inline" || k === "inline_here" || k === "chosen_chat" || k === "login"))
   );
   const update = (i: number, patch: Partial<ButtonDraft>) => onChange(drafts.map((d, j) => (j === i ? { ...d, ...patch } : d)));
+  // The first button always starts a row, whatever its flag says, so a moved button can't carry a stale "same row".
+  const normalize = (list: ButtonDraft[]) => list.map((d, j) => (j === 0 && d.sameRow ? { ...d, sameRow: false } : d));
+  const reorder = (next: ButtonDraft[]) => onChange(normalize(next));
+  const move = (i: number, by: -1 | 1) => {
+    const j = i + by;
+    if (j < 0 || j >= drafts.length) return;
+    const next = drafts.slice();
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(normalize(next));
+  };
   const usesInline = drafts.some((d) => (d.kind === "inline" || d.kind === "inline_here" || d.kind === "chosen_chat") && isFilled(d));
 
   return (
     <div className="space-y-1.5">
       {botId !== undefined && <TemplatesBar botId={botId} drafts={drafts} onChange={onChange} />}
+      <Reorder.Group axis="y" values={drafts} onReorder={reorder} as="div" className="space-y-1.5">
       {drafts.map((b, i) => (
-        <div key={i} className="flex flex-wrap gap-1.5 sm:flex-nowrap">
+        <DraggableRow key={b.uid ?? i} value={b} onMove={(by) => move(i, by)}>
           {i > 0 && (
             <button
               type="button"
@@ -351,8 +393,9 @@ export function ButtonsEditor({
           >
             <X className="h-3.5 w-3.5" />
           </button>
-        </div>
+        </DraggableRow>
       ))}
+      </Reorder.Group>
       <Button type="button" variant="ghost" size="sm" disabled={drafts.length >= MAX_DRAFTS} onClick={() => onChange([...drafts, emptyButtonDraft()])}>
         <Plus className="h-3.5 w-3.5" />
         Add button

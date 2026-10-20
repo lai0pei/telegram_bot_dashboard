@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { apiFetch } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import type { BotSummary } from "../../bot-card";
@@ -17,8 +18,9 @@ import type { BotDetail } from "./types";
 const HEALTH_LABEL = { ok: "Healthy", warning: "Warning", error: "Needs attention" } as const;
 
 /**
- * The bot page frame: a compact header (switcher + status chips) and, from `lg` up, a sticky section
- * sidebar next to a wide content area. Below `lg` the sidebar becomes a section picker.
+ * The bot page frame: a compact header (switcher + status chips) and, from `lg` up, a section bar of group dropdowns
+ * (Build ▾ Engage ▾ …) above a full-width content area. Neither is sticky, so the `top-6` sticky cards keep working.
+ * Below `lg` the bar becomes a section picker.
  */
 export function BotShell({
   bot,
@@ -67,7 +69,7 @@ export function BotShell({
             <optgroup key={g.label ?? "main"} label={g.label ?? "Bot"}>
               {g.sections.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.label}
+                  {badges[s.id] ? `${s.label} (${badges[s.id]})` : s.label}
                 </option>
               ))}
             </optgroup>
@@ -75,44 +77,47 @@ export function BotShell({
         </select>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[180px_minmax(0,1fr)]">
-        <nav aria-label="Bot sections" className="hidden self-start lg:sticky lg:top-6 lg:block">
-          <ul className="space-y-3">
-            {SECTION_GROUPS.map((g) => (
-              <li key={g.label ?? "main"}>
-                {g.label && (
-                  <p className="mb-1 px-2 text-[11px] font-medium uppercase tracking-wide text-[var(--muted)]">{g.label}</p>
+      <nav aria-label="Bot sections" className="hidden flex-wrap items-center gap-1 rounded-xl border border-[var(--card-border)] bg-[var(--card)] p-1 lg:flex">
+        {SECTION_GROUPS.map((g) => {
+          const inGroup = g.sections.some((s) => s.id === section);
+          const groupBadge = g.sections.some((s) => badges[s.id]);
+          // A group with one section (Overview, Token & danger) is a plain button; the others open a list.
+          if (g.sections.length === 1) {
+            const { id, label, icon: Icon } = g.sections[0];
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => onSection(id)}
+                aria-current={section === id ? "page" : undefined}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-colors",
+                  section === id ? "bg-[var(--primary)]/10 font-medium text-[var(--primary)]" : "text-[var(--muted)] hover:bg-black/5 hover:text-[var(--foreground)] dark:hover:bg-white/5"
                 )}
-                <ul className="space-y-0.5">
-                  {g.sections.map(({ id, label, icon: Icon }) => (
-                    <li key={id}>
-                      <button
-                        type="button"
-                        onClick={() => onSection(id)}
-                        aria-current={section === id ? "page" : undefined}
-                        className={cn(
-                          "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors",
-                          section === id
-                            ? "bg-[var(--primary)]/10 font-medium text-[var(--primary)]"
-                            : "text-[var(--muted)] hover:bg-black/5 hover:text-[var(--foreground)] dark:hover:bg-white/5"
-                        )}
-                      >
-                        <Icon className="h-4 w-4 shrink-0" aria-hidden />
-                        <span className="min-w-0 flex-1 truncate">{label}</span>
-                        {badges[id] && (
-                          <span className="rounded-full bg-black/5 px-1.5 text-[11px] tabular-nums dark:bg-white/10">{badges[id]}</span>
-                        )}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </li>
-            ))}
-          </ul>
-        </nav>
+              >
+                <Icon className="h-4 w-4" aria-hidden />
+                {label}
+                {badges[id] && <span className="rounded-full bg-black/5 px-1.5 text-[11px] tabular-nums dark:bg-white/10">{badges[id]}</span>}
+              </button>
+            );
+          }
+          return (
+            <DropdownMenu
+              key={g.label ?? "main"}
+              active={inGroup}
+              value={section}
+              onSelect={(id) => onSection(id as SectionId)}
+              items={g.sections.map(({ id, label, icon }) => ({ id, label, icon, badge: badges[id] }))}
+            >
+              {g.label}
+              {inGroup && <span className="font-normal text-[var(--foreground)]">· {g.sections.find((s) => s.id === section)?.label}</span>}
+              {!inGroup && groupBadge && <span className="h-1.5 w-1.5 rounded-full bg-[var(--primary)]" aria-label="Needs attention" />}
+            </DropdownMenu>
+          );
+        })}
+      </nav>
 
-        <div className="min-w-0">{children}</div>
-      </div>
+      <div className="min-w-0">{children}</div>
     </div>
   );
 }
@@ -139,7 +144,7 @@ function BotHeader({
 
   useEffect(() => {
     apiFetch<{ bots: BotSummary[] }>("/api/bots")
-      .then((r) => setBots(r.bots.slice().sort((a, b) => a.username.localeCompare(b.username))))
+      .then((r) => setBots(r.bots.slice().sort((a, b) => (a.firstName || a.username).localeCompare(b.firstName || b.username))))
       .catch(() => {});
   }, []);
 
@@ -169,15 +174,15 @@ function BotHeader({
               >
                 {bots.map((b) => (
                   <option key={b.id} value={b.id}>
-                    @{b.username}
+                    {b.firstName || `@${b.username}`}
                   </option>
                 ))}
               </select>
             ) : (
-              <h1 className="truncate text-lg font-semibold">@{bot.username}</h1>
+              <h1 className="truncate text-lg font-semibold">{bot.firstName || `@${bot.username}`}</h1>
             )}
             <p className="truncate text-sm text-[var(--muted)]">
-              {bot.firstName}
+              @{bot.username}
               {label && section !== "overview" ? ` · ${label}` : ""}
             </p>
           </div>

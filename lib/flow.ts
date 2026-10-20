@@ -9,6 +9,8 @@ export interface FlowRule {
   replyText: string;
   buttons: InlineButton[][] | null;
   enabled: boolean;
+  /** Button answers only: a "toast" shows a small pop-up instead of a message. */
+  callbackAction?: "toast" | "edit" | "reply";
 }
 
 /** One inline button of a step, resolved against the rules. */
@@ -73,4 +75,81 @@ export function newStepId(parentPattern: string, label: string, rules: readonly 
   let id = base;
   for (let n = 2; taken.has(id); n++) id = `${base}_${n}`;
   return id;
+}
+
+/** A reply placed on the flow map: `depth` = how many button presses from a starting point (0 = a starting point itself). */
+export interface GraphNode<T extends FlowRule = FlowRule> {
+  rule: T;
+  depth: number;
+  /** Position within its column, in discovery order. */
+  row: number;
+}
+
+/** A button leading from one reply to another. `back` = it points at a reply at the same or an earlier column (a Back/Menu button). */
+export interface GraphEdge {
+  from: number;
+  to: number;
+  label: string;
+  back: boolean;
+}
+
+export interface FlowGraph<T extends FlowRule = FlowRule> {
+  nodes: GraphNode<T>[];
+  /** Node IDs grouped by depth: `columns[0]` = starting points. */
+  columns: number[][];
+  edges: GraphEdge[];
+  /** Buttons that no rule answers, with the reply they sit on. */
+  unlinked: { from: number; label: string; data: string }[];
+  /** Button answers no button leads to (not on the map's columns; shown in a side lane). */
+  unused: T[];
+  /** The previous reply on the shortest route from a starting point (null for starting points); `pathTo` follows it. */
+  parent: Map<number, number | null>;
+}
+
+/**
+ * The whole conversation as a graph: starting points in column 0, then every reply one button press further, found by
+ * breadth-first search (a visited set, so Back buttons and cycles terminate). Pure and shared with the builder's columns.
+ */
+export function flowGraph<T extends FlowRule>(rules: readonly T[]): FlowGraph<T> {
+  const byId = new Map(rules.map((r) => [r.id, r]));
+  const parent = new Map<number, number | null>();
+  const depthOf = new Map<number, number>();
+  const columns: number[][] = [];
+  const queue: number[] = [];
+  for (const r of entryRules(rules)) {
+    parent.set(r.id, null);
+    depthOf.set(r.id, 0);
+    queue.push(r.id);
+  }
+  const edges: GraphEdge[] = [];
+  const unlinked: FlowGraph["unlinked"] = [];
+  for (let head = 0; head < queue.length; head++) {
+    const id = queue[head];
+    const depth = depthOf.get(id)!;
+    (columns[depth] ??= []).push(id);
+    const rule = byId.get(id)!;
+    for (const row of flowButtons(rule, rules)) {
+      for (const b of row) {
+        if (b.kind === "unlinked") unlinked.push({ from: id, label: b.text, data: b.data! });
+        if (!b.target) continue;
+        const to = b.target.id;
+        if (!depthOf.has(to)) {
+          depthOf.set(to, depth + 1);
+          parent.set(to, id);
+          queue.push(to);
+        }
+        edges.push({ from: id, to, label: b.text, back: depthOf.get(to)! <= depth });
+      }
+    }
+  }
+  const nodes = columns.flatMap((ids, depth) => ids.map((id, row) => ({ rule: byId.get(id)!, depth, row })));
+  return { nodes, columns, edges, unlinked, unused: rules.filter((r) => isCallbackMatch(r) && !depthOf.has(r.id)), parent };
+}
+
+/** The route of reply IDs from a starting point down to `id` (what the builder's columns call a path), or [] if unreachable. */
+export function pathTo(graph: Pick<FlowGraph, "parent">, id: number): number[] {
+  if (!graph.parent.has(id)) return [];
+  const path: number[] = [];
+  for (let cur: number | null | undefined = id; cur != null; cur = graph.parent.get(cur)) path.unshift(cur);
+  return path;
 }

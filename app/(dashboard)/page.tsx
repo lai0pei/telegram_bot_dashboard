@@ -45,19 +45,8 @@ interface OverviewStats {
   groups: number;
   botUsers: number;
   messagesToday: number;
-<<<<<<< HEAD
   botsNeedingAttention: number;
-=======
   trend: TrendPoint[];
-  recentMessages: {
-    id: number;
-    botId: number;
-    botUsername: string;
-    fromName: string;
-    text: string | null;
-    createdAt: number;
-  }[];
->>>>>>> a05ef6cc882ff2f00a1a66315cd22f35b5d75cda
 }
 
 const compact = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });

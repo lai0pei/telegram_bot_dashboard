@@ -21,6 +21,7 @@ export const MATCH_TYPES: { value: AutoReplyMatchType; label: string; patternLab
   { value: "deeplink", label: "Someone opens a special link", patternLabel: "Link code", patternHint: "the code after ?start=, e.g. promo_2026" },
   { value: "media", label: "Someone sends a photo, file…", patternLabel: "Kind of message", patternHint: "" },
   { value: "shared", label: "Someone shares a contact or chat", patternLabel: "Request ID", patternHint: "the request ID of the keyboard button, e.g. 1" },
+  { value: "fallback", label: "Anything else (nothing above matches)", patternLabel: "Matches", patternHint: "" },
 ];
 
 export const CALLBACK_ACTION_LABELS: Record<CallbackAction, string> = {
@@ -77,7 +78,7 @@ export function RuleFields({ bot, draft, onChange, idPrefix = "rule" }: { bot: B
             onChange={(e) => {
               const next = e.target.value as AutoReplyMatchType;
               // The pattern's meaning changes with the type (a media kind is picked from a list), so start afresh.
-              set({ matchType: next, pattern: next === "media" ? MEDIA_KINDS[0] : "" });
+              set({ matchType: next, pattern: next === "media" ? MEDIA_KINDS[0] : next === "fallback" ? "*" : "" });
             }}
           >
             {MATCH_TYPES.filter((t) => t.value !== "callback_prefix").map((t) => (
@@ -97,6 +98,10 @@ export function RuleFields({ bot, draft, onChange, idPrefix = "rule" }: { bot: B
                 </option>
               ))}
             </select>
+          ) : matchType === "fallback" ? (
+            <p id={`${idPrefix}-pattern`} className="flex h-10 items-center text-sm text-[var(--muted)]">
+              Every private message no other rule answers
+            </p>
           ) : (
             <Input id={`${idPrefix}-pattern`} value={draft.pattern} onChange={(e) => set({ pattern: e.target.value })} placeholder={meta?.patternHint} />
           )}

@@ -130,44 +130,70 @@ export interface CreateBotResult {
   token: string;
 }
 
+/** BotFather's generic failure ("Sorry, an error has occurred during your request ... (Code 143694013)"): Telegram-side, the number varies. */
+const GENERIC_FAILURE = /an error has occurred.*?\(code (\d+)\)/i;
+
 export async function createBot(userId: string, name: string, username: string): Promise<CreateBotResult> {
-  return withClient(userId, async (client) => {
-    let lastId = await getLastMessageId(client);
+  // Set when BotFather's reply was unclear but the bot exists anyway: its token is then fetched after the lock is released
+  // (fetchBotToken takes the same per-user lock, so doing it inside withClient would deadlock).
+  let existsAnyway = false;
+  try {
+    return await withClient(userId, async (client) => {
+      let lastId = await getLastMessageId(client);
 
-    let reply = await sendAndAwaitReply(client, "/newbot", lastId);
-    lastId = reply.id;
-    if (!/choose a name for your bot/i.test(reply.text ?? "")) {
-      throw new BotFatherError(`Unexpected BotFather reply to /newbot: "${reply.text}"`);
-    }
+      let reply = await sendAndAwaitReply(client, "/newbot", lastId);
+      lastId = reply.id;
+      if (!/choose a name for your bot/i.test(reply.text ?? "")) {
+        throw new BotFatherError(`Unexpected BotFather reply to /newbot: "${reply.text}"`);
+      }
 
-    reply = await sendAndAwaitReply(client, name, lastId);
-    lastId = reply.id;
-    if (!/choose a username/i.test(reply.text ?? "")) {
-      throw new BotFatherError(`BotFather rejected the bot name: "${reply.text}"`);
-    }
+      reply = await sendAndAwaitReply(client, name, lastId);
+      lastId = reply.id;
+      if (!/choose a username/i.test(reply.text ?? "")) {
+        throw new BotFatherError(`BotFather rejected the bot name: "${reply.text}"`);
+      }
 
-    reply = await sendAndAwaitReply(client, username, lastId);
-    lastId = reply.id;
-    const text = reply.text ?? "";
+      // From here the bot may exist even if the reply is unusable, so settle those cases by asking Telegram (like deleteBot).
+      try {
+        reply = await sendAndAwaitReply(client, username, lastId);
+        lastId = reply.id;
+        const text = reply.text ?? "";
 
-    if (/sorry.*this username is already taken/i.test(text)) {
-      throw new BotFatherError("That username is already taken.");
-    }
-    if (/can only contain|too short|must end in.*bot/i.test(text)) {
-      throw new BotFatherError(`BotFather rejected the username: "${text}"`);
-    }
-    if (/too many attempts|retry later|flood/i.test(text)) {
-      throw new BotFatherError("Rate limited by BotFather. Try again later.");
-    }
+        if (/sorry.*this username is already taken/i.test(text)) {
+          throw new KnownRejection("That username is already taken.");
+        }
+        if (/can only contain|too short|must end in.*bot/i.test(text)) {
+          throw new KnownRejection(`BotFather rejected the username: "${text}"`);
+        }
+        if (/too many attempts|retry later|flood/i.test(text)) {
+          throw new KnownRejection("Rate limited by BotFather. Try again later.");
+        }
 
-    const tokenMatch = text.match(/(\d{6,}:[\w-]{30,})/);
-    if (!/done!/i.test(text) || !tokenMatch) {
-      throw new BotFatherError(`Unexpected BotFather reply while creating the bot: "${text}"`);
-    }
-
-    return { username, token: tokenMatch[1] };
-  });
+        const tokenMatch = text.match(/(\d{6,}:[\w-]{30,})/);
+        if (!/done!/i.test(text) || !tokenMatch) {
+          const code = text.match(GENERIC_FAILURE)?.[1];
+          throw new BotFatherError(
+            code
+              ? `BotFather couldn't create the bot right now (Telegram error code ${code}). This comes from Telegram, not the dashboard: wait a few minutes and try again, or try another username.`
+              : `Unexpected BotFather reply while creating the bot: "${text}"`
+          );
+        }
+        return { username, token: tokenMatch[1] };
+      } catch (err) {
+        if (!(err instanceof KnownRejection) && !(err instanceof TelegramSessionRevokedError)) {
+          existsAnyway = await isStillAdminedBot(client, username).catch(() => false);
+        }
+        throw err;
+      }
+    });
+  } catch (err) {
+    if (!existsAnyway) throw err;
+    return { username, token: await fetchBotToken(userId, username) };
+  }
 }
+
+/** A definite BotFather "no" (taken, invalid, rate limited): the bot was not created. */
+class KnownRejection extends BotFatherError {}
 
 // --- Delete -------------------------------------------------------------
 

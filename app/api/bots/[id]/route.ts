@@ -1,12 +1,9 @@
 import { NextResponse } from "next/server";
 import { withAuth, errorResponse } from "@/lib/api-guard";
 import { deleteBot as botFatherDelete } from "@/lib/botfather";
-<<<<<<< HEAD
-import { deleteBotRow, getBotById, getBotToken, healthOf, withLiveBotToken } from "@/lib/bots";
-=======
-import { deleteBotRow, getBotById, getBotToken, setWebhookHealth, withLiveBotToken } from "@/lib/bots";
->>>>>>> a05ef6cc882ff2f00a1a66315cd22f35b5d75cda
+import { deleteBotRow, getBotById, getBotToken, healthOf, setWebhookHealth, withLiveBotToken } from "@/lib/bots";
 import { botApi, type BotCommand } from "@/lib/botapi";
+import { recordSetup } from "@/lib/setup-cache";
 import { singleFlight } from "@/lib/single-flight";
 import {
   validateBotName,
@@ -35,14 +32,21 @@ export const GET = withAuth(async (_req: Request, ctx: { params: Promise<{ id: s
       });
     }
 
+    // Calls that failed return a default below; remember which, so the setup cache only learns facts that were really read.
+    const failed = new Set<string>();
     const { result, token: liveToken } = await withLiveBotToken(bot, userId, async (liveToken) => {
+      failed.clear();
+      const soft = <T,>(key: string, fallback: T) => () => {
+        failed.add(key);
+        return fallback;
+      };
       const [info, name, description, shortDescription, commands, webhook] = await Promise.all([
         botApi.getMe(liveToken),
         botApi.getMyName(liveToken).catch(() => ({ name: "" })),
-        botApi.getMyDescription(liveToken).catch(() => ({ description: "" })),
-        botApi.getMyShortDescription(liveToken).catch(() => ({ short_description: "" })),
-        botApi.getMyCommands(liveToken).catch(() => [] as BotCommand[]),
-        botApi.getWebhookInfo(liveToken).catch(() => null),
+        botApi.getMyDescription(liveToken).catch(soft("about", { description: "" })),
+        botApi.getMyShortDescription(liveToken).catch(soft("short", { short_description: "" })),
+        botApi.getMyCommands(liveToken).catch(soft("commands", [] as BotCommand[])),
+        botApi.getWebhookInfo(liveToken).catch(soft("webhook", null)),
       ]);
       return { info, name, description, shortDescription, commands, webhook };
     });
@@ -52,6 +56,13 @@ export const GET = withAuth(async (_req: Request, ctx: { params: Promise<{ id: s
       result.webhook?.last_error_message ?? null,
       result.webhook?.pending_update_count ?? null
     );
+
+    recordSetup(bot.id, {
+      ...(failed.has("short") ? {} : { short: Boolean(result.shortDescription.short_description.trim()) }),
+      ...(failed.has("about") ? {} : { about: Boolean(result.description.description.trim()) }),
+      ...(failed.has("commands") ? {} : { commands: result.commands.length > 0 }),
+      ...(failed.has("webhook") ? {} : { listening: bot.monitorEnabled && !result.webhook?.url }),
+    });
 
     return NextResponse.json({
       id: bot.id,

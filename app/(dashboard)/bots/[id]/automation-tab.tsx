@@ -1,31 +1,17 @@
 "use client";
 
-import { ArrowDown, ArrowUp, Info, Pencil, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { Info, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
 import { apiFetch } from "@/lib/api-client";
-import { DeepLinksCard } from "./deep-links-card";
-import { InlineResultsCard } from "./inline-results-card";
-import { draftCanSave, draftOutputs, draftToBody, emptyRuleDraft, isCallbackType, isToastOnly, ruleToDraft, type RuleDraft } from "./rule-draft";
-import { CALLBACK_ACTION_LABELS, RuleFields } from "./rule-fields";
+import { draftCanSave, draftOutputs, draftToBody, emptyRuleDraft, isToastOnly, ruleToDraft, type RuleDraft } from "./rule-draft";
+import { RuleFields } from "./rule-fields";
+import { RuleList } from "./rule-list";
+import { TemplatePicker } from "./template-picker";
 import { TelegramPreview, type PreviewMessage } from "./telegram-preview";
-import type { AutoReplyMatchType, AutoReplyRule, BotDetail } from "./types";
-
-const MATCH_SHORT: Record<AutoReplyMatchType, string> = {
-  command: "Command",
-  exact: "Exact text",
-  contains: "Contains",
-  callback: "Button",
-  callback_prefix: "Button (starts with)",
-  deeplink: "Special link",
-  media: "Media",
-  shared: "Shared",
-};
+import type { AutoReplyRule, BotDetail } from "./types";
 
 /** What the person would have done to trigger the rule, as the preview's first bubble (none for a button press). */
 function triggerText(d: RuleDraft): string | null {
@@ -42,6 +28,8 @@ function triggerText(d: RuleDraft): string | null {
       return `[${p.replace("_", " ") || "file"}]`;
     case "shared":
       return "[shared a contact or chat]";
+    case "fallback":
+      return "Something no rule knows";
     default:
       return null;
   }
@@ -60,11 +48,14 @@ export function previewOf(d: RuleDraft): { messages: PreviewMessage[]; keyboard:
 }
 
 /** Rules the background poller applies to incoming messages and button presses. */
-export function AutomationTab({ bot }: { bot: BotDetail }) {
+export function AutomationTab({ bot, onPickTemplate }: { bot: BotDetail; onPickTemplate: (templateId: string | null) => void }) {
   const [rules, setRules] = useState<AutoReplyRule[] | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState<RuleDraft>(emptyRuleDraft);
   const [saving, setSaving] = useState(false);
+  const editorRef = useRef<HTMLDivElement>(null);
+  // Declared here (not next to the toggle) because startNew needs setView.
+  const [view, setView] = useState<"edit" | "preview">("edit");
 
   const load = useCallback(async () => {
     try {
@@ -87,6 +78,16 @@ export function AutomationTab({ bot }: { bot: BotDetail }) {
     setDraft(emptyRuleDraft());
   }
 
+  /** "+ New rule": the editor may be hidden behind the Preview toggle or below the list, so bring it into view. */
+  function startNew() {
+    resetForm();
+    setView("edit");
+    requestAnimationFrame(() => {
+      editorRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      editorRef.current?.querySelector<HTMLElement>("select, input, textarea")?.focus({ preventScroll: true });
+    });
+  }
+
   function startEdit(rule: AutoReplyRule) {
     setEditingId(rule.id);
     setDraft(ruleToDraft(rule));
@@ -98,11 +99,14 @@ export function AutomationTab({ bot }: { bot: BotDetail }) {
     setSaving(true);
     try {
       const body = draftToBody(draft);
+      let created: AutoReplyRule | null = null;
       if (editingId) await apiFetch(`/api/bots/${bot.id}/auto-replies/${editingId}`, { method: "PATCH", body });
-      else await apiFetch(`/api/bots/${bot.id}/auto-replies`, { body: { ...body, enabled: true } });
+      else created = (await apiFetch<{ rule: AutoReplyRule }>(`/api/bots/${bot.id}/auto-replies`, { body: { ...body, enabled: true } })).rule;
       toast.success(editingId ? "Rule updated." : "Rule added.");
-      resetForm();
       await load();
+      // A new rule stays open and highlighted in the list, so it's visible where it landed.
+      if (created) startEdit(created);
+      else resetForm();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save the rule.");
     } finally {
@@ -131,6 +135,18 @@ export function AutomationTab({ bot }: { bot: BotDetail }) {
 
   const listening = bot.monitorEnabled && !bot.webhook?.url;
   const preview = previewOf(draft);
+  // Below 1360px the editor and the phone share one column; this picks which one shows (both show side by side above).
+  const only = (v: "edit" | "preview") => (view === v ? "" : "hidden wide:block");
+
+  const toggle = (
+    <div role="group" aria-label="Show" className="inline-flex rounded-lg border border-[var(--card-border)] p-0.5 text-xs wide:hidden">
+      {(["edit", "preview"] as const).map((v) => (
+        <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)} className={`rounded-md px-2.5 py-1 ${view === v ? "bg-[var(--primary)] text-white" : "text-[var(--muted)]"}`}>
+          {v === "edit" ? "Edit" : "Preview"}
+        </button>
+      ))}
+    </div>
+  );
 
   return (
     <div className="space-y-4">
@@ -144,75 +160,23 @@ export function AutomationTab({ bot }: { bot: BotDetail }) {
         </Card>
       )}
 
-      <div className="grid items-start gap-4 xl:grid-cols-2">
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Automatic replies</CardTitle>
-              <span className="text-xs text-[var(--muted)]">Checked top to bottom; the first match replies.</span>
-            </CardHeader>
-            {rules === null ? (
-              <Skeleton className="h-24" />
-            ) : rules.length === 0 ? (
-              <p className="text-sm text-[var(--muted)]">No rules yet. Add your first one on the right — a welcome message is a good start.</p>
-            ) : (
-              <ul className="divide-y divide-[var(--card-border)]">
-                {rules.map((rule, i) => (
-                  <li key={rule.id} className="flex items-center gap-3 py-2.5">
-                    <Switch checked={rule.enabled} onCheckedChange={(enabled) => void patch(rule, { enabled })} aria-label={`Enable ${rule.pattern}`} />
-                    <div className="min-w-0 flex-1">
-                      <p className="flex items-center gap-2 text-sm">
-                        <Badge variant="primary">{MATCH_SHORT[rule.matchType]}</Badge>
-                        <span className="truncate font-medium">{rule.matchType === "command" ? `/${rule.pattern}` : rule.pattern}</span>
-                      </p>
-                      <p className="truncate text-xs text-[var(--muted)]">
-                        {isCallbackType(rule.matchType) && rule.callbackAction !== "toast" ? `${CALLBACK_ACTION_LABELS[rule.callbackAction]}: ` : ""}
-                        {rule.replyText}
-                      </p>
-                      {rule.hits > 0 && (
-                        <p className="text-xs text-[var(--muted)]">
-                          Used {rule.hits} time{rule.hits === 1 ? "" : "s"}
-                          {rule.lastHitAt ? `, last ${new Date(rule.lastHitAt).toLocaleString()}` : ""}
-                        </p>
-                      )}
-                    </div>
-                    <Button variant="ghost" size="icon" disabled={i === 0} onClick={() => void patch(rule, { move: "up" })} aria-label="Move up">
-                      <ArrowUp className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" disabled={i === rules.length - 1} onClick={() => void patch(rule, { move: "down" })} aria-label="Move down">
-                      <ArrowDown className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => startEdit(rule)} aria-label="Edit rule">
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => void remove(rule)} aria-label="Delete rule">
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
+      <div className="grid items-start gap-4 lg:grid-cols-[280px_minmax(0,1fr)] wide:grid-cols-[300px_minmax(0,1fr)_320px]">
+        <Card className="lg:col-start-1 lg:row-start-1 wide:sticky wide:top-6 wide:max-h-[calc(100dvh-3rem)] wide:overflow-y-auto">
+          <RuleList
+            rules={rules}
+            selectedId={editingId}
+            onSelect={startEdit}
+            onNew={startNew}
+            draft={editingId ? null : draft}
+            onToggle={(rule, enabled) => void patch(rule, { enabled })}
+            onMove={(rule, move) => void patch(rule, { move })}
+          />
+        </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>How it looks in Telegram</CardTitle>
-            </CardHeader>
-            <TelegramPreview
-              mode="chat"
-              botName={bot.name ?? bot.firstName}
-              username={bot.username}
-              photoSrc={`/api/bots/${bot.id}/photo`}
-              messages={preview.messages}
-              keyboard={preview.keyboard}
-              commands={bot.commands}
-            />
-          </Card>
-        </div>
-
-        <Card className="xl:sticky xl:top-6 xl:max-h-[calc(100dvh-3rem)] xl:overflow-y-auto">
+        <Card ref={editorRef} className={`lg:col-start-2 lg:row-start-1 ${only("edit")}`}>
           <CardHeader className="flex-wrap gap-2">
             <CardTitle>{editingId ? "Edit rule" : "Add a rule"}</CardTitle>
+            {toggle}
             {!editingId && (
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -234,9 +198,15 @@ export function AutomationTab({ bot }: { bot: BotDetail }) {
               </div>
             )}
           </CardHeader>
+          {rules !== null && rules.length === 0 && !editingId && (
+            <div className="mb-4 space-y-3">
+              <p className="text-sm text-[var(--muted)]">Add your first rule below — a welcome message is a good start — or begin with a ready-made bot:</p>
+              <TemplatePicker compact selectedId={null} onSelect={(t) => onPickTemplate(t.id)} onMore={() => onPickTemplate(null)} className="grid gap-2 sm:grid-cols-2" />
+            </div>
+          )}
           <div className="space-y-3">
             <RuleFields bot={bot} draft={draft} onChange={setDraft} />
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button onClick={save} disabled={!canSave} loading={saving}>
                 {editingId ? "Save changes" : "Add rule"}
               </Button>
@@ -245,14 +215,30 @@ export function AutomationTab({ bot }: { bot: BotDetail }) {
                   {editingId ? "Cancel" : "Clear"}
                 </Button>
               )}
+              {editingId && (
+                <Button variant="ghost" className="ml-auto text-[var(--danger)]" onClick={() => void remove(rules?.find((r) => r.id === editingId) as AutoReplyRule)}>
+                  <Trash2 className="h-4 w-4" aria-hidden /> Delete rule
+                </Button>
+              )}
             </div>
           </div>
         </Card>
-      </div>
 
-      <div className="grid items-start gap-4 xl:grid-cols-2">
-        <DeepLinksCard bot={bot} />
-        <InlineResultsCard bot={bot} />
+        <Card className={`lg:col-start-2 lg:row-start-1 wide:col-start-3 wide:sticky wide:top-6 ${only("preview")}`}>
+          <CardHeader className="flex-wrap gap-2">
+            <CardTitle>How it looks in Telegram</CardTitle>
+            {toggle}
+          </CardHeader>
+          <TelegramPreview
+            mode="chat"
+            botName={bot.name ?? bot.firstName}
+            username={bot.username}
+            photoSrc={`/api/bots/${bot.id}/photo`}
+            messages={preview.messages}
+            keyboard={preview.keyboard}
+            commands={bot.commands}
+          />
+        </Card>
       </div>
     </div>
   );

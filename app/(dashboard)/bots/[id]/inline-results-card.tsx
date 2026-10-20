@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { apiFetch } from "@/lib/api-client";
 import { validateInlineResult } from "@/lib/validation";
+import { ComposerPreview } from "./composer-preview";
 import { ButtonsEditor, buttonsToDrafts, draftsToButtons, type ButtonDraft } from "./buttons-editor";
 import type { BotDetail, InlineResultRule, ParseModeChoice } from "./types";
 
@@ -166,6 +167,7 @@ export function InlineResultsCard({ bot }: { bot: BotDetail }) {
             </select>
           </div>
           <ButtonsEditor drafts={drafts} onChange={setDrafts} botId={bot.id} chatId="-1" inlineMode={bot.info?.supports_inline_queries} />
+          <ComposerPreview bot={bot} text={messageText} parseMode={parseMode} drafts={drafts} title="How the sent message will look" />
           <FieldError error={error} />
           <div className="flex gap-2">
             <Button onClick={save} disabled={!canSave} loading={saving}>

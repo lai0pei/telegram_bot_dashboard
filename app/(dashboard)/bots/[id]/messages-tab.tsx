@@ -318,7 +318,7 @@ export function MessagesTab({ bot, onChange }: { bot: BotDetail; onChange: () =>
         </p>
       )}
 
-      <Card className="grid h-[calc(100dvh-13rem)] min-h-[420px] grid-cols-1 overflow-hidden p-0 md:grid-cols-[280px_1fr]">
+      <Card className="grid h-[calc(100dvh-16.5rem)] min-h-[420px] grid-cols-1 overflow-hidden p-0 md:grid-cols-[280px_1fr]">
         <ConversationList
           botId={bot.id}
           photoVersion={photoVersion}
@@ -332,6 +332,7 @@ export function MessagesTab({ bot, onChange }: { bot: BotDetail; onChange: () =>
           <ChatPane
             key={selected}
             botId={bot.id}
+            bot={bot}
             photoVersion={photoVersion}
             refreshing={refreshing}
             onRefreshContact={handleRefreshContact}

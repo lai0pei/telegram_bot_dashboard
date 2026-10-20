@@ -15,8 +15,8 @@ import type { AutoReplyRule, BotConversation, BotDetail, BotStatsData } from "./
 
 type Load<T> = { state: "loading" } | { state: "error" } | { state: "ok"; data: T };
 
-/** Fetches `url` on mount (and again whenever `version` is bumped, to refresh after an edit made elsewhere on the page). */
-function useLoad<T>(url: string, version = 0): Load<T> {
+/** Fetches `url` on mount. */
+function useLoad<T>(url: string): Load<T> {
   const [result, setResult] = useState<Load<T>>({ state: "loading" });
   useEffect(() => {
     let live = true;
@@ -26,7 +26,7 @@ function useLoad<T>(url: string, version = 0): Load<T> {
     return () => {
       live = false;
     };
-  }, [url, version]);
+  }, [url]);
   return result;
 }
 
@@ -58,18 +58,26 @@ function Tile({ label, value }: { label: string; value: number }) {
 export function OverviewSection({
   bot,
   photoSrc,
+  rules,
+  rulesFailed,
+  hasPhoto,
+  onRulesChanged,
   onChange,
   onOpen,
 }: {
   bot: BotDetail;
   photoSrc: string;
+  /** Loaded by the page (the sidebar badge counts the same rules); null while loading. */
+  rules: AutoReplyRule[] | null;
+  /** The last attempt to load the rules failed (and none are known). */
+  rulesFailed: boolean;
+  hasPhoto: boolean | null;
+  onRulesChanged: () => void;
   onChange: () => void;
   onOpen: (section: SectionId, chat?: string) => void;
 }) {
   const stats = useLoad<BotStatsData>(`/api/bots/${bot.id}/stats`);
-  // Bumped when the setup checklist changes a rule, so the automation card and the checklist agree.
-  const [rulesVersion, setRulesVersion] = useState(0);
-  const rules = useLoad<{ rules: AutoReplyRule[] }>(`/api/bots/${bot.id}/auto-replies`, rulesVersion);
+  const rulesResult: Load<{ rules: AutoReplyRule[] }> = rules ? { state: "ok", data: { rules } } : rulesFailed ? { state: "error" } : { state: "loading" };
   const messages = useLoad<{ conversations: BotConversation[] }>(`/api/bots/${bot.id}/messages`);
   const open = (section: SectionId) => onOpen(section);
 
@@ -79,9 +87,10 @@ export function OverviewSection({
         <SetupChecklist
           bot={bot}
           photoSrc={photoSrc}
-          rules={rules.state === "ok" ? rules.data.rules : null}
+          rules={rules}
+          hasPhoto={hasPhoto}
           onReload={onChange}
-          onRulesChanged={() => setRulesVersion((v) => v + 1)}
+          onRulesChanged={onRulesChanged}
           onOpen={open}
         />
       </div>
@@ -189,7 +198,7 @@ export function OverviewSection({
           <CardTitle>Automation</CardTitle>
           <OpenLink to="automation" label="Rules" onOpen={open} />
         </CardHeader>
-        <Body result={rules}>
+        <Body result={rulesResult}>
           {({ rules: list }) =>
             list.length === 0 ? (
               <p className="text-sm text-[var(--muted)]">No auto-reply rules yet.</p>

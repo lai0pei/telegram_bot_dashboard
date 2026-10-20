@@ -1,11 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-<<<<<<< HEAD
   "id": "2eb635ef-4e2b-4307-990e-25b465746019",
-=======
-  "id": "0ab50840-28f8-4287-bdab-10a0ce535015",
->>>>>>> a05ef6cc882ff2f00a1a66315cd22f35b5d75cda
   "prevId": "e3faeb46-0a30-4d5e-887a-dc6b537247c9",
   "tables": {
     "bot_messages": {
@@ -89,7 +85,6 @@
           "autoincrement": false
         }
       },
-<<<<<<< HEAD
       "indexes": {
         "bot_messages_bot_chat_created_idx": {
           "name": "bot_messages_bot_chat_created_idx",
@@ -101,9 +96,6 @@
           "isUnique": false
         }
       },
-=======
-      "indexes": {},
->>>>>>> a05ef6cc882ff2f00a1a66315cd22f35b5d75cda
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
@@ -235,37 +227,6 @@
           "notNull": false,
           "autoincrement": false
         },
-<<<<<<< HEAD
-=======
-        "last_polled_at": {
-          "name": "last_polled_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "poll_error": {
-          "name": "poll_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "webhook_last_error": {
-          "name": "webhook_last_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "webhook_pending_count": {
-          "name": "webhook_pending_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
->>>>>>> a05ef6cc882ff2f00a1a66315cd22f35b5d75cda
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -394,72 +355,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-<<<<<<< HEAD
-=======
-    "daily_stats": {
-      "name": "daily_stats",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "telegram_account_id": {
-          "name": "telegram_account_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "day": {
-          "name": "day",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "metric": {
-          "name": "metric",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "bot_id": {
-          "name": "bot_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "value": {
-          "name": "value",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "daily_stats_unique": {
-          "name": "daily_stats_unique",
-          "columns": [
-            "telegram_account_id",
-            "day",
-            "metric",
-            "bot_id"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
->>>>>>> a05ef6cc882ff2f00a1a66315cd22f35b5d75cda
     "telegram_accounts": {
       "name": "telegram_accounts",
       "columns": {
@@ -526,32 +421,6 @@
           "notNull": false,
           "autoincrement": false
         },
-<<<<<<< HEAD
-=======
-        "digest_frequency": {
-          "name": "digest_frequency",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'off'"
-        },
-        "digest_hour": {
-          "name": "digest_hour",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 9
-        },
-        "last_digest_at": {
-          "name": "last_digest_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
->>>>>>> a05ef6cc882ff2f00a1a66315cd22f35b5d75cda
         "created_at": {
           "name": "created_at",
           "type": "integer",

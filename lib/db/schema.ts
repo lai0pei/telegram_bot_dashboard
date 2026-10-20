@@ -66,12 +66,10 @@ export const bots = sqliteTable(
     tokenFetchedAt: integer("token_fetched_at", { mode: "timestamp_ms" }),
     monitorEnabled: integer("monitor_enabled", { mode: "boolean" }).notNull().default(false),
     lastUpdateId: integer("last_update_id"),
-<<<<<<< HEAD
     /** Result of the last background health check (lib/health.ts); null until the first check. */
     healthStatus: text("health_status", { enum: ["ok", "warning", "error"] }),
     healthMessage: text("health_message"),
     healthCheckedAt: integer("health_checked_at", { mode: "timestamp_ms" }),
-=======
     /** Set by the poller after each getUpdates cycle that includes this bot, success or failure. Used to detect a stalled poller. */
     lastPolledAt: integer("last_polled_at", { mode: "timestamp_ms" }),
     /** Error message from the most recent failed getUpdates call for this bot; cleared on the next success. */
@@ -79,7 +77,8 @@ export const bots = sqliteTable(
     /** Cached from the bot's getWebhookInfo, refreshed opportunistically (webhook tab load, overview load). Null when there's no webhook or no error. */
     webhookLastError: text("webhook_last_error"),
     webhookPendingCount: integer("webhook_pending_count"),
->>>>>>> a05ef6cc882ff2f00a1a66315cd22f35b5d75cda
+    /** JSON of the setup facts learned so far (lib/setup-progress.ts), shown as "n/6" on the bot cards. Cache only: the bot page recomputes it. */
+    setupProgress: text("setup_progress"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },
@@ -179,23 +178,6 @@ export const botBusinessConnections = sqliteTable(
   (table) => [uniqueIndex("bot_business_connections_bot_connection_unique").on(table.botId, table.connectionId)]
 );
 
-/**
- * Sticker / custom-emoji sets this bot manages. The Bot API can't list a bot's sets, so rows are the ones created
- * here or imported by name. `name` is the full short name and always ends in `_by_<bot username>`.
- */
-export const botStickerSets = sqliteTable(
-  "bot_sticker_sets",
-  {
-    id: integer("id").primaryKey({ autoIncrement: true }),
-    botId: integer("bot_id").notNull(),
-    name: text("name").notNull(),
-    title: text("title").notNull(),
-    type: text("type", { enum: ["regular", "mask", "custom_emoji"] }).notNull(),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-  },
-  (table) => [uniqueIndex("bot_sticker_sets_bot_name_unique").on(table.botId, table.name)]
-);
-
 export const botUsers = sqliteTable("bot_users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   botId: integer("bot_id").notNull(),
@@ -210,7 +192,6 @@ export const botUsers = sqliteTable("bot_users", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
-<<<<<<< HEAD
 /** An inline button as stored in JSON columns: a label, an optional colour and exactly one action (see InlineButton). */
 export type StoredButton = InlineButton;
 
@@ -221,7 +202,7 @@ export const autoReplies = sqliteTable(
     id: integer("id").primaryKey({ autoIncrement: true }),
     botId: integer("bot_id").notNull(),
     matchType: text("match_type", {
-      enum: ["command", "exact", "contains", "callback", "callback_prefix", "deeplink", "media", "shared"],
+      enum: ["command", "exact", "contains", "callback", "callback_prefix", "deeplink", "media", "shared", "fallback"],
     }).notNull(),
     pattern: text("pattern").notNull(),
     replyText: text("reply_text").notNull(),
@@ -384,7 +365,8 @@ export const botJoinRequests = sqliteTable(
     requestedAt: integer("requested_at", { mode: "timestamp_ms" }).notNull(),
   },
   (table) => [uniqueIndex("bot_join_requests_bot_chat_user_unique").on(table.botId, table.chatId, table.userId)]
-=======
+);
+
 /**
  * One row per (account, day, metric, bot), written once a day by
  * lib/stats.ts so the overview can show a trend ("+12 this week") instead of
@@ -404,5 +386,19 @@ export const dailyStats = sqliteTable(
   (table) => [
     uniqueIndex("daily_stats_unique").on(table.telegramAccountId, table.day, table.metric, table.botId),
   ]
->>>>>>> a05ef6cc882ff2f00a1a66315cd22f35b5d75cda
+);
+
+/** Templates a dashboard user saved from one of their bots (lib/custom-templates.ts); `content` is JSON `{ profile?, commands, rules }`. */
+export const customTemplates = sqliteTable(
+  "custom_templates",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    ownerUserId: text("owner_user_id").notNull(), // users.id (not a telegram_accounts.id: usable on every linked account)
+    title: text("title").notNull(),
+    emoji: text("emoji").notNull(),
+    blurb: text("blurb").notNull(),
+    content: text("content").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [index("custom_templates_owner_idx").on(table.ownerUserId)]
 );

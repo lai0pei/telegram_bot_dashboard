@@ -10,7 +10,6 @@ import {
   botChats,
   botJoinRequests,
   botMessages,
-  botStickerSets,
   botUsers,
   bots,
   broadcasts,
@@ -22,6 +21,7 @@ import { fetchBotToken } from "./botfather";
 import { getClient } from "./mtproto";
 import { asPhotoBuffer } from "./photos";
 import { BotApiError } from "./botapi";
+import { recordSetup } from "./setup-cache";
 import { singleFlight } from "./single-flight";
 
 export type BotRow = typeof bots.$inferSelect;
@@ -152,6 +152,8 @@ export function setMonitorEnabled(id: number, enabled: boolean): void {
     .set({ monitorEnabled: enabled, updatedAt: new Date() })
     .where(eq(bots.id, id))
     .run();
+  // Monitoring and a webhook exclude each other, so "listening" is exactly this switch.
+  recordSetup(id, { listening: enabled });
 }
 
 export function setLastUpdateId(id: number, updateId: number): void {
@@ -182,7 +184,6 @@ export function deleteBotRow(id: number): void {
     tx.delete(botJoinRequests).where(eq(botJoinRequests.botId, id)).run();
     tx.delete(inlineResults).where(eq(inlineResults.botId, id)).run();
     tx.delete(botBusinessConnections).where(eq(botBusinessConnections.botId, id)).run();
-    tx.delete(botStickerSets).where(eq(botStickerSets.botId, id)).run();
     tx.delete(bots).where(eq(bots.id, id)).run();
   });
 }
