@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bot, LayoutGrid, Megaphone, Settings, Smartphone } from "lucide-react";
+import { Bot, LayoutGrid, Megaphone, Settings, ShieldCheck, Smartphone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-client";
 import { AccountSwitcher } from "./account-switcher";
@@ -17,6 +17,7 @@ const NAV_LINKS = [
   { href: "/telegram-accounts", label: "Telegram accounts", icon: Smartphone },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
+const ADMIN_LINK = { href: "/admin", label: "Admin", icon: ShieldCheck };
 
 /**
  * Sidebar content shared between the desktop sidebar and the mobile menu
@@ -27,7 +28,9 @@ const NAV_LINKS = [
 export function DashboardNav({ onNavigate, collapsed = false, onExpand }: { onNavigate?: () => void; /** The icon-only rail (desktop); `onExpand` opens the full panel. */ collapsed?: boolean; onExpand?: () => void }) {
   const pathname = usePathname();
   const [username, setUsername] = useState<string | null>(null);
-  const { active } = useAccounts();
+  const { active, isAdmin } = useAccounts();
+  // One list feeds the rail, the full panel and the mobile sheet, so the Admin link can't show in only some of them.
+  const links = isAdmin ? [...NAV_LINKS, ADMIN_LINK] : NAV_LINKS;
 
   useEffect(() => {
     void apiFetch<{ username: string }>("/api/account")
@@ -39,7 +42,7 @@ export function DashboardNav({ onNavigate, collapsed = false, onExpand }: { onNa
     return (
       <div className="flex h-full flex-col items-center gap-4">
         <nav aria-label="Main" className="flex flex-1 flex-col gap-1">
-          {NAV_LINKS.map(({ href, label, icon: Icon }) => {
+          {links.map(({ href, label, icon: Icon }) => {
             const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
             return (
               <Link
@@ -75,7 +78,7 @@ export function DashboardNav({ onNavigate, collapsed = false, onExpand }: { onNa
       </div>
 
       <nav className="flex-1 space-y-1">
-        {NAV_LINKS.map(({ href, label, icon: Icon }) => {
+        {links.map(({ href, label, icon: Icon }) => {
           const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
           return (
             <Link

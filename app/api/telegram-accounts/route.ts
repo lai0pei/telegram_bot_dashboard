@@ -5,6 +5,7 @@ import { isTokenBot, listBots } from "@/lib/bots";
 import { checkTelegramSession } from "@/lib/mtproto";
 import { getTelegramAccountById, listTelegramAccountsForUser, pickDefaultTelegramAccountId } from "@/lib/telegram-accounts";
 import { getUserById } from "@/lib/users";
+import { isAdminUser } from "@/lib/admin";
 
 /** Caps how long a slow/unreachable Telegram can hold up the sidebar. */
 const SESSION_CHECK_BUDGET_MS = 5_000;
@@ -43,6 +44,8 @@ export const GET = withSession(async (_req, _ctx, userId) => {
       // Tells the client the cookie was just re-pointed, so a page already
       // loaded as the old account must reload — even on the very first fetch.
       activeChanged,
+      // Only decides whether the sidebar shows the Admin link; /api/admin/* enforces it itself.
+      isAdmin: await isAdminUser(userId),
       accounts: await Promise.all(accounts.map(async (a) => ({
         tokenBots: (await listBots(a.id)).filter(isTokenBot).map((b) => b.username),
         id: a.id,

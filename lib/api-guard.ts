@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { readSessionClaims } from "./auth";
 import { getTelegramAccountById, TelegramSessionRevokedError } from "./telegram-accounts";
-import { getUserById } from "./users";
+import { getUserById, touchLastActive } from "./users";
+import { isAdminUser } from "./admin";
 import { getClientIp, rateLimit } from "./rate-limit";
 import { BotHeldByAnotherAccountError, TokenBotTokenError } from "./token-bot";
 
@@ -27,8 +28,27 @@ export function withSession<Ctx extends RouteContext = RouteContext>(
     if (!user || user.sessionVersion !== claims.sessionVersion) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    touchLastActive(user.id);
     return handler(req, ctx, claims.userId);
   };
+}
+
+/**
+ * Like withSession, but only for the master admin (lib/admin.ts). Answers 403
+ * `NOT_ADMIN` rather than 401, which the client treats as a dead dashboard
+ * session, or 409, which is reserved for NO_ACTIVE_ACCOUNT/SESSION_REVOKED.
+ * Admin routes are cross-tenant by design, so every one of them must go
+ * through this wrapper (they all live under app/api/admin/).
+ */
+export function withAdmin<Ctx extends RouteContext = RouteContext>(
+  handler: (req: Request, ctx: Ctx, userId: string) => Promise<Response>
+): (req: Request, ctx: Ctx) => Promise<Response> {
+  return withSession<Ctx>(async (req, ctx, userId) => {
+    if (!(await isAdminUser(userId))) {
+      return NextResponse.json({ error: "Forbidden", code: "NOT_ADMIN" }, { status: 403 });
+    }
+    return handler(req, ctx, userId);
+  });
 }
 
 /**
@@ -66,6 +86,7 @@ export function withAuth<Ctx extends RouteContext = RouteContext>(
       );
     }
     if (account.revokedAt) return sessionRevokedResponse();
+    touchLastActive(user.id);
     return handler(req, ctx, account.id);
   };
 }
