@@ -8,6 +8,7 @@ import { matchMessageRule, startPayloadOf } from "./match-message";
 import { describeMessage } from "./messages";
 import { recordOutgoing } from "./outgoing";
 import { recordSetup } from "./setup-cache";
+import { logError } from "./error-log";
 import { renderTemplate } from "./templates";
 
 export type AutoReplyRow = typeof autoReplies.$inferSelect;
@@ -223,7 +224,7 @@ function templateContext(token: string, sender: TelegramMessage["from"], payload
 export async function sendAutoReply(botId: number, token: string, rule: AutoReplyRow, message: TelegramMessage, botUsername = ""): Promise<void> {
   await bumpHits(rule.id);
   deliverRuleReply(botId, token, rule, message.chat.id, message.from, startPayloadOf(message, botUsername)).catch((err) =>
-    console.error(`[auto-reply] bot ${botId} rule ${rule.id} failed:`, err instanceof Error ? err.message : err)
+    logError("auto-reply", `bot ${botId} rule ${rule.id} failed`, err, { botId, ruleId: rule.id })
   );
 }
 
@@ -295,5 +296,5 @@ export async function answerCallbackWithRule(botId: number, token: string, rule:
       replyKeyboard: replyKeyboardForChat(parseReplyKeyboard(rule.replyKeyboard), chat.id),
     });
     await recordOutgoing(botId, sent);
-  })().catch((err) => console.error(`[auto-reply] bot ${botId} button rule ${rule.id} failed:`, err instanceof Error ? err.message : err));
+  })().catch((err) => logError("auto-reply", `bot ${botId} button rule ${rule.id} failed`, err, { botId, ruleId: rule.id }));
 }

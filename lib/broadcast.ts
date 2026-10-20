@@ -5,6 +5,7 @@ import { parseButtons } from "./auto-replies";
 import { db } from "./db";
 import { isUniqueViolation } from "./db/errors";
 import { botUsers, broadcasts } from "./db/schema";
+import { logError } from "./error-log";
 import { botNotSuspended } from "./suspension";
 
 export type BroadcastRow = typeof broadcasts.$inferSelect;
@@ -185,7 +186,7 @@ async function sendOne(token: string, chatId: string, broadcast: BroadcastRow, b
     return "sent";
   } catch (err) {
     if (!(err instanceof BotApiError)) {
-      console.error(`[broadcast ${broadcast.id}] send to ${chatId} failed:`, err);
+      logError("broadcast", `broadcast ${broadcast.id} send failed`, err, { broadcastId: broadcast.id, botId: broadcast.botId });
       return "failed";
     }
     if (err.errorCode === 401) return "unauthorized";
@@ -200,7 +201,7 @@ async function sendOne(token: string, chatId: string, broadcast: BroadcastRow, b
     }
     // 403: blocked the bot / deactivated. "chat not found": never started it.
     if (err.errorCode === 403 || (err.errorCode === 400 && /chat not found|user is deactivated/i.test(err.description))) return "blocked";
-    console.error(`[broadcast ${broadcast.id}] send to ${chatId} failed: ${err.description}`);
+    logError("broadcast", `broadcast ${broadcast.id} send failed`, err, { broadcastId: broadcast.id, botId: broadcast.botId });
     return "failed";
   }
 }

@@ -28,6 +28,13 @@ services:
         condition: service_healthy
     ports:
       - "${HOST_BIND:-127.0.0.1}:3000:3000"
+    # Docker's default json-file driver keeps container output forever; rotate it so a noisy error can't fill the disk.
+    # Errors are also stored in the database (Admin > Errors), so this is only the raw fallback.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     restart: unless-stopped
 
 volumes:

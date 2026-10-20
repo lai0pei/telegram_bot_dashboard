@@ -1,4 +1,5 @@
 import { Api } from "teleproto/tl";
+import { logError } from "./error-log";
 import { getClient } from "./mtproto";
 import { singleFlight } from "./single-flight";
 
@@ -36,7 +37,7 @@ export async function getMessageEffects(accountId: string): Promise<MessageEffec
       cache.set(accountId, { at: Date.now(), effects });
       return effects;
     } catch (err) {
-      console.error("[effects] messages.getAvailableEffects failed:", err instanceof Error ? err.message : err);
+      logError("effects", "messages.getAvailableEffects failed", err);
       return [];
     }
   });

@@ -3,6 +3,8 @@ import { readSessionClaims } from "./auth";
 import { getTelegramAccountById, TelegramSessionRevokedError } from "./telegram-accounts";
 import { getUserById, touchLastActive } from "./users";
 import { isAdminUser } from "./admin";
+import { BotApiError } from "./botapi";
+import { logError } from "./error-log";
 import { getClientIp, rateLimit } from "./rate-limit";
 import { BotHeldByAnotherAccountError, TokenBotTokenError } from "./token-bot";
 
@@ -122,6 +124,10 @@ export function errorResponse(err: unknown, fallbackStatus = 500): Response {
     return NextResponse.json({ error: err.message }, { status: 422 });
   }
   const message = err instanceof Error ? err.message : String(err);
-  console.error(err);
+  // Only responses that are server errors are stored: routes pass a 4xx fallback for failures the person caused or can
+  // fix, and a Bot API 4xx is Telegram refusing a request, neither of which is a bug to chase.
+  const expected = fallbackStatus < 500 || (err instanceof BotApiError && (err.errorCode ?? 500) < 500);
+  if (expected) console.error(err);
+  else logError("api", "route handler failed", err);
   return NextResponse.json({ error: message }, { status: fallbackStatus });
 }

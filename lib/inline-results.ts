@@ -3,6 +3,7 @@ import { parseButtons } from "./auto-replies";
 import { botApi, buttonsForChat, type InlineArticle, type InlineButton, type TelegramInlineQuery } from "./botapi";
 import { db } from "./db";
 import { inlineResults } from "./db/schema";
+import { logError } from "./error-log";
 
 export type InlineResultRow = typeof inlineResults.$inferSelect;
 export type InlineResultInput = Pick<InlineResultRow, "prefix" | "title" | "description" | "messageText" | "parseMode" | "enabled"> & {
@@ -130,9 +131,9 @@ export async function answerInline(botId: number, token: string, query: Telegram
   try {
     results = (await matchInlineResults(botId, query.query)).map(toArticle);
   } catch (err) {
-    console.error(`[inline] bot ${botId} result lookup failed:`, err);
+    logError("inline", `bot ${botId} result lookup failed`, err, { botId });
   }
   botApi
     .answerInlineQuery(token, query.id, results, { cacheTime: CACHE_TIME_S, isPersonal: false })
-    .catch((err) => console.error(`[inline] bot ${botId} answer failed:`, err instanceof Error ? err.message : err));
+    .catch((err) => logError("inline", `bot ${botId} answer failed`, err, { botId }));
 }

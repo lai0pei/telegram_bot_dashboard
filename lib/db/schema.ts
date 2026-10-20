@@ -56,6 +56,37 @@ export const appSettings = pgTable("app_settings", {
 });
 
 /**
+ * Server and browser errors, one row per distinct problem (lib/error-log.ts).
+ * Repeats of the same fingerprint bump `count` instead of adding rows, and
+ * reopen the row if it was marked resolved. Everything stored has been
+ * scrubbed of secrets first, because the admin exports this to an LLM.
+ */
+export const appErrors = pgTable(
+  "app_errors",
+  {
+    id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+    fingerprint: text("fingerprint").notNull(),
+    /** Where it came from: api, request, poller, jobs, broadcast, auto-reply, health, digest, inline, limits, effects, client. */
+    source: text("source").notNull(),
+    /** What was being attempted, e.g. "bot foo getUpdates failed". */
+    what: text("what").notNull(),
+    errorName: text("error_name").notNull(),
+    message: text("message").notNull(),
+    stack: text("stack"),
+    /** JSON object of small, non-sensitive facts (bot id, route, ...). */
+    context: text("context"),
+    count: integer("count").notNull().default(1),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("app_errors_fingerprint_unique").on(table.fingerprint),
+    index("app_errors_last_seen_idx").on(table.lastSeenAt),
+  ]
+);
+
+/**
  * One row per Telegram account linked to a dashboard user. `id` is what
  * bots/chats.ownerUserId points at — bots and chats belong to a specific
  * linked Telegram account, not directly to the dashboard user. `ownerUserId`

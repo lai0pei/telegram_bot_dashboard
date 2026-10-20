@@ -36,6 +36,13 @@
       "when": 1792512187160,
       "tag": "0004_app_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792512590384,
+      "tag": "0005_app_errors",
+      "breakpoints": true
     }
   ]
 }
