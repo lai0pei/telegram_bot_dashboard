@@ -4,8 +4,10 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/api-client";
 import type { BotSummary } from "./bot-card";
+import { MONITORING_WARNING } from "./bots/[id]/monitor-toggle";
 
 type CloneSection = "profile" | "commands" | "menuButton" | "adminRights" | "autoReplies";
 
@@ -29,8 +31,29 @@ export function BulkBar({ selected, bots, onDone }: { selected: number[]; bots: 
   const [busy, setBusy] = useState<string | null>(null);
   const [results, setResults] = useState<BulkResult[] | null>(null);
   const [copyOpen, setCopyOpen] = useState(false);
+  const [confirmingMonitor, setConfirmingMonitor] = useState(false);
   const [sourceId, setSourceId] = useState("");
   const [sections, setSections] = useState<CloneSection[]>(["commands"]);
+
+  /** Downloads the selected bots' dashboard-only setup as a JSON file (see lib/bot-setup-transfer.ts). */
+  async function exportSetup() {
+    setBusy("export");
+    try {
+      const res = await fetch(`/api/bots/export?ids=${selected.join(",")}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "The export failed.");
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `bot-setup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Exported the setup of ${selected.length} bot${selected.length === 1 ? "" : "s"}.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "The export failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function run(action: string, extra: Record<string, unknown> = {}) {
     setBusy(action);
@@ -56,7 +79,7 @@ export function BulkBar({ selected, bots, onDone }: { selected: number[]; bots: 
     <Card className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-medium">{selected.length} selected</span>
-        <Button variant="outline" size="sm" disabled={disabled} loading={busy === "monitor_on"} onClick={() => void run("monitor_on")}>
+        <Button variant="outline" size="sm" disabled={disabled} loading={busy === "monitor_on"} onClick={() => setConfirmingMonitor(true)}>
           Monitoring on
         </Button>
         <Button variant="outline" size="sm" disabled={disabled} loading={busy === "monitor_off"} onClick={() => void run("monitor_off")}>
@@ -68,7 +91,30 @@ export function BulkBar({ selected, bots, onDone }: { selected: number[]; bots: 
         <Button variant="outline" size="sm" disabled={disabled} onClick={() => setCopyOpen((v) => !v)}>
           Copy settings from…
         </Button>
+        <Button variant="outline" size="sm" disabled={disabled} loading={busy === "export"} onClick={() => void exportSetup()}>
+          Export setup
+        </Button>
       </div>
+      <Dialog open={confirmingMonitor} onOpenChange={setConfirmingMonitor}>
+        <DialogContent>
+          <DialogTitle>Start monitoring {selected.length} bot{selected.length === 1 ? "" : "s"}?</DialogTitle>
+          <DialogDescription>{MONITORING_WARNING} Bots with a webhook can&apos;t be monitored and will be reported as failed.</DialogDescription>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setConfirmingMonitor(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                setConfirmingMonitor(false);
+                void run("monitor_on");
+              }}
+            >
+              Start monitoring
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       {copyOpen && (
         <div className="space-y-2 text-sm">
           <select

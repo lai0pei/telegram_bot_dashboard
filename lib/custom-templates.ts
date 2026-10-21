@@ -54,6 +54,33 @@ export async function resolveTemplate(telegramAccountId: string, templateId: str
   return owner && Number.isInteger(n) ? (await getCustomTemplate(owner, n)) : undefined;
 }
 
+/**
+ * A bot's rules as template rules, in list order, keeping their on/off state. A rule that no longer passes validation
+ * is left out and named in `notes`.
+ */
+export async function snapshotRules(botId: number, notes: string[]): Promise<TemplateRule[]> {
+  const rules: TemplateRule[] = [];
+  for (const r of await listAutoReplies(botId)) {
+    const buttons = parseButtons(r.buttons) ?? undefined;
+    const replyKeyboard = parseReplyKeyboard(r.replyKeyboard);
+    const rule: TemplateRule = {
+      matchType: r.matchType,
+      pattern: r.pattern,
+      replyText: r.replyText,
+      parseMode: r.parseMode,
+      buttons: normalizeInlineButtons(buttons) ?? undefined,
+      callbackAction: r.callbackAction,
+      replyKeyboard: normalizeReplyKeyboard(replyKeyboard),
+      showAlert: r.showAlert,
+      enabled: r.enabled,
+    };
+    const invalid = validateAutoReply(rule);
+    if (invalid) notes.push(`Left out ${r.matchType} “${r.pattern}”: ${invalid}`);
+    else rules.push(rule);
+  }
+  return rules;
+}
+
 export type SnapshotPart = "rules" | "commands" | "profile";
 
 /**
@@ -70,26 +97,7 @@ export async function createCustomTemplate(
   const notes: string[] = [];
   const content: Content = { commands: [], rules: [] };
 
-  if (input.parts.includes("rules")) {
-    for (const r of (await listAutoReplies(bot.id))) {
-      const buttons = parseButtons(r.buttons) ?? undefined;
-      const replyKeyboard = parseReplyKeyboard(r.replyKeyboard);
-      const rule: TemplateRule = {
-        matchType: r.matchType,
-        pattern: r.pattern,
-        replyText: r.replyText,
-        parseMode: r.parseMode,
-        buttons: normalizeInlineButtons(buttons) ?? undefined,
-        callbackAction: r.callbackAction,
-        replyKeyboard: normalizeReplyKeyboard(replyKeyboard),
-        showAlert: r.showAlert,
-        enabled: r.enabled,
-      };
-      const invalid = validateAutoReply(rule);
-      if (invalid) notes.push(`Left out ${r.matchType} “${r.pattern}”: ${invalid}`);
-      else content.rules.push(rule);
-    }
-  }
+  if (input.parts.includes("rules")) content.rules = await snapshotRules(bot.id, notes);
 
   const needToken = input.parts.includes("commands") || input.parts.includes("profile");
   if (needToken && !token) notes.push("This bot has no stored token, so its commands and profile texts were not saved.");
