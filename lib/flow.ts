@@ -162,7 +162,12 @@ export interface RuleTreeNode<T extends FlowRule = FlowRule> {
  * answer appears exactly once (under its shortest route) and a Back button is a `links` note rather than a cycle. Answers
  * no button leads to are returned separately as `unused`. Pure and client-safe.
  */
-export function ruleTree<T extends FlowRule>(rules: readonly T[]): { roots: RuleTreeNode<T>[]; unused: T[] } {
+export function ruleTree<T extends FlowRule>(allRules: readonly T[]): { roots: RuleTreeNode<T>[]; unused: T[] } {
+  // The tree shows how rules are wired, not whether they are switched on: `findCallbackRule` skips disabled rules, so
+  // flipping a switch would otherwise pull that reply (and everything below it) out into "Unused". Structure is computed
+  // with every rule enabled, then mapped back to the caller's own objects.
+  const original = new Map(allRules.map((r) => [r.id, r]));
+  const rules = allRules.map((r) => (r.enabled ? r : { ...r, enabled: true }));
   const graph = flowGraph(rules);
   const build = (rule: T, via: string[]): RuleTreeNode<T> => {
     const links: RuleTreeNode<T>["links"] = [];
@@ -176,13 +181,13 @@ export function ruleTree<T extends FlowRule>(rules: readonly T[]): { roots: Rule
           if (!labelsTo.has(target.id)) order.push(target);
           labelsTo.set(target.id, [...(labelsTo.get(target.id) ?? []), b.text]);
         } else {
-          links.push({ label: b.text, rule: target });
+          links.push({ label: b.text, rule: original.get(target.id)! });
         }
       }
     }
-    return { rule, via, links, children: order.map((child) => build(child, labelsTo.get(child.id)!)) };
+    return { rule: original.get(rule.id)!, via, links, children: order.map((child) => build(child, labelsTo.get(child.id)!)) };
   };
-  return { roots: entryRules(rules).map((r) => build(r, [])), unused: graph.unused };
+  return { roots: entryRules(rules).map((r) => build(r, [])), unused: graph.unused.map((r) => original.get(r.id)!) };
 }
 
 /** The route of reply IDs from a starting point down to `id` (what the builder's columns call a path), or [] if unreachable. */

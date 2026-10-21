@@ -115,7 +115,8 @@ export function AutomationTab({ bot, onPickTemplate }: { bot: BotDetail; onPickT
         </Card>
       )}
 
-      <div className="grid items-start gap-4 lg:grid-cols-2">
+      {/* No items-start / sticky: both cards stretch to the same height (the tree's own cap bounds it), so the two columns line up. */}
+      <div className="grid gap-4 lg:grid-cols-2">
         <Card className="lg:max-h-[calc(100dvh-14rem)] lg:overflow-y-auto">
           <RuleList
             botId={bot.id}
@@ -134,7 +135,7 @@ export function AutomationTab({ bot, onPickTemplate }: { bot: BotDetail; onPickT
           )}
         </Card>
 
-        <Card className="lg:sticky lg:top-6">
+        <Card>
           <CardHeader className="flex-wrap gap-2">
             <CardTitle>{selected ? `How "${ruleTitle(selected)}" looks in Telegram` : "How it looks in Telegram"}</CardTitle>
           </CardHeader>
