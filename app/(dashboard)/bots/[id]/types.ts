@@ -176,6 +176,8 @@ export interface BroadcastItem {
   sent: number;
   failed: number;
   blocked: number;
+  /** Chat IDs it was sent to, or null when it went to every contact. */
+  targets: string[] | null;
   error: string | null;
   createdAt: string;
 }
