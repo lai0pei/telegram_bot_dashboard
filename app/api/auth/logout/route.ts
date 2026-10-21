@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { errorResponse } from "@/lib/api-guard";
-import { clearSessionCookie } from "@/lib/auth";
+import { clearLoginIdCookie, clearSessionCookie } from "@/lib/auth";
 
 /**
  * Ends the dashboard session only. Does not touch any linked Telegram account's session — unbinding does that (see /api/telegram-accounts/[id] DELETE).
@@ -9,7 +9,8 @@ import { clearSessionCookie } from "@/lib/auth";
 export async function POST() {
   try {
     await clearSessionCookie();
-    return NextResponse.json({ ok: true });
+    await clearLoginIdCookie();
+    return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     return errorResponse(err);
   }
