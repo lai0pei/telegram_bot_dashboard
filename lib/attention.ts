@@ -83,7 +83,8 @@ export async function getAttentionItems(dashboardUserId: string): Promise<Attent
         });
       }
 
-      if (bot.monitorEnabled && bot.encryptedToken) {
+      // A bot on standby (another dashboard runs it, lib/bot-claims.ts) doesn't poll on purpose; its page says so.
+      if (bot.monitorEnabled && bot.encryptedToken && !bot.runElsewhere) {
         const stale = !bot.lastPolledAt || Date.now() - bot.lastPolledAt.getTime() > POLLER_STALE_MS;
         if (stale || bot.pollError) {
           items.push({

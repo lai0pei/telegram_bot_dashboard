@@ -29,6 +29,7 @@ export const GET = withAuth(async (_req: Request, ctx: { params: Promise<{ id: s
         source: bot.source,
         hasToken: false,
         monitorEnabled: bot.monitorEnabled,
+        runElsewhere: bot.runElsewhere,
         health: healthOf(bot),
       });
     }
@@ -73,6 +74,7 @@ export const GET = withAuth(async (_req: Request, ctx: { params: Promise<{ id: s
       hasToken: true,
       token: liveToken,
       monitorEnabled: bot.monitorEnabled,
+      runElsewhere: bot.runElsewhere,
       health: healthOf(bot),
       info: result.info,
       name: result.name.name,

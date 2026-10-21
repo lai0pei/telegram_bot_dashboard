@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { withAuth, errorResponse } from "@/lib/api-guard";
 import { CLONE_SECTIONS, cloneBotSettings, type CloneSection } from "@/lib/bot-clone";
 import { botApi } from "@/lib/botapi";
-import { getBotById, getBotToken, setMonitorEnabled } from "@/lib/bots";
+import { disableMonitoring, enableMonitoring } from "@/lib/bot-claims";
+import { getBotById, getBotToken } from "@/lib/bots";
 import { refreshBotHealth } from "@/lib/health";
 
 const ACTIONS = ["monitor_on", "monitor_off", "health", "copy"] as const;
@@ -54,14 +55,15 @@ export const POST = withAuth(async (req: Request, _ctx: unknown, telegramAccount
       try {
         const token = getBotToken(bot);
         if (action === "monitor_off") {
-          await setMonitorEnabled(bot.id, false);
+          await disableMonitoring(bot);
           report(true, "Monitoring off.");
         } else if (!token) {
           report(false, "No token stored; fetch it from the bot's Info tab.");
         } else if (action === "monitor_on") {
           if ((await botApi.getWebhookInfo(token)).url) report(false, "Has a webhook; remove it first.");
           else {
-            await setMonitorEnabled(bot.id, true);
+            // A bot another dashboard runs is reported, never taken over in bulk: that choice is made per bot.
+            await enableMonitoring(bot);
             report(true, "Monitoring on.");
           }
         } else if (action === "health") {

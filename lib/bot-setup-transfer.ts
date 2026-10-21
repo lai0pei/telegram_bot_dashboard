@@ -135,7 +135,7 @@ export async function importBotSetup(bot: Bot, entry: BotSetupEntry): Promise<Se
   results.push(
     await part("rules", async (r) => {
       const [res] = await applyTemplate(
-        { id: bot.id, token: null },
+        { id: bot.id, ownerUserId: bot.ownerUserId, telegramId: bot.telegramId, token: null },
         { id: "import", title: "Import", blurb: "", emoji: "", category: CUSTOM_CATEGORY, shows: [], commands: [], rules: entry.rules },
         ["rules"]
       );

@@ -8,6 +8,7 @@ import {
   type TelegramPoll,
   type TelegramUpdate,
 } from "./botapi";
+import { claimHolder, ensureClaimed, setRunElsewhere } from "./bot-claims";
 import { getBotToken, getMonitoredBot, listAllMonitoredBots, setLastUpdateId, setPollHealth } from "./bots";
 import { db } from "./db";
 import { botMessages } from "./db/schema";
@@ -42,6 +43,8 @@ const MAX_BACKOFF_MS = 60_000;
 /** A 409 means someone else polls this token; retry less often so the two don't knock each other out every few seconds. */
 const CONFLICT_BACKOFF_MS = 30_000;
 const MAX_CONFLICT_BACKOFF_MS = 120_000;
+/** How often a bot on standby (run by another dashboard) re-checks whether it should take over. */
+const STANDBY_MS = 30_000;
 /** A conflict counts as ongoing until this long after the last one, even if a poll in between succeeded. */
 const CONFLICT_WINDOW_MS = 5 * 60_000;
 
@@ -152,6 +155,18 @@ async function pollBot(botId: number) {
       pollerConflicts().delete(botId);
       return;
     }
+    // Another dashboard signed in with this account may run the bot (lib/bot-claims.ts). If its claim is newer than
+    // ours, stay on standby instead of fighting it for getUpdates; the claim is re-read every round, so a take-over
+    // or an expired claim takes effect within a minute. A failed lookup counts as "nobody", i.e. poll as before.
+    const holder = await claimHolder(bot).catch((): { kind: "none" } => ({ kind: "none" }));
+    if (holder.kind === "other") {
+      if (bot.runElsewhere !== holder.name) await setRunElsewhere(bot.id, holder.name);
+      await sleep(STANDBY_MS);
+      continue;
+    }
+    if (bot.runElsewhere) await setRunElsewhere(bot.id, null);
+    // Nobody has claimed this bot yet (monitoring was on before claims existed, or the claim message was deleted).
+    if (holder.kind === "none") void ensureClaimed(bot.ownerUserId);
     try {
       const updates = await botApi.getUpdates(token, (bot.lastUpdateId ?? 0) + 1, POLL_TIMEOUT_SECONDS);
       failures = 0;

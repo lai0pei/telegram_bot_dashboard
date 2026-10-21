@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { withAuth, errorResponse } from "@/lib/api-guard";
 import { botApiErrorResponse } from "@/lib/bot-api-errors";
-import { getBotById, getBotToken, setMonitorEnabled, setWebhookHealth } from "@/lib/bots";
+import { disableMonitoring } from "@/lib/bot-claims";
+import { getBotById, getBotToken, setWebhookHealth } from "@/lib/bots";
 import { botApi } from "@/lib/botapi";
 import {
   validateAllowedUpdates,
@@ -41,7 +42,7 @@ export const PUT = withAuth(async (req: Request, ctx: { params: Promise<{ id: st
         maxConnections,
         dropPendingUpdates: Boolean(dropPendingUpdates),
       });
-      await setMonitorEnabled(bot.id, false);
+      await disableMonitoring(bot);
     }
 
     const webhook = await botApi.getWebhookInfo(token);
