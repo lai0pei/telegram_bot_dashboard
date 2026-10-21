@@ -16,6 +16,12 @@ export class BotApiError extends Error {
   }
 }
 
+/** getUpdates 409: another poller holds this token ("other") or a webhook is set ("webhook"). */
+export function pollConflictKind(err: unknown): "other" | "webhook" | null {
+  if (!(err instanceof BotApiError) || err.method !== "getUpdates" || err.errorCode !== 409) return null;
+  return /webhook/i.test(err.description) ? "webhook" : "other";
+}
+
 async function call<T>(token: string, method: string, params?: Record<string, unknown>): Promise<T> {
   const res = await fetch(`${BASE_URL}/bot${token}/${method}`, {
     method: "POST",

@@ -1,7 +1,7 @@
 import { BotApiError, botApi } from "./botapi";
 import { getBotToken, listAllBotsWithToken, saveBotHealth, type BotRow } from "./bots";
 import { logError } from "./error-log";
-import { getPollerFailures } from "./poller";
+import { conflictMessage, getPollerConflict, getPollerFailures } from "./poller";
 
 export interface HealthResult {
   status: "ok" | "warning" | "error";
@@ -36,6 +36,9 @@ export async function checkBotHealth(bot: BotRow): Promise<HealthResult | null> 
     if (webhook.url && bot.monitorEnabled) {
       warnings.push("Monitoring is on, but a webhook is set, so updates go to the webhook instead.");
     }
+    // The "webhook" kind is already reported by the "webhook is set" line above.
+    const conflict = getPollerConflict(bot.id);
+    if (conflict?.kind === "other") warnings.push(conflictMessage("other"));
     const failures = getPollerFailures(bot.id);
     if (failures >= POLLER_FAILURE_WARNING) warnings.push(`Monitoring can't reach Telegram (${failures} failed attempts in a row).`);
 
