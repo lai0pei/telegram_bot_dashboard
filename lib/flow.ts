@@ -146,6 +146,50 @@ export function flowGraph<T extends FlowRule>(rules: readonly T[]): FlowGraph<T>
   return { nodes, columns, edges, unlinked, unused: rules.filter((r) => isCallbackMatch(r) && !depthOf.has(r.id)), parent };
 }
 
+/** A reply in the "All rules" tree, with the replies its buttons lead to as children. */
+export interface RuleTreeNode<T extends FlowRule = FlowRule> {
+  rule: T;
+  /** Labels of the parent's buttons that lead here (empty for a starting point). */
+  via: string[];
+  /** Buttons on this reply that lead to a reply shown elsewhere in the tree (typically a Back button). */
+  links: { label: string; rule: T }[];
+  children: RuleTreeNode<T>[];
+}
+
+/**
+ * The rules as a conversation tree: starting points (everything but button answers) in list order, each button answer
+ * nested under the reply whose button leads to it. Built from `flowGraph`'s breadth-first parents, so every reachable
+ * answer appears exactly once (under its shortest route) and a Back button is a `links` note rather than a cycle. Answers
+ * no button leads to are returned separately as `unused`. Pure and client-safe.
+ */
+export function ruleTree<T extends FlowRule>(allRules: readonly T[]): { roots: RuleTreeNode<T>[]; unused: T[] } {
+  // The tree shows how rules are wired, not whether they are switched on: `findCallbackRule` skips disabled rules, so
+  // flipping a switch would otherwise pull that reply (and everything below it) out into "Unused". Structure is computed
+  // with every rule enabled, then mapped back to the caller's own objects.
+  const original = new Map(allRules.map((r) => [r.id, r]));
+  const rules = allRules.map((r) => (r.enabled ? r : { ...r, enabled: true }));
+  const graph = flowGraph(rules);
+  const build = (rule: T, via: string[]): RuleTreeNode<T> => {
+    const links: RuleTreeNode<T>["links"] = [];
+    const labelsTo = new Map<number, string[]>();
+    const order: T[] = [];
+    for (const row of flowButtons(rule, rules)) {
+      for (const b of row) {
+        const target = b.target as T | undefined;
+        if (!target) continue;
+        if (graph.parent.get(target.id) === rule.id && target.id !== rule.id) {
+          if (!labelsTo.has(target.id)) order.push(target);
+          labelsTo.set(target.id, [...(labelsTo.get(target.id) ?? []), b.text]);
+        } else {
+          links.push({ label: b.text, rule: original.get(target.id)! });
+        }
+      }
+    }
+    return { rule: original.get(rule.id)!, via, links, children: order.map((child) => build(child, labelsTo.get(child.id)!)) };
+  };
+  return { roots: entryRules(rules).map((r) => build(r, [])), unused: graph.unused.map((r) => original.get(r.id)!) };
+}
+
 /** The route of reply IDs from a starting point down to `id` (what the builder's columns call a path), or [] if unreachable. */
 export function pathTo(graph: Pick<FlowGraph, "parent">, id: number): number[] {
   if (!graph.parent.has(id)) return [];
