@@ -8,10 +8,12 @@ import { apiFetch, ApiError } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { validateLoginCode, validatePhoneNumber } from "@/lib/validation";
 
-type Step = "qr" | "password" | "failed" | "not-allowed" | "registration-closed" | "done";
+type Step = "qr" | "phone" | "code" | "password" | "failed" | "not-allowed" | "registration-closed" | "done";
 
-const STEP_ORDER: Step[] = ["qr", "password"];
+const QR_STEPS: Step[] = ["qr", "password"];
+const PHONE_STEPS: Step[] = ["phone", "code", "password"];
 
 const QR_POLL_INTERVAL_MS = 2000;
 
@@ -43,8 +45,14 @@ export function QrLogin({
   const [password, setPassword] = useState("");
   const [deniedUserId, setDeniedUserId] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [phone, setPhone] = useState("");
+  const [code, setCode] = useState("");
+  const [codeViaApp, setCodeViaApp] = useState(true);
+  // Which first factor the 2FA step (and the step counter) belongs to.
+  const [usingPhone, setUsingPhone] = useState(false);
 
-  const stepIndex = STEP_ORDER.indexOf(step);
+  const stepOrder = usingPhone ? PHONE_STEPS : QR_STEPS;
+  const stepIndex = stepOrder.indexOf(step);
 
   function handleLoginError(err: unknown, fallback: string) {
     if (err instanceof ApiError && err.body.code === "NOT_ALLOWED" && typeof err.body.telegramUserId === "string") {
@@ -72,6 +80,9 @@ export function QrLogin({
   function restart() {
     setQrDataUrl(null);
     setPassword("");
+    setPhone("");
+    setCode("");
+    setUsingPhone(false);
     setDeniedUserId(null);
     setStep("qr");
     setAttempt((n) => n + 1);
@@ -118,6 +129,65 @@ export function QrLogin({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new QR login starts only on entering the step or retrying
   }, [onQrStep, attempt]);
 
+  async function handlePhone(e: React.FormEvent) {
+    e.preventDefault();
+    const invalid = validatePhoneNumber(phone);
+    if (invalid) {
+      toast.error(invalid);
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await apiFetch<{ isCodeViaApp: boolean }>(`${apiBase}/phone`, { body: { phone } });
+      setCodeViaApp(res.isCodeViaApp);
+      setCode("");
+      setStep("code");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't send the code.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCode(e: React.FormEvent) {
+    e.preventDefault();
+    const invalid = validateLoginCode(code);
+    if (invalid) {
+      toast.error(invalid);
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await apiFetch<{ status: "logged_in" | "password_required" }>(`${apiBase}/phone/code`, {
+        body: { code },
+      });
+      if (result.status === "password_required") setStep("password");
+      else handleDone();
+    } catch (err) {
+      if (err instanceof ApiError && typeof err.body.telegramUserId === "string") {
+        handleLoginError(err, "Sign-in failed.");
+      } else {
+        // A wrong code keeps the login alive server-side (a few tries), so stay and let them retry.
+        toast.error(err instanceof Error ? err.message : "Incorrect code.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResend() {
+    setLoading(true);
+    try {
+      const res = await apiFetch<{ isCodeViaApp: boolean }>(`${apiBase}/phone/resend`, { method: "POST" });
+      setCodeViaApp(res.isCodeViaApp);
+      toast.success("A new code was sent.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't resend the code.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handlePassword(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -140,11 +210,16 @@ export function QrLogin({
     <div className="w-full max-w-sm">
       {stepIndex >= 0 && (
         <p className="mb-1 text-xs font-medium text-[var(--primary)]">
-          Step {stepIndex + 1} of {STEP_ORDER.length}
+          Step {stepIndex + 1} of {stepOrder.length}
         </p>
       )}
       <p className="mb-6 text-sm text-[var(--muted)]">
         {step === "qr" && "Scan this code with the Telegram app on your phone."}
+        {step === "phone" && "Enter the phone number of your Telegram account."}
+        {step === "code" &&
+          (codeViaApp
+            ? "Enter the code Telegram just sent to your Telegram app on another device."
+            : "Enter the code Telegram just sent you by SMS.")}
         {step === "password" && "This account has 2FA enabled — enter its cloud password."}
         {step === "failed" && "Didn't complete. Generate a new code to try again."}
         {step === "not-allowed" && "This Telegram account isn't allowed to use this dashboard yet."}
@@ -177,7 +252,72 @@ export function QrLogin({
                 </li>
                 <li>Point your phone at this code. It refreshes automatically.</li>
               </ol>
+              <p className="text-xs text-[var(--muted)]">
+                If your account has 2FA you&apos;ll be asked for your cloud password after scanning.
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full"
+                onClick={() => {
+                  setUsingPhone(true);
+                  setStep("phone");
+                }}
+              >
+                Use phone number instead
+              </Button>
             </div>
+          )}
+
+          {step === "phone" && (
+            <form onSubmit={handlePhone} className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="phone">Phone number</Label>
+                <Input
+                  id="phone"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  placeholder="+1 555 123 4567"
+                  autoFocus
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  required
+                />
+              </div>
+              <Button type="submit" className="w-full" loading={loading}>
+                {loading ? "Sending…" : "Send code"}
+              </Button>
+              <Button type="button" variant="ghost" className="w-full" disabled={loading} onClick={restart}>
+                Use QR code instead
+              </Button>
+            </form>
+          )}
+
+          {step === "code" && (
+            <form onSubmit={handleCode} className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="code">Login code</Label>
+                <Input
+                  id="code"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  autoFocus
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  required
+                />
+              </div>
+              <Button type="submit" className="w-full" loading={loading}>
+                {loading ? "Verifying…" : "Sign in"}
+              </Button>
+              <Button type="button" variant="ghost" className="w-full" disabled={loading} onClick={handleResend}>
+                Resend code
+              </Button>
+              <Button type="button" variant="ghost" className="w-full" disabled={loading} onClick={restart}>
+                Start over
+              </Button>
+            </form>
           )}
 
           {step === "password" && (
