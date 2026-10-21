@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { apiFetch } from "@/lib/api-client";
 import { planRemoval, templateRuleKey, type BotTemplate, type TemplatePart } from "@/lib/bot-templates";
 import { emptySim, simulatePress, simulateSend, simulateShare, type SimRule } from "@/lib/simulate";
+import { MONITORING_WARNING } from "./monitor-toggle";
 import type { SectionId } from "./sections";
 import { PART_LABELS, TemplatePicker, availableParts, useApplyTemplate, useTemplates } from "./template-picker";
 import { TelegramPreview } from "./telegram-preview";
@@ -261,7 +262,7 @@ export function TemplatesSection({ bot, photoSrc, initialTemplateId, onChange, o
                   checked={parts.monitoring}
                   onToggle={() => toggle("monitoring")}
                   title={PART_LABELS.monitoring}
-                  detail={bot.webhook?.url ? "Not possible: this bot has a webhook (see Delivery)." : "Replies only work while the dashboard listens. This turns that on."}
+                  detail={bot.webhook?.url ? "Not possible: this bot has a webhook (see Delivery)." : `Replies only work while the dashboard listens. This turns that on. ${MONITORING_WARNING}`}
                   disabled={Boolean(bot.webhook?.url)}
                 />
               )}

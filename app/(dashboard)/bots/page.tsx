@@ -16,6 +16,7 @@ import { CardGridSkeleton } from "../loading";
 import { FilterChips, SearchInput, matchesQuery, useSlashToSearch } from "../list-toolbar";
 import { NoActiveAccount, isNoActiveAccount } from "../no-active-account";
 import { AddTokenDialog } from "./add-token-dialog";
+import { ImportSetupButton } from "./import-setup-button";
 
 type Filter = "all" | "monitoring" | "webhook" | "attention";
 
@@ -105,7 +106,7 @@ function BotsList() {
           <p className="text-sm text-[var(--muted)]">Every bot this Telegram account owns, synced from BotFather, plus bots you added by token.</p>
         </div>
         <div className="flex gap-2">
-          {bots && bots.length > 1 && (
+          {bots && bots.length > 0 && (
             <Button
               variant={selecting ? "default" : "outline"}
               size="sm"
@@ -126,6 +127,7 @@ function BotsList() {
             <KeyRound className="h-3.5 w-3.5" />
             Add by token
           </Button>
+          <ImportSetupButton onDone={() => void load()} />
           <Button size="sm" asChild>
             <Link href="/bots/new">
               <Plus className="h-3.5 w-3.5" />
