@@ -9,7 +9,9 @@ import { describeMessage } from "./messages";
 import { recordOutgoing } from "./outgoing";
 import { recordSetup } from "./setup-cache";
 import { logError } from "./error-log";
-import { renderTemplate } from "./templates";
+import { renderTemplate, type TemplateContext } from "./templates";
+import { MAX_FOLLOW_UP_DELAY_S, MAX_TOTAL_DELAY_S, parseFollowUps, parseRuleMedia, type FollowUp, type RuleMediaRef } from "./rule-content";
+import { pruneRuleMedia, sendRuleMedia } from "./rule-media";
 
 export type AutoReplyRow = typeof autoReplies.$inferSelect;
 export type AutoReplyInput = Pick<AutoReplyRow, "matchType" | "pattern" | "replyText" | "parseMode" | "showAlert" | "enabled"> & {
@@ -17,11 +19,21 @@ export type AutoReplyInput = Pick<AutoReplyRow, "matchType" | "pattern" | "reply
   replyKeyboard?: ReplyKeyboard | null;
   /** Only for callback rules; defaults to "toast". */
   callbackAction?: AutoReplyRow["callbackAction"];
+  /** A file attached to the main message (its caption is `replyText`). Not for toast or edit button rules. */
+  media?: RuleMediaRef | null;
+  /** Messages sent after the main one. Not for toast or edit button rules. */
+  followUps?: FollowUp[] | null;
 };
 
-/** The dashboard-facing shape: buttons parsed from their JSON column. */
+/** The dashboard-facing shape: buttons, keyboard, attachment and follow-ups parsed from their JSON columns. */
 export function toAutoReplyDto(row: AutoReplyRow) {
-  return { ...row, buttons: parseButtons(row.buttons), replyKeyboard: parseReplyKeyboard(row.replyKeyboard) };
+  return {
+    ...row,
+    buttons: parseButtons(row.buttons),
+    replyKeyboard: parseReplyKeyboard(row.replyKeyboard),
+    media: parseRuleMedia(row.media),
+    followUps: parseFollowUps(row.followUps),
+  };
 }
 
 export function parseButtons(json: string | null): InlineButton[][] | null {
@@ -68,6 +80,8 @@ function normalizePattern(matchType: AutoReplyRow["matchType"], pattern: string)
 /** The columns an input writes, shared by create and update. */
 function columnsFor(input: AutoReplyInput) {
   const message = sendsMessage(input);
+  // An edit can't turn the message into a file or send more after it (same reasoning as the reply keyboard below).
+  const rich = message && !(isCallbackRule(input.matchType) && input.callbackAction === "edit");
   return {
     matchType: input.matchType,
     pattern: normalizePattern(input.matchType, input.pattern),
@@ -77,6 +91,8 @@ function columnsFor(input: AutoReplyInput) {
     // A reply keyboard can only come with a *new* message: an edit can't carry one.
     replyKeyboard:
       message && input.callbackAction !== "edit" && !input.buttons?.length && input.replyKeyboard ? JSON.stringify(input.replyKeyboard) : null,
+    media: rich && input.media ? JSON.stringify(input.media) : null,
+    followUps: rich && input.followUps?.length ? JSON.stringify(input.followUps) : null,
     showAlert: isCallbackRule(input.matchType) && (input.callbackAction ?? "toast") === "toast" && input.showAlert,
     callbackAction: isCallbackRule(input.matchType) ? input.callbackAction ?? "toast" : ("toast" as const),
     enabled: input.enabled,
@@ -154,12 +170,14 @@ export async function updateAutoReply(botId: number, id: number, input: AutoRepl
       .returning()
   ))[0];
   await noteStartRule(botId);
+  await pruneRuleMedia(botId);
   return updated;
 }
 
 export async function deleteAutoReply(botId: number, id: number): Promise<boolean> {
   const deleted = (await db.delete(autoReplies).where(and(eq(autoReplies.botId, botId), eq(autoReplies.id, id)))).count > 0;
   await noteStartRule(botId);
+  await pruneRuleMedia(botId);
   return deleted;
 }
 
@@ -236,14 +254,57 @@ async function deliverRuleReply(
   sender: TelegramMessage["from"],
   payload: string | null
 ): Promise<void> {
-  const text = await renderTemplate(rule.replyText, rule.parseMode, templateContext(token, sender, payload));
-  const sent = await botApi.sendMessage(token, chatId, text, {
+  const ctx = templateContext(token, sender, payload);
+  const text = await renderTemplate(rule.replyText, rule.parseMode, ctx);
+  const opts = {
     parseMode: rule.parseMode ?? undefined,
     // A rule fires in groups too, where Telegram rejects Mini App buttons (and the failure is only logged by the caller).
     buttons: buttonsForChat(parseButtons(rule.buttons), chatId),
     replyKeyboard: replyKeyboardForChat(parseReplyKeyboard(rule.replyKeyboard), chatId),
-  });
+  };
+  const media = parseRuleMedia(rule.media);
+  const sent = media ? await sendRuleMedia(botId, token, chatId, media, text, opts) : await botApi.sendMessage(token, chatId, text, opts);
   await recordOutgoing(botId, sent);
+  await deliverFollowUps(botId, token, chatId, parseFollowUps(rule.followUps), ctx);
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Sends a rule's follow-up messages in order, each after its own wait (with "typing…" if asked). The waits are
+ * capped in total; the first failure stops the rest, since later messages usually build on earlier ones.
+ */
+async function deliverFollowUps(botId: number, token: string, chatId: number, followUps: FollowUp[], ctx: TemplateContext): Promise<void> {
+  let budgetMs = MAX_TOTAL_DELAY_S * 1000;
+  for (const f of followUps) {
+    const waitMs = Math.min(f.delaySec ?? 0, MAX_FOLLOW_UP_DELAY_S) * 1000;
+    if (waitMs > budgetMs) break;
+    budgetMs -= waitMs;
+    if (f.typing) await botApi.sendChatAction(token, chatId).catch(() => {});
+    if (waitMs) await sleep(waitMs);
+    await recordOutgoing(botId, await sendFollowUp(botId, token, chatId, f, ctx));
+  }
+}
+
+async function sendFollowUp(botId: number, token: string, chatId: number, f: FollowUp, ctx: TemplateContext): Promise<TelegramMessage> {
+  switch (f.kind) {
+    case "text":
+      return botApi.sendMessage(token, chatId, await renderTemplate(f.text, f.parseMode, ctx), {
+        parseMode: f.parseMode ?? undefined,
+        buttons: buttonsForChat(f.buttons, chatId),
+      });
+    case "media":
+      return sendRuleMedia(botId, token, chatId, f.media, await renderTemplate(f.caption ?? "", f.parseMode, ctx), {
+        parseMode: f.parseMode ?? undefined,
+        buttons: buttonsForChat(f.buttons, chatId),
+      });
+    case "location":
+      return botApi.sendLocation(token, chatId, f.latitude, f.longitude);
+    case "contact":
+      return botApi.sendContact(token, chatId, f);
+    case "dice":
+      return botApi.sendDice(token, chatId, f.emoji);
+  }
 }
 
 /** Updates the stored copy of a message the bot just edited. Does nothing when it was never stored (it predates monitoring). */
@@ -290,11 +351,7 @@ export async function answerCallbackWithRule(botId: number, token: string, rule:
         // Fall through to a new message.
       }
     }
-    const sent = await botApi.sendMessage(token, chat.id, text, {
-      parseMode: rule.parseMode ?? undefined,
-      buttons,
-      replyKeyboard: replyKeyboardForChat(parseReplyKeyboard(rule.replyKeyboard), chat.id),
-    });
-    await recordOutgoing(botId, sent);
+    // A new message (or the fallback of a failed edit): same delivery as a message rule, so attachments and follow-ups work.
+    await deliverRuleReply(botId, token, rule, chat.id, query.from, null);
   })().catch((err) => logError("auto-reply", `bot ${botId} button rule ${rule.id} failed`, err, { botId, ruleId: rule.id }));
 }

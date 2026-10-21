@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { TEMPLATE_PLACEHOLDERS, type TemplatePlaceholder } from "@/lib/templates";
 import { MEDIA_KINDS } from "@/lib/validation";
+import { AttachmentField, FollowUpsEditor } from "./attachment-editor";
 import { ButtonsEditor } from "./buttons-editor";
 import { KeyboardEditor } from "./keyboard-editor";
 import { draftError, draftOutputs, isCallbackType, isToastOnly, type RuleDraft } from "./rule-draft";
@@ -131,15 +132,23 @@ export function RuleFields({ bot, draft, onChange, idPrefix = "rule" }: { bot: B
       )}
 
       <div className="space-y-1.5">
-        <Label htmlFor={`${idPrefix}-reply`}>{toastOnly ? "Pop-up text" : editsMessage ? "New text of the message" : "Reply"}</Label>
+        <Label htmlFor={`${idPrefix}-reply`}>
+          {toastOnly ? "Pop-up text" : editsMessage ? "New text of the message" : draft.media ? (draft.media.kind === "sticker" ? "Text (a sticker can't have any)" : "Caption") : "Reply"}
+        </Label>
         <Textarea
           id={`${idPrefix}-reply`}
           ref={replyRef}
           value={draft.replyText}
           onChange={(e) => set({ replyText: e.target.value })}
-          maxLength={toastOnly ? 200 : 4096}
+          maxLength={toastOnly ? 200 : draft.media ? 1024 : 4096}
         />
       </div>
+      {!toastOnly && !editsMessage && (
+        <div className="space-y-1.5">
+          <Label>Attach a photo or file (optional)</Label>
+          <AttachmentField botId={bot.id} media={draft.media} onChange={(media) => set({ media })} idPrefix={`${idPrefix}-attach`} />
+        </div>
+      )}
       {!toastOnly && (
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-[var(--muted)]">
           <span>Insert:</span>
@@ -185,6 +194,10 @@ export function RuleFields({ bot, draft, onChange, idPrefix = "rule" }: { bot: B
             />
           )}
         </>
+      )}
+
+      {!toastOnly && !editsMessage && (
+        <FollowUpsEditor botId={bot.id} items={draft.followUps} onChange={(followUps) => set({ followUps })} idPrefix={`${idPrefix}-more`} />
       )}
 
       {(matchType === "exact" || matchType === "contains") && (

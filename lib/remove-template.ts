@@ -1,4 +1,5 @@
 import { deleteAutoReply, listAutoReplies, parseButtons, parseReplyKeyboard } from "./auto-replies";
+import { parseFollowUps, parseRuleMedia } from "./rule-content";
 import { BotApiError, botApi } from "./botapi";
 import { withRetry } from "./bot-api-retry";
 import { planRemoval, type BotTemplate } from "./bot-templates";
@@ -15,7 +16,13 @@ const message = (err: unknown) => (err instanceof BotApiError ? err.description 
 
 /** Rows as `planRemoval` reads them (JSON columns parsed). */
 export const storedRules = async (botId: number) =>
-  (await listAutoReplies(botId)).map((r) => ({ ...r, buttons: parseButtons(r.buttons), replyKeyboard: parseReplyKeyboard(r.replyKeyboard) }));
+  (await listAutoReplies(botId)).map((r) => ({
+    ...r,
+    buttons: parseButtons(r.buttons),
+    replyKeyboard: parseReplyKeyboard(r.replyKeyboard),
+    media: parseRuleMedia(r.media),
+    followUps: parseFollowUps(r.followUps),
+  }));
 
 /**
  * Removes what a template added and nobody has changed since: rules and default-scope commands that still match it

@@ -4,7 +4,8 @@ import { withRetry } from "./bot-api-retry";
 import { templateRuleKey, type BotTemplate, type TemplatePart } from "./bot-templates";
 import { enableMonitoring } from "./bot-claims";
 import type { BotRow } from "./bots";
-import { normalizeInlineButtons, normalizeReplyKeyboard, validateAutoReply } from "./validation";
+import type { FollowUp, RuleMediaRef } from "./rule-content";
+import { normalizeFollowUps, normalizeInlineButtons, normalizeReplyKeyboard, validateAutoReply } from "./validation";
 
 export interface PartResult {
   part: TemplatePart;
@@ -17,6 +18,27 @@ export interface PartResult {
 
 const message = (err: unknown) => (err instanceof BotApiError ? err.description : err instanceof Error ? err.message : String(err));
 
+/** A rule's attachment and follow-ups pointed at this bot's own copies of the files, or an error if one is missing. */
+function remapAttachments(
+  rule: { media?: RuleMediaRef | null; followUps?: FollowUp[] },
+  map: ReadonlyMap<number, RuleMediaRef> | undefined
+): { media: RuleMediaRef | null; followUps: FollowUp[] | null } | { error: string } {
+  const missing = { error: "an attached file is not part of this setup." };
+  let media: RuleMediaRef | null = null;
+  if (rule.media) {
+    media = map?.get(rule.media.mediaId) ?? null;
+    if (!media) return missing;
+  }
+  const followUps = normalizeFollowUps(rule.followUps);
+  for (const [i, f] of (followUps ?? []).entries()) {
+    if (f.kind !== "media") continue;
+    const mapped = map?.get(f.media?.mediaId);
+    if (!mapped) return missing;
+    followUps![i] = { ...f, media: mapped };
+  }
+  return { media, followUps };
+}
+
 /**
  * Applies the chosen parts of a template to a bot. It only adds: existing profile text, commands and rules are never
  * replaced (unless `overwriteProfile`), so applying a template twice, or onto a set-up bot, can't destroy anything.
@@ -26,7 +48,14 @@ export async function applyTemplate(
   bot: Pick<BotRow, "id" | "ownerUserId" | "telegramId"> & { token: string | null },
   template: BotTemplate,
   parts: readonly TemplatePart[],
-  opts: { overwriteProfile?: boolean } = {}
+  opts: {
+    overwriteProfile?: boolean;
+    /**
+     * Where the attachments a template's rules name now live (setup import: old file ID → the copy stored for this bot).
+     * A rule naming a file that isn't in the map is reported, not added.
+     */
+    mediaMap?: ReadonlyMap<number, RuleMediaRef>;
+  } = {}
 ): Promise<PartResult[]> {
   const results: PartResult[] = [];
   const start = (part: TemplatePart) => {
@@ -94,7 +123,12 @@ export async function applyTemplate(
       // Templates go through the same gate as a rule typed into the form.
       const buttons = normalizeInlineButtons(rule.buttons) ?? undefined;
       const replyKeyboard = normalizeReplyKeyboard(rule.replyKeyboard);
-      const invalid = validateAutoReply({ ...rule, buttons, replyKeyboard });
+      const content = remapAttachments(rule, opts.mediaMap);
+      if ("error" in content) {
+        r.errors.push(`${rule.pattern}: ${content.error}`);
+        continue;
+      }
+      const invalid = validateAutoReply({ ...rule, buttons, replyKeyboard, ...content });
       if (invalid) {
         r.errors.push(`${rule.pattern}: ${invalid}`);
         continue;
@@ -109,6 +143,7 @@ export async function applyTemplate(
         buttons,
         replyKeyboard,
         callbackAction: rule.callbackAction,
+        ...content,
       });
       r.applied++;
     }

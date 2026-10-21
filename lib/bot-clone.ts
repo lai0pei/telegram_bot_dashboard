@@ -2,6 +2,7 @@ import { BotApiError, botApi, type BotCommandScopeType } from "./botapi";
 import { createAutoReply, DuplicateFallbackError, listAutoReplies, parseButtons, parseReplyKeyboard } from "./auto-replies";
 import { withRetry as attempt } from "./bot-api-retry";
 import { COMMON_LANGUAGES } from "./languages";
+import { copyRuleContent } from "./rule-media";
 
 export const CLONE_SECTIONS = ["profile", "commands", "menuButton", "adminRights", "autoReplies"] as const;
 export type CloneSection = (typeof CLONE_SECTIONS)[number];
@@ -121,7 +122,9 @@ export async function cloneBotSettings(
     // Appended after the target's own rules, in the source's order; nothing existing is replaced.
     for (const rule of (await listAutoReplies(source.id))) {
       try {
-        await createAutoReply(target.id, { ...rule, buttons: parseButtons(rule.buttons), replyKeyboard: parseReplyKeyboard(rule.replyKeyboard) });
+        // Attached files are copied, not shared: a file_id only works for the bot it was uploaded through.
+        const { media, followUps } = await copyRuleContent(source.id, target.id, rule);
+        await createAutoReply(target.id, { ...rule, buttons: parseButtons(rule.buttons), replyKeyboard: parseReplyKeyboard(rule.replyKeyboard), media, followUps });
         r.copied++;
       } catch (err) {
         // The target keeps its own "anything else" rule; that's not a failure.

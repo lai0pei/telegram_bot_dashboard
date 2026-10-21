@@ -1,4 +1,5 @@
 import type { InlineButton, ReplyKeyboard, TelegramPoll } from "@/lib/botapi";
+import type { FollowUp, RuleMediaRef } from "@/lib/rule-content";
 
 export interface BotCommand {
   command: string;
@@ -129,6 +130,9 @@ export interface AutoReplyRule {
   parseMode: "HTML" | "MarkdownV2" | null;
   buttons: InlineButton[][] | null;
   replyKeyboard: ReplyKeyboard | null;
+  /** A file attached to the main message (`replyText` is its caption) and messages sent after it. */
+  media: RuleMediaRef | null;
+  followUps: FollowUp[];
   showAlert: boolean;
   callbackAction: CallbackAction;
   hits: number;

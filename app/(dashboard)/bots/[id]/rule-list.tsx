@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { RULE_MEDIA_LABELS } from "@/lib/rule-content";
 import { isCallbackType } from "./rule-draft";
 import { CALLBACK_ACTION_LABELS } from "./rule-fields";
 import type { AutoReplyMatchType, AutoReplyRule } from "./types";
@@ -79,7 +80,9 @@ export function RuleList({
                   </span>
                   <span className="block truncate text-xs text-[var(--muted)]">
                     {isCallbackType(rule.matchType) && rule.callbackAction !== "toast" ? `${CALLBACK_ACTION_LABELS[rule.callbackAction]}: ` : ""}
+                    {rule.media ? `📎 ${RULE_MEDIA_LABELS[rule.media.kind].toLowerCase()}${rule.replyText ? ": " : ""}` : ""}
                     {rule.replyText}
+                    {rule.followUps?.length ? ` · +${rule.followUps.length} more message${rule.followUps.length === 1 ? "" : "s"}` : ""}
                   </span>
                   {rule.hits > 0 && (
                     <span className="block text-xs text-[var(--muted)]">

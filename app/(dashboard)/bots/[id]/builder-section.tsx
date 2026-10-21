@@ -221,7 +221,7 @@ export function BuilderSection({ bot, photoSrc, onOpen }: { bot: BotDetail; phot
   const parentOfSelected = path.length >= 2 ? byId(path[path.length - 2]) : undefined;
   const referrers = selected ? pointingAt(selected, all) : [];
   const canHoldButtons = Boolean(selected) && !isToastOnly(draft);
-  const preview = previewOf(draft);
+  const preview = previewOf(draft, bot.id);
   const hasUnsavedChanges = Boolean(selected) && JSON.stringify(draftToBody(draft)) !== JSON.stringify(draftToBody(ruleToDraft(selected!)));
 
   return (

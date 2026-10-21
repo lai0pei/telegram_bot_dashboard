@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { apiFetch } from "@/lib/api-client";
+import { RULE_MEDIA_LABELS, followUpSummary, type RuleMediaRef } from "@/lib/rule-content";
 import { draftCanSave, draftOutputs, draftToBody, emptyRuleDraft, isToastOnly, ruleToDraft, type RuleDraft } from "./rule-draft";
 import { RuleFields } from "./rule-fields";
 import { RuleList } from "./rule-list";
@@ -36,15 +37,28 @@ function triggerText(d: RuleDraft): string | null {
 }
 
 /** How a rule's reply will look in Telegram, from the form's current state. */
-export function previewOf(d: RuleDraft): { messages: PreviewMessage[]; keyboard: ReturnType<typeof draftOutputs>["replyKeyboard"] } {
-  const { buttons, replyKeyboard } = draftOutputs(d);
+export function previewOf(d: RuleDraft, botId: number): { messages: PreviewMessage[]; keyboard: ReturnType<typeof draftOutputs>["replyKeyboard"] } {
+  const { buttons, replyKeyboard, media, followUps } = draftOutputs(d);
   const trigger = triggerText(d);
   const messages: PreviewMessage[] = [];
   if (trigger) messages.push({ from: "user", text: trigger });
-  const text = d.replyText || "Your reply appears here.";
+  const text = d.replyText || (media ? "" : "Your reply appears here.");
   if (isToastOnly(d)) messages.push({ from: "bot", text, toast: true });
-  else messages.push({ from: "bot", text, parseMode: d.parseMode, buttons });
+  else {
+    messages.push({ from: "bot", text, parseMode: d.parseMode, buttons, media: media && previewMedia(media, botId) });
+    for (const f of followUps ?? []) {
+      if (f.kind === "text") messages.push({ from: "bot", text: f.text, parseMode: f.parseMode, buttons: f.buttons });
+      else if (f.kind === "media") messages.push({ from: "bot", text: f.caption ?? "", parseMode: f.parseMode, buttons: f.buttons, media: f.media ? previewMedia(f.media, botId) : undefined });
+      else messages.push({ from: "bot", text: followUpSummary(f) });
+    }
+  }
   return { messages, keyboard: replyKeyboard };
+}
+
+/** A stored attachment as the phone mock draws it: a picture from the bot's rule storage, or a file chip. */
+function previewMedia(ref: RuleMediaRef, botId: number): PreviewMessage["media"] {
+  const picture = ref.kind === "photo" || ref.kind === "sticker";
+  return { kind: picture ? "photo" : "file", name: ref.name || RULE_MEDIA_LABELS[ref.kind], src: picture ? `/api/bots/${botId}/rule-media/${ref.mediaId}` : undefined };
 }
 
 /** Rules the background poller applies to incoming messages and button presses. */
@@ -134,7 +148,7 @@ export function AutomationTab({ bot, onPickTemplate }: { bot: BotDetail; onPickT
   }
 
   const listening = bot.monitorEnabled && !bot.webhook?.url;
-  const preview = previewOf(draft);
+  const preview = previewOf(draft, bot.id);
   // Below 1360px the editor and the phone share one column; this picks which one shows (both show side by side above).
   const only = (v: "edit" | "preview") => (view === v ? "" : "hidden wide:block");
 

@@ -512,7 +512,7 @@ function sendParams(opts: SendOptions = {}): Record<string, unknown> {
   };
 }
 
-export type MediaMethod = "sendPhoto" | "sendDocument" | "sendVideo" | "sendAudio";
+export type MediaMethod = "sendPhoto" | "sendDocument" | "sendVideo" | "sendAudio" | "sendAnimation" | "sendVoice" | "sendSticker";
 
 export interface BotApiChat {
   id: number;
@@ -630,6 +630,30 @@ export const botApi = {
       { chat_id: chatId, caption: caption || undefined, ...sendParams(opts) },
       { field: method.slice("send".length).toLowerCase(), ...file }
     ),
+
+  /** Sends a file Telegram already has (a `file_id` from an earlier upload) with no upload; fails with 400 if the ID isn't valid for this bot. */
+  sendMediaById: (token: string, method: MediaMethod, chatId: number | string, fileId: string, caption?: string, opts?: SendOptions) =>
+    call<TelegramMessage>(token, method, {
+      chat_id: chatId,
+      [method.slice("send".length).toLowerCase()]: fileId,
+      caption: caption || undefined,
+      ...sendParams(opts),
+    }),
+
+  sendLocation: (token: string, chatId: number | string, latitude: number, longitude: number, opts?: SendOptions) =>
+    call<TelegramMessage>(token, "sendLocation", { chat_id: chatId, latitude, longitude, ...sendParams(opts) }),
+
+  sendContact: (token: string, chatId: number | string, contact: { phone: string; firstName: string; lastName?: string }, opts?: SendOptions) =>
+    call<TelegramMessage>(token, "sendContact", {
+      chat_id: chatId,
+      phone_number: contact.phone,
+      first_name: contact.firstName,
+      last_name: contact.lastName || undefined,
+      ...sendParams(opts),
+    }),
+
+  sendDice: (token: string, chatId: number | string, emoji: string, opts?: SendOptions) =>
+    call<TelegramMessage>(token, "sendDice", { chat_id: chatId, emoji, ...sendParams(opts) }),
 
   editMessageText: (token: string, chatId: number | string, messageId: number, text: string, opts?: SendOptions) =>
     call<TelegramMessage | true>(token, "editMessageText", {
