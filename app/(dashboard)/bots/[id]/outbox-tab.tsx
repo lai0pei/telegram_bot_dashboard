@@ -12,16 +12,18 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/api-client";
-import { validateChatId, validateMessageText, validateSendAt } from "@/lib/validation";
+import type { Destination } from "@/lib/destinations";
+import { MAX_BROADCAST_TARGETS, MAX_SCHEDULED_TARGETS, chatIdForButtons, validateChatIds, validateMessageText, validateSendAt } from "@/lib/validation";
 import { ButtonsEditor, draftsError, draftsToButtons, type ButtonDraft } from "./buttons-editor";
 import { ComposerPreview } from "./composer-preview";
+import { RecipientPicker, summarizeRecipients } from "./recipient-picker";
 import type { BotDetail, BroadcastItem, ParseModeChoice, ScheduledItem } from "./types";
 
 const select = "h-10 rounded-lg border border-[var(--card-border)] bg-[var(--card)] px-3 text-sm";
 
 const STATUS_VARIANT = { queued: "default", running: "primary", done: "success", cancelled: "default", failed: "danger" } as const;
 
-/** Broadcasts to all contacts and messages scheduled for later. Both are sent by the server's job loop. */
+/** Broadcasts (to everyone or to chosen contacts, groups and channels) and messages scheduled for later. Both are sent by the server's job loop. */
 export function OutboxTab({ bot }: { bot: BotDetail }) {
   if (!bot.hasToken) {
     return <Card className="text-sm">Fetch the bot&apos;s token first (see the banner above) to send messages from here.</Card>;
@@ -41,6 +43,10 @@ function BroadcastCard({ bot }: { bot: BotDetail }) {
   const [drafts, setDrafts] = useState<ButtonDraft[]>([]);
   const [confirming, setConfirming] = useState(false);
   const [sending, setSending] = useState(false);
+  const [audience, setAudience] = useState<"everyone" | "chosen">("everyone");
+  const [chosen, setChosen] = useState<string[]>([]);
+  const [chosenLabel, setChosenLabel] = useState("");
+  const [picking, setPicking] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -63,13 +69,21 @@ function BroadcastCard({ bot }: { bot: BotDetail }) {
     return () => clearInterval(timer);
   }, [active, load]);
 
-  const error = text ? validateMessageText(text) ?? draftsError(drafts, "1") : null;
-  const canSend = Boolean(text.trim()) && !error && !active && (data?.recipients ?? 0) > 0 && !sending;
+  // Any group or channel among the chosen chats rules out private-only buttons (Mini App), as the server checks too.
+  const buttonChat = audience === "chosen" ? chatIdForButtons(chosen) : "1";
+  const chosenError = audience === "chosen" ? validateChatIds(chosen, MAX_BROADCAST_TARGETS) : null;
+  const error = text ? validateMessageText(text) ?? draftsError(drafts, buttonChat) : null;
+  const hasAudience = audience === "chosen" ? chosen.length > 0 : (data?.recipients ?? 0) > 0;
+  const canSend = Boolean(text.trim()) && !error && !chosenError && !active && hasAudience && !sending;
+  const audienceText = audience === "chosen" ? chosenLabel : `${data?.recipients} ${data?.recipients === 1 ? "person" : "people"}`;
 
   async function send() {
     setSending(true);
     try {
-      await apiFetch(`/api/bots/${bot.id}/broadcasts`, { body: { text, parseMode: parseMode || undefined, buttons: draftsToButtons(drafts) } });
+      await apiFetch(`/api/bots/${bot.id}/broadcasts`, {
+        // In "chosen" mode the list is always sent, so an empty one can never turn into "everyone".
+        body: { text, parseMode: parseMode || undefined, buttons: draftsToButtons(drafts), ...(audience === "chosen" ? { targets: chosen } : {}) },
+      });
       toast.success("Broadcast started.");
       setText("");
       setDrafts([]);
@@ -105,10 +119,56 @@ function BroadcastCard({ bot }: { bot: BotDetail }) {
       <div className="space-y-3">
         <p className="flex items-start gap-1.5 text-xs text-[var(--muted)]">
           <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
-          Sent one by one to everyone who has written to the bot, skipping anyone who blocked it. Only people the dashboard has seen are included, and
-          messages aren&apos;t added to the conversations.
+          Sent one by one, to everyone who has written to the bot (skipping anyone who blocked it) or to the contacts, groups and channels you choose. Only chats
+          the dashboard has seen are included, and messages aren&apos;t added to the conversations.
         </p>
-        <Textarea value={text} onChange={(e) => { setText(e.target.value); setConfirming(false); }} maxLength={4096} placeholder="Message to everyone…" aria-label="Broadcast message" />
+        <fieldset className="space-y-1.5">
+          <legend className="mb-1 text-sm font-medium">Send to</legend>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+            <label className="flex items-center gap-1.5">
+              <input type="radio" name="broadcast-audience" checked={audience === "everyone"} onChange={() => { setAudience("everyone"); setConfirming(false); }} />
+              Everyone{data ? ` (${data.recipients})` : ""}
+            </label>
+            <label className="flex items-center gap-1.5">
+              <input
+                type="radio"
+                name="broadcast-audience"
+                checked={audience === "chosen"}
+                onChange={() => {
+                  setAudience("chosen");
+                  setConfirming(false);
+                  if (chosen.length === 0) setPicking(true);
+                }}
+              />
+              Chosen contacts, groups or channels{chosen.length > 0 ? ` (${chosenLabel})` : ""}
+            </label>
+            {audience === "chosen" && (
+              <Button type="button" variant="outline" size="sm" onClick={() => setPicking(true)}>
+                {chosen.length > 0 ? "Change…" : "Choose…"}
+              </Button>
+            )}
+          </div>
+          <RecipientPicker
+            botId={bot.id}
+            open={picking}
+            onOpenChange={setPicking}
+            selected={chosen}
+            max={MAX_BROADCAST_TARGETS}
+            title="Broadcast to"
+            onApply={(ids: string[], known: Destination[]) => {
+              setChosen(ids);
+              setChosenLabel(summarizeRecipients(ids, known));
+              setConfirming(false);
+            }}
+          />
+        </fieldset>
+        <Textarea
+          value={text}
+          onChange={(e) => { setText(e.target.value); setConfirming(false); }}
+          maxLength={4096}
+          placeholder={audience === "chosen" ? "Message to the chosen chats…" : "Message to everyone…"}
+          aria-label="Broadcast message"
+        />
         <div className="flex items-center gap-2">
           <Label htmlFor="broadcast-format" className="shrink-0">
             Format
@@ -119,14 +179,12 @@ function BroadcastCard({ bot }: { bot: BotDetail }) {
             <option value="MarkdownV2">MarkdownV2</option>
           </select>
         </div>
-        <ButtonsEditor drafts={drafts} onChange={setDrafts} botId={bot.id} chatId="1" inlineMode={bot.info?.supports_inline_queries} />
+        <ButtonsEditor drafts={drafts} onChange={setDrafts} botId={bot.id} chatId={buttonChat} inlineMode={bot.info?.supports_inline_queries} />
         <ComposerPreview bot={bot} text={text} parseMode={parseMode} drafts={drafts} />
         <FieldError error={error} />
         {confirming ? (
           <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--card-border)] p-3 text-sm">
-            <span className="flex-1">
-              Send this to {data?.recipients} {data?.recipients === 1 ? "person" : "people"}? It can&apos;t be unsent.
-            </span>
+            <span className="flex-1">Send this to {audienceText}? It can&apos;t be unsent.</span>
             <Button onClick={send} loading={sending}>
               Yes, send
             </Button>
@@ -164,7 +222,8 @@ function BroadcastCard({ bot }: { bot: BotDetail }) {
                     <div className="h-full rounded-full bg-[var(--primary)]" style={{ width: `${b.total ? Math.min(handled / b.total, 1) * 100 : 0}%` }} />
                   </div>
                   <p className="text-xs text-[var(--muted)]">
-                    {b.sent} sent · {b.blocked} blocked the bot · {b.failed} failed · {b.total} total · {new Date(b.createdAt).toLocaleString()}
+                    {b.targets ? "To chosen chats · " : ""}
+                    {b.sent} sent · {b.blocked} {b.targets ? "unreachable" : "blocked the bot"} · {b.failed} failed · {b.total} total · {new Date(b.createdAt).toLocaleString()}
                   </p>
                   {b.error && <p className="text-xs text-[var(--danger)]">{b.error}</p>}
                 </li>
@@ -177,15 +236,11 @@ function BroadcastCard({ bot }: { bot: BotDetail }) {
   );
 }
 
-interface Destination {
-  chatId: string;
-  name: string;
-  kind: "user" | "group" | "channel";
-}
-
 function ScheduledCard({ bot }: { bot: BotDetail }) {
   const [data, setData] = useState<{ scheduled: ScheduledItem[]; destinations: Destination[] } | null>(null);
-  const [chatId, setChatId] = useState("");
+  const [chatIds, setChatIds] = useState<string[]>([]);
+  const [chatLabel, setChatLabel] = useState("");
+  const [picking, setPicking] = useState(false);
   const [when, setWhen] = useState("");
   const [text, setText] = useState("");
   const [parseMode, setParseMode] = useState<ParseModeChoice>("");
@@ -208,16 +263,20 @@ function ScheduledCard({ bot }: { bot: BotDetail }) {
 
   // datetime-local gives "YYYY-MM-DDTHH:mm" in the browser's time zone; the server only ever sees epoch milliseconds.
   const sendAt = when ? new Date(when).getTime() : NaN;
-  const error = text || chatId || when ? validateChatId(chatId) ?? validateMessageText(text) ?? draftsError(drafts, chatId.trim() || undefined) ?? validateSendAt(sendAt) : null;
-  const canSave = Boolean(chatId.trim() && text.trim() && when) && !error && !saving;
+  const buttonChat = chatIdForButtons(chatIds);
+  const error =
+    text || chatIds.length || when
+      ? validateChatIds(chatIds, MAX_SCHEDULED_TARGETS) ?? validateMessageText(text) ?? draftsError(drafts, buttonChat) ?? validateSendAt(sendAt)
+      : null;
+  const canSave = chatIds.length > 0 && Boolean(text.trim() && when) && !error && !saving;
 
   async function save() {
     setSaving(true);
     try {
       await apiFetch(`/api/bots/${bot.id}/scheduled`, {
-        body: { chatId: chatId.trim(), text, parseMode: parseMode || undefined, buttons: draftsToButtons(drafts), sendAt },
+        body: { chatIds, text, parseMode: parseMode || undefined, buttons: draftsToButtons(drafts), sendAt },
       });
-      toast.success("Message scheduled.");
+      toast.success(chatIds.length === 1 ? "Message scheduled." : `${chatIds.length} messages scheduled.`);
       setText("");
       setDrafts([]);
       setWhen("");
@@ -249,15 +308,23 @@ function ScheduledCard({ bot }: { bot: BotDetail }) {
       <div className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label htmlFor="sched-chat">Send to (chat ID)</Label>
-            <Input id="sched-chat" list="sched-destinations" value={chatId} onChange={(e) => setChatId(e.target.value)} placeholder="Pick or type a chat ID" />
-            <datalist id="sched-destinations">
-              {data?.destinations.map((d) => (
-                <option key={d.chatId} value={d.chatId}>
-                  {d.name}
-                </option>
-              ))}
-            </datalist>
+            <Label htmlFor="sched-chat">Send to</Label>
+            <Button id="sched-chat" type="button" variant="outline" className="w-full justify-start truncate" onClick={() => setPicking(true)}>
+              {chatIds.length > 0 ? chatLabel : "Choose recipients…"}
+            </Button>
+            <RecipientPicker
+              botId={bot.id}
+              open={picking}
+              onOpenChange={setPicking}
+              selected={chatIds}
+              max={MAX_SCHEDULED_TARGETS}
+              allowManual
+              title="Schedule for"
+              onApply={(ids: string[], known: Destination[]) => {
+                setChatIds(ids);
+                setChatLabel(summarizeRecipients(ids, known));
+              }}
+            />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="sched-when">When (your local time)</Label>
@@ -275,13 +342,16 @@ function ScheduledCard({ bot }: { bot: BotDetail }) {
             <option value="MarkdownV2">MarkdownV2</option>
           </select>
         </div>
-        <ButtonsEditor drafts={drafts} onChange={setDrafts} botId={bot.id} chatId={chatId.trim() || undefined} inlineMode={bot.info?.supports_inline_queries} />
+        <ButtonsEditor drafts={drafts} onChange={setDrafts} botId={bot.id} chatId={buttonChat} inlineMode={bot.info?.supports_inline_queries} />
         <ComposerPreview bot={bot} text={text} parseMode={parseMode} drafts={drafts} />
         <FieldError error={error} />
         <Button onClick={save} disabled={!canSave} loading={saving}>
           Schedule
         </Button>
-        <p className="text-xs text-[var(--muted)]">Sent by the server within a few seconds of the chosen time. If the server is off then, it goes out when it&apos;s back on.</p>
+        <p className="text-xs text-[var(--muted)]">
+          Sent by the server within a few seconds of the chosen time. If the server is off then, it goes out when it&apos;s back on. With several recipients, each gets its own
+          scheduled message below, and each can be cancelled on its own.
+        </p>
       </div>
 
       {data && data.scheduled.length > 0 && (

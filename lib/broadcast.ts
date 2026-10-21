@@ -4,9 +4,10 @@ import { getBotForJob, getBotToken } from "./bots";
 import { parseButtons } from "./auto-replies";
 import { db } from "./db";
 import { isUniqueViolation } from "./db/errors";
-import { botUsers, broadcasts } from "./db/schema";
+import { botChats, botUsers, broadcasts } from "./db/schema";
 import { logError } from "./error-log";
 import { botNotSuspended } from "./suspension";
+import { MAX_BROADCAST_TARGETS } from "./validation";
 
 export type BroadcastRow = typeof broadcasts.$inferSelect;
 
@@ -42,11 +43,50 @@ export async function listBroadcasts(botId: number, limit = 20): Promise<Broadca
 
 export class BroadcastConflictError extends Error {}
 
+/** The chosen chat IDs of a broadcast, or null when it goes to every contact. */
+export function parseTargets(raw: string | null): string[] | null {
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Every chosen chat must be one this bot knows and can still reach: an unblocked person who wrote to it, or a group or
+ * channel it is currently in. Anything else is refused outright rather than skipped, so a broadcast never quietly
+ * reaches fewer (or other) chats than the user ticked.
+ */
+async function checkTargets(botId: number, targets: string[]): Promise<void> {
+  const people = await db
+    .select({ chatId: botUsers.chatId })
+    .from(botUsers)
+    .where(and(eq(botUsers.botId, botId), sql`${botUsers.blockedAt} IS NULL AND ${botUsers.chatId} NOT LIKE '-%'`, inArray(botUsers.chatId, targets)));
+  const chats = await db
+    .select({ chatId: botChats.chatId })
+    .from(botChats)
+    .where(and(eq(botChats.botId, botId), inArray(botChats.status, ["member", "administrator"]), inArray(botChats.chatId, targets)));
+  const known = new Set([...people, ...chats].map((r) => r.chatId));
+  const unknown = targets.filter((t) => !known.has(t)).length;
+  if (unknown > 0) {
+    throw new BroadcastConflictError(
+      `${unknown} of the chosen ${unknown === 1 ? "chat" : "chats"} can't be reached any more (blocked the bot, or the bot left). Review the list and try again.`
+    );
+  }
+}
+
 export async function createBroadcast(
   botId: number,
-  input: { text: string; parseMode: "HTML" | "MarkdownV2" | null; buttons: InlineButton[][] | null }
+  input: { text: string; parseMode: "HTML" | "MarkdownV2" | null; buttons: InlineButton[][] | null; targets?: string[] | null }
 ): Promise<BroadcastRow> {
   try {
+    // `targets` absent or null = everyone. An empty list is never treated as that (the route refuses it first).
+    if (input.targets) {
+      if (input.targets.length === 0 || input.targets.length > MAX_BROADCAST_TARGETS) throw new BroadcastConflictError("Choose between 1 and " + MAX_BROADCAST_TARGETS + " recipients.");
+      await checkTargets(botId, input.targets);
+    }
     return await insertBroadcast(botId, input);
   } catch (err) {
     // `broadcasts_one_active_unique` is the real guard: the check below can lose a race with a parallel request.
@@ -59,7 +99,7 @@ const ACTIVE_MESSAGE = "A broadcast is already in progress for this bot. Wait fo
 
 async function insertBroadcast(
   botId: number,
-  input: { text: string; parseMode: "HTML" | "MarkdownV2" | null; buttons: InlineButton[][] | null }
+  input: { text: string; parseMode: "HTML" | "MarkdownV2" | null; buttons: InlineButton[][] | null; targets?: string[] | null }
 ): Promise<BroadcastRow> {
   return await db.transaction(async (tx) => {
     const active = (await tx
@@ -67,10 +107,12 @@ async function insertBroadcast(
       .from(broadcasts)
       .where(and(eq(broadcasts.botId, botId), inArray(broadcasts.status, ["queued", "running"]))))[0];
     if (active) throw new BroadcastConflictError(ACTIVE_MESSAGE);
-    const total = (await tx
-      .select({ n: sql<number>`count(distinct ${botUsers.chatId})::int` })
-      .from(botUsers)
-      .where(RECIPIENT_FILTER(botId)))[0].n;
+    const total = input.targets
+      ? input.targets.length
+      : (await tx
+          .select({ n: sql<number>`count(distinct ${botUsers.chatId})::int` })
+          .from(botUsers)
+          .where(RECIPIENT_FILTER(botId)))[0].n;
     if (total === 0) throw new BroadcastConflictError("There is nobody to send to yet: no contact has written to this bot.");
     return (await tx
       .insert(broadcasts)
@@ -79,6 +121,7 @@ async function insertBroadcast(
         text: input.text,
         parseMode: input.parseMode,
         buttons: input.buttons?.length ? JSON.stringify(input.buttons) : null,
+        targets: input.targets ? JSON.stringify(input.targets) : null,
         total,
         createdAt: new Date(),
       })
@@ -112,8 +155,15 @@ async function fail(id: number, error: string) {
   await db.update(broadcasts).set({ status: "failed", error, finishedAt: new Date() }).where(eq(broadcasts.id, id));
 }
 
-/** Contacts to message next: one row per chat, in contact-row order, after the saved cursor. */
-async function nextRecipients(botId: number, cursor: number): Promise<{ id: number; chatId: string }[]> {
+/**
+ * Chats to message next. Everyone: one row per contact in contact-row order, after the saved cursor (a `bot_users.id`).
+ * Chosen chats: the next slice of the stored list, where the cursor is how many are already handled and a recipient's
+ * `id` is its 1-based position, so "rewind to `id - 1`" retries exactly that chat.
+ */
+async function nextRecipients(broadcast: BroadcastRow): Promise<{ id: number; chatId: string }[]> {
+  const targets = parseTargets(broadcast.targets);
+  if (targets) return targets.slice(broadcast.cursor, broadcast.cursor + BATCH_SIZE).map((chatId, i) => ({ id: broadcast.cursor + i + 1, chatId }));
+  const { botId, cursor } = broadcast;
   return await db
     .select({ id: sql<number>`min(${botUsers.id})`, chatId: botUsers.chatId })
     .from(botUsers)
@@ -146,7 +196,7 @@ export async function runBroadcastStep(id: number, budgetMs: number): Promise<vo
     const current = (await db.select().from(broadcasts).where(eq(broadcasts.id, id)))[0];
     if (!current || current.status !== "running") return; // cancelled meanwhile
 
-    const batch = await nextRecipients(current.botId, current.cursor);
+    const batch = await nextRecipients(current);
     if (batch.length === 0) {
       await db.update(broadcasts).set({ status: "done", finishedAt: new Date() }).where(eq(broadcasts.id, id));
       resumeAt().delete(id);
@@ -171,7 +221,12 @@ export async function runBroadcastStep(id: number, budgetMs: number): Promise<vo
         .set({ [field]: sql`${column} + 1` })
         .where(eq(broadcasts.id, id));
       if (outcome === "blocked") {
-        await db.update(botUsers).set({ blockedAt: new Date() }).where(and(eq(botUsers.botId, current.botId), eq(botUsers.chatId, recipient.chatId)));
+        if (recipient.chatId.startsWith("-")) {
+          // A group or channel: the bot was removed or lost access. Record that, never touch a contact row.
+          await db.update(botChats).set({ status: "kicked", updatedAt: new Date() }).where(and(eq(botChats.botId, current.botId), eq(botChats.chatId, recipient.chatId)));
+        } else {
+          await db.update(botUsers).set({ blockedAt: new Date() }).where(and(eq(botUsers.botId, current.botId), eq(botUsers.chatId, recipient.chatId)));
+        }
       }
       await sleep(SEND_INTERVAL_MS);
     }

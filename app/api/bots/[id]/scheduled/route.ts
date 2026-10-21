@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
 import { withAuth, errorResponse } from "@/lib/api-guard";
-import { eq } from "drizzle-orm";
-import { listBotChats } from "@/lib/bot-chats";
 import { getBotById } from "@/lib/bots";
-import { db } from "@/lib/db";
-import { botUsers } from "@/lib/db/schema";
+import { listDestinations } from "@/lib/destinations";
 import type { InlineButton } from "@/lib/botapi";
-import { createScheduled, listScheduled, toScheduledDto } from "@/lib/scheduled";
+import { createScheduledMany, listScheduled, toScheduledDto } from "@/lib/scheduled";
 import {
+  MAX_SCHEDULED_TARGETS,
+  chatIdForButtons,
+  normalizeChatIds,
   normalizeInlineButtons,
-  validateChatId,
+  validateChatIds,
   validateInlineButtons,
   validateMessageText,
   validateParseMode,
@@ -22,23 +22,14 @@ export const GET = withAuth(async (_req: Request, ctx: Ctx, telegramAccountId: s
   try {
     const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
-    // Suggestions for the "send to" picker: people who wrote to the bot, and chats it's currently in.
-    const contacts = await db.select().from(botUsers).where(eq(botUsers.botId, bot.id));
-    const destinations = [
-      ...contacts
-        .filter((u) => !u.chatId.startsWith("-"))
-        .map((u) => ({ chatId: u.chatId, name: u.firstName || (u.username ? `@${u.username}` : u.chatId), kind: "user" as const })),
-      ...(await listBotChats(bot.id))
-        .filter((c) => c.status === "member" || c.status === "administrator")
-        .map((c) => ({ chatId: c.chatId, name: c.title, kind: c.type === "channel" ? ("channel" as const) : ("group" as const) })),
-    ];
-    return NextResponse.json({ scheduled: (await listScheduled(bot.id)).map(toScheduledDto), destinations });
+    // Names for the list of scheduled messages (the "send to" picker loads the same list from /audience).
+    return NextResponse.json({ scheduled: (await listScheduled(bot.id)).map(toScheduledDto), destinations: await listDestinations(bot.id) });
   } catch (err) {
     return errorResponse(err);
   }
 });
 
-/** POST { chatId, text, parseMode?, buttons?, sendAt }: `sendAt` is epoch milliseconds. */
+/** POST { chatIds (or one chatId), text, parseMode?, buttons?, sendAt }: one scheduled message per chat; `sendAt` is epoch milliseconds. */
 export const POST = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: string) => {
   try {
     const bot = await getBotById(Number((await ctx.params).id), telegramAccountId);
@@ -46,25 +37,25 @@ export const POST = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: s
     if (!bot.encryptedToken) return NextResponse.json({ error: "This bot has no stored token yet." }, { status: 400 });
 
     const body = await req.json().catch(() => null);
-    if (!body || typeof body.chatId !== "string" || typeof body.text !== "string") {
-      return NextResponse.json({ error: "chatId and text are required." }, { status: 400 });
-    }
+    const rawIds: unknown = body && (body.chatIds ?? (typeof body.chatId === "string" ? [body.chatId] : undefined));
+    if (!body || typeof body.text !== "string") return NextResponse.json({ error: "chatIds and text are required." }, { status: 400 });
+    const idsError = validateChatIds(rawIds, MAX_SCHEDULED_TARGETS);
+    if (idsError) return NextResponse.json({ error: idsError }, { status: 400 });
+    const chatIds = normalizeChatIds(rawIds as string[]);
     const error =
-      validateChatId(body.chatId) ??
       validateMessageText(body.text) ??
       validateParseMode(body.parseMode) ??
-      validateInlineButtons(body.buttons, body.chatId) ??
+      validateInlineButtons(body.buttons, chatIdForButtons(chatIds)) ??
       validateSendAt(body.sendAt);
     if (error) return NextResponse.json({ error }, { status: 400 });
 
-    const row = await createScheduled(bot.id, {
-      chatId: body.chatId.trim(),
+    const rows = await createScheduledMany(bot.id, chatIds, {
       text: body.text,
       parseMode: body.parseMode || null,
       buttons: normalizeInlineButtons(body.buttons) as InlineButton[][] | null,
       sendAt: body.sendAt,
     });
-    return NextResponse.json({ scheduled: toScheduledDto(row) });
+    return NextResponse.json({ scheduled: toScheduledDto(rows[0]), count: rows.length });
   } catch (err) {
     return errorResponse(err);
   }

@@ -36,6 +36,29 @@ export async function createScheduled(
     .returning())[0];
 }
 
+/** One scheduled message per chat, all in a single insert: either every chat is queued or none is. Each can be cancelled on its own. */
+export async function createScheduledMany(
+  botId: number,
+  chatIds: string[],
+  input: { text: string; parseMode: "HTML" | "MarkdownV2" | null; buttons: InlineButton[][] | null; sendAt: number }
+): Promise<ScheduledRow[]> {
+  const now = new Date();
+  return await db
+    .insert(scheduledMessages)
+    .values(
+      chatIds.map((chatId) => ({
+        botId,
+        chatId,
+        text: input.text,
+        parseMode: input.parseMode,
+        buttons: input.buttons?.length ? JSON.stringify(input.buttons) : null,
+        sendAt: new Date(input.sendAt),
+        createdAt: now,
+      }))
+    )
+    .returning();
+}
+
 /** Only a still-pending message can be cancelled; one already being sent (or sent) can't. */
 export async function cancelScheduled(botId: number, id: number): Promise<boolean> {
   return (

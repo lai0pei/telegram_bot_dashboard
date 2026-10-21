@@ -230,6 +230,35 @@ export function validateChatId(chatId: string): string | null {
   return null;
 }
 
+/** At most this many chats in one broadcast / scheduled send (the picker enforces it too). */
+export const MAX_BROADCAST_TARGETS = 200;
+export const MAX_SCHEDULED_TARGETS = 20;
+
+/**
+ * A non-empty list of numeric chat IDs, or an error. An empty list is an error, never "everyone": a broadcast can't be unsent.
+ */
+export function validateChatIds(ids: unknown, max: number): string | null {
+  if (!Array.isArray(ids) || ids.length === 0) return "Choose at least one recipient.";
+  if (ids.length > max) return `Choose at most ${max} recipients at a time.`;
+  for (const id of ids) {
+    if (typeof id !== "string") return "Chat IDs must be strings.";
+    const error = validateChatId(id);
+    if (error) return error;
+  }
+  return null;
+}
+
+/** The IDs trimmed and deduplicated, in the order given. Call after `validateChatIds`. */
+export function normalizeChatIds(ids: string[]): string[] {
+  return [...new Set(ids.map((id) => id.trim()))];
+}
+
+/** The chat ID to validate buttons against for a send to several chats: any group/channel rules out private-only buttons. */
+export function chatIdForButtons(ids: readonly string[]): string | undefined {
+  if (ids.length === 0) return undefined;
+  return ids.some((id) => id.trim().startsWith("-")) ? "-1" : ids[0].trim();
+}
+
 /** A private chat's ID: a positive number (groups and channels are negative). */
 export function validatePrivateChatId(chatId: unknown): string | null {
   if (typeof chatId !== "string") return "Chat ID is required.";

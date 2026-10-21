@@ -489,6 +489,8 @@ export const broadcasts = pgTable(
     failed: integer("failed").notNull().default(0),
     blocked: integer("blocked").notNull().default(0),
     cursor: integer("cursor").notNull().default(0),
+    /** JSON array of chat IDs when sent to chosen chats (then `cursor` is the number already handled); null = every contact. */
+    targets: text("targets"),
     error: text("error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     startedAt: timestamp("started_at", { withTimezone: true }),
