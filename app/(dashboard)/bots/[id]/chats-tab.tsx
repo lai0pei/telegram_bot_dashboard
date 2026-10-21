@@ -11,6 +11,7 @@ import { CopyButton } from "@/components/ui/copy-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/api-client";
 import type { BotRights } from "@/lib/bot-chats";
 import { timeAgo } from "@/lib/time";
@@ -317,14 +318,13 @@ function EditSection({ base, info, canChange, onSaved }: { base: string; info: C
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="chat-desc">Description</Label>
-        <textarea
+        <Textarea
+          rows={5}
           id="chat-desc"
-          rows={3}
           maxLength={255}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           disabled={!canChange}
-          className="w-full rounded-lg border border-[var(--card-border)] bg-[var(--card)] p-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] disabled:opacity-60"
         />
         {descriptionError && <p className="text-xs text-[var(--danger)]">{descriptionError}</p>}
       </div>

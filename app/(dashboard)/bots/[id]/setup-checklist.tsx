@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/api-client";
 import { setupFlags, setupProgress } from "@/lib/setup-progress";
 import { validateDescription, validateShortDescription } from "@/lib/validation";
@@ -224,14 +225,12 @@ export function SetupChecklist({
                     )}
                     {step.id === "about" && (
                       <>
-                        <textarea
+                        <Textarea
                           value={about}
                           onChange={(e) => setAbout(e.target.value)}
-                          rows={4}
                           maxLength={512}
                           aria-label="Description"
                           placeholder="Tell people what they can do here, in a few sentences."
-                          className="w-full rounded-lg border border-[var(--card-border)] bg-[var(--card)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
                         />
                         {aboutError && <p className="text-xs text-[var(--danger)]">{aboutError}</p>}
                         <Button size="sm" loading={busy} disabled={Boolean(aboutError) || !about.trim() || !bot.hasToken} onClick={() => void saveProfile({ description: about })}>
@@ -242,13 +241,11 @@ export function SetupChecklist({
                     {step.id === "welcome" && (
                       <>
                         {startRule && !startRule.enabled && <p className="text-xs text-[var(--danger)]">A /start rule exists but is switched off. Saving turns it on.</p>}
-                        <textarea
+                        <Textarea
                           value={welcome}
                           onChange={(e) => setWelcomeDraft(e.target.value)}
-                          rows={3}
                           maxLength={4096}
                           aria-label="Welcome message"
-                          className="w-full rounded-lg border border-[var(--card-border)] bg-[var(--card)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
                         />
                         <div className="flex flex-wrap items-center gap-2">
                           <Button size="sm" loading={busy} disabled={rules === null || !welcome.trim()} onClick={() => void saveWelcome()}>

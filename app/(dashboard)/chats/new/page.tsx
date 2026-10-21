@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FieldError } from "@/components/ui/field-error";
+import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/api-client";
 import { validateChatAbout, validateChatTitle } from "@/lib/validation";
 import { randomChatTitle } from "@/lib/random-names";
@@ -95,10 +96,9 @@ export default function NewChatPage() {
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="about">Description (optional)</Label>
-            <textarea
+            <Textarea
+              rows={5}
               id="about"
-              className="w-full rounded-lg border border-[var(--card-border)] bg-[var(--card)] p-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
-              rows={3}
               maxLength={255}
               value={about}
               onChange={(e) => setAbout(e.target.value)}

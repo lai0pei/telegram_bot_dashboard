@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { apiFetch } from "@/lib/api-client";
 import { validateBotName, validateDescription, validateShortDescription } from "@/lib/validation";
 import { FieldError } from "@/components/ui/field-error";
+import { Textarea } from "@/components/ui/textarea";
 import { LanguageSelect } from "./language-select";
 import type { BotDetail } from "./types";
 
@@ -114,10 +115,8 @@ export function SettingsTab({ bot, onSaved, onDraftChange }: { bot: BotDetail; o
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="desc">Description</Label>
-          <textarea
+          <Textarea
             id="desc"
-            className="w-full rounded-lg border border-[var(--card-border)] bg-[var(--card)] p-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
-            rows={4}
             maxLength={512}
             value={description}
             onChange={(e) => edit({ description: e.target.value })}

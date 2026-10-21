@@ -10,6 +10,7 @@ import { FieldError } from "@/components/ui/field-error";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/api-client";
 import { validateChatId, validateMessageText, validateSendAt } from "@/lib/validation";
 import { ButtonsEditor, draftsError, draftsToButtons, type ButtonDraft } from "./buttons-editor";
@@ -17,8 +18,6 @@ import { ComposerPreview } from "./composer-preview";
 import type { BotDetail, BroadcastItem, ParseModeChoice, ScheduledItem } from "./types";
 
 const select = "h-10 rounded-lg border border-[var(--card-border)] bg-[var(--card)] px-3 text-sm";
-const textarea =
-  "w-full rounded-lg border border-[var(--card-border)] bg-[var(--card)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]";
 
 const STATUS_VARIANT = { queued: "default", running: "primary", done: "success", cancelled: "default", failed: "danger" } as const;
 
@@ -109,7 +108,7 @@ function BroadcastCard({ bot }: { bot: BotDetail }) {
           Sent one by one to everyone who has written to the bot, skipping anyone who blocked it. Only people the dashboard has seen are included, and
           messages aren&apos;t added to the conversations.
         </p>
-        <textarea value={text} onChange={(e) => { setText(e.target.value); setConfirming(false); }} rows={4} maxLength={4096} placeholder="Message to everyone…" aria-label="Broadcast message" className={textarea} />
+        <Textarea value={text} onChange={(e) => { setText(e.target.value); setConfirming(false); }} maxLength={4096} placeholder="Message to everyone…" aria-label="Broadcast message" />
         <div className="flex items-center gap-2">
           <Label htmlFor="broadcast-format" className="shrink-0">
             Format
@@ -265,7 +264,7 @@ function ScheduledCard({ bot }: { bot: BotDetail }) {
             <Input id="sched-when" type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} />
           </div>
         </div>
-        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} maxLength={4096} placeholder="Message…" aria-label="Scheduled message" className={textarea} />
+        <Textarea value={text} onChange={(e) => setText(e.target.value)} maxLength={4096} placeholder="Message…" aria-label="Scheduled message" />
         <div className="flex items-center gap-2">
           <Label htmlFor="sched-format" className="shrink-0">
             Format

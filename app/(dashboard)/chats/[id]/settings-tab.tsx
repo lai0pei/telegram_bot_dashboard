@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { apiFetch } from "@/lib/api-client";
 import { validateChatAbout, validateChatTitle, validateChatUsername } from "@/lib/validation";
 import { FieldError } from "@/components/ui/field-error";
+import { Textarea } from "@/components/ui/textarea";
 import type { ChatDetail } from "./types";
 
 export function SettingsTab({ chat, onSaved }: { chat: ChatDetail; onSaved: () => void }) {
@@ -71,10 +72,9 @@ export function SettingsTab({ chat, onSaved }: { chat: ChatDetail; onSaved: () =
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="about">Description</Label>
-          <textarea
+          <Textarea
+            rows={5}
             id="about"
-            className="w-full rounded-lg border border-[var(--card-border)] bg-[var(--card)] p-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] disabled:opacity-60"
-            rows={4}
             maxLength={255}
             value={about}
             onChange={(e) => setAbout(e.target.value)}

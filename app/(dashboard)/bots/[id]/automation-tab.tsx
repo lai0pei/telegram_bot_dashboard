@@ -160,7 +160,7 @@ export function AutomationTab({ bot, onPickTemplate }: { bot: BotDetail; onPickT
         </Card>
       )}
 
-      <div className="grid items-start gap-4 lg:grid-cols-[280px_minmax(0,1fr)] wide:grid-cols-[300px_minmax(0,1fr)_320px]">
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(24rem,30rem)] wide:grid-cols-[minmax(0,1fr)_minmax(26rem,34rem)_320px]">
         <Card className="lg:col-start-1 lg:row-start-1 wide:sticky wide:top-6 wide:max-h-[calc(100dvh-3rem)] wide:overflow-y-auto">
           <RuleList
             rules={rules}

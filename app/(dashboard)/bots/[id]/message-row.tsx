@@ -3,6 +3,7 @@ import { motion } from "motion/react";
 import { memo, useState } from "react";
 import { fadeUp, spring } from "@/components/motion";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { validateCaption, validateMessageText } from "@/lib/validation";
 import type { BotMessageRow, ParseModeChoice } from "./types";
 
@@ -171,13 +172,12 @@ export const MessageRow = memo(function MessageRow({
         <Media message={message} botId={botId} />
         {editing ? (
           <div className="space-y-1.5">
-            <textarea
+            <Textarea
+              className="min-w-48"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              rows={3}
               maxLength={message.mediaType ? 1024 : 4096}
               aria-invalid={Boolean(draftError)}
-              className="w-full min-w-48 resize-y rounded-lg border border-[var(--card-border)] bg-[var(--card)] p-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
             />
             {draftError && <p className="text-xs text-[var(--danger)]">{draftError}</p>}
             <div className="flex items-center gap-1.5">

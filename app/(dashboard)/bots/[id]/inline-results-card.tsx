@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/api-client";
 import { validateInlineResult } from "@/lib/validation";
 import { ComposerPreview } from "./composer-preview";
@@ -147,13 +148,11 @@ export function InlineResultsCard({ bot }: { bot: BotDetail }) {
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="inline-text">Message that gets sent</Label>
-            <textarea
+            <Textarea
               id="inline-text"
               value={messageText}
               onChange={(e) => setMessageText(e.target.value)}
-              rows={3}
               maxLength={4096}
-              className="w-full rounded-lg border border-[var(--card-border)] bg-[var(--card)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
             />
           </div>
           <div className="flex items-center gap-2">
