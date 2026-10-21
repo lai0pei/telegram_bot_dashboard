@@ -43,9 +43,21 @@ export async function createSessionCookie(
   });
 }
 
-export async function clearSessionCookie() {
+/** Expires a cookie with the same attributes it was set with, so every browser/proxy matches and drops it. */
+async function expireCookie(name: string) {
   const store = await cookies();
-  store.delete(SESSION_COOKIE);
+  store.set(name, "", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 0,
+    expires: new Date(0),
+  });
+}
+
+export async function clearSessionCookie() {
+  await expireCookie(SESSION_COOKIE);
 }
 
 /** Carries the in-progress login's loginId across the phone/code/password steps. Not signed: it's an opaque ID, not a credential. */
@@ -66,8 +78,7 @@ export async function getLoginIdCookie(): Promise<string | null> {
 }
 
 export async function clearLoginIdCookie() {
-  const store = await cookies();
-  store.delete(LOGIN_ID_COOKIE);
+  await expireCookie(LOGIN_ID_COOKIE);
 }
 
 interface SessionClaims {
