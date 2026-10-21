@@ -132,7 +132,8 @@ export function RecipientPicker({
                 <fieldset key={section.title} className="space-y-1">
                   <legend className="mb-1 text-xs font-medium text-[var(--muted)]">{section.title}</legend>
                   {rows.map((d) => {
-                    const disabled = !selectable(d) || (!chosenSet.has(d.chatId) && atMax);
+                    // Only an unchecked row is ever locked: a chosen contact who has since blocked the bot must stay removable.
+                    const disabled = !chosenSet.has(d.chatId) && (!selectable(d) || atMax);
                     return (
                       <label key={d.chatId} className={`flex items-center gap-2 rounded-md px-2 py-1 text-sm ${disabled ? "opacity-50" : "cursor-pointer hover:bg-[var(--card-border)]/40"}`}>
                         <input type="checkbox" checked={chosenSet.has(d.chatId)} disabled={disabled} onChange={() => toggle(d.chatId)} />
@@ -144,6 +145,11 @@ export function RecipientPicker({
                 </fieldset>
               );
             })
+          )}
+          {destinations !== null && !destinations.some((d) => d.kind !== "user") && (
+            <p className="text-xs text-[var(--muted)]">
+              No groups or channels yet. The bot only knows chats it has seen: add one under Configure → Groups &amp; channels (&ldquo;add by ID&rdquo; or &ldquo;import from my channels&rdquo;).
+            </p>
           )}
           {contactLimit > 0 && people >= contactLimit && (
             <p className="text-xs text-[var(--muted)]">Showing the {contactLimit} most recently active people; search covers only these.</p>
