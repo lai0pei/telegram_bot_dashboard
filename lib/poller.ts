@@ -1,5 +1,6 @@
 import {
   botApi,
+  pollConflictKind,
   type TelegramCallbackQuery,
   type TelegramChatJoinRequest,
   type TelegramChatMemberUpdate,
@@ -38,6 +39,18 @@ const POLL_TIMEOUT_SECONDS = 15;
 const SUPERVISOR_INTERVAL_MS = 3000;
 const MIN_BACKOFF_MS = 5000;
 const MAX_BACKOFF_MS = 60_000;
+/** A 409 means someone else polls this token; retry less often so the two don't knock each other out every few seconds. */
+const CONFLICT_BACKOFF_MS = 30_000;
+const MAX_CONFLICT_BACKOFF_MS = 120_000;
+/** A conflict counts as ongoing until this long after the last one, even if a poll in between succeeded. */
+const CONFLICT_WINDOW_MS = 5 * 60_000;
+
+type ConflictKind = NonNullable<ReturnType<typeof pollConflictKind>>;
+interface PollConflict {
+  kind: ConflictKind;
+  lastAt: number;
+  count: number;
+}
 
 declare global {
   var __tgDashPollerRunning: boolean | undefined;
@@ -45,6 +58,8 @@ declare global {
   var __tgDashPollerWorkers: Set<number> | undefined;
   /** Consecutive getUpdates failures per bot, read by the health check (lib/health.ts). Absent = healthy. */
   var __tgDashPollerFailures: Map<number, number> | undefined;
+  /** getUpdates 409s per bot, so the warning outlives the odd poll that wins against the other poller. */
+  var __tgDashPollerConflicts: Map<number, PollConflict> | undefined;
   /** UTC day of the last stats snapshot, so it runs at most once a day per process. */
   var __tgDashLastSnapshotDay: string | undefined;
 }
@@ -56,6 +71,25 @@ function pollerFailures(): Map<number, number> {
 /** Consecutive failed getUpdates calls for a bot's worker (0 when it's healthy or not polling). */
 export function getPollerFailures(botId: number): number {
   return pollerFailures().get(botId) ?? 0;
+}
+
+function pollerConflicts(): Map<number, PollConflict> {
+  return (globalThis.__tgDashPollerConflicts ??= new Map());
+}
+
+/**
+ * The bot's ongoing getUpdates conflict, if any. It needs two 409s (count >= 2) so the single one after a dev-server
+ * restart, while Telegram still holds the old process's long poll, doesn't raise a warning.
+ */
+export function getPollerConflict(botId: number): PollConflict | null {
+  const c = pollerConflicts().get(botId);
+  return c && c.count >= 2 && Date.now() - c.lastAt < CONFLICT_WINDOW_MS ? c : null;
+}
+
+export function conflictMessage(kind: ConflictKind): string {
+  return kind === "webhook"
+    ? "A webhook is set for this bot, so monitoring can't read its updates. Remove the webhook (Delivery) or turn monitoring off."
+    : "Another dashboard or server is also reading this bot's updates, so each one misses some messages. Turn monitoring off in one of them.";
 }
 
 export function startPoller() {
@@ -115,12 +149,17 @@ async function pollBot(botId: number) {
     const token = bot && getBotToken(bot);
     if (!bot || !token) {
       pollerFailures().delete(botId);
+      pollerConflicts().delete(botId);
       return;
     }
     try {
       const updates = await botApi.getUpdates(token, (bot.lastUpdateId ?? 0) + 1, POLL_TIMEOUT_SECONDS);
       failures = 0;
       pollerFailures().delete(botId);
+      const ongoing = getPollerConflict(botId);
+      // Only drop an expired record: a lone 409 between wins must still count towards the second one.
+      const old = pollerConflicts().get(botId);
+      if (old && Date.now() - old.lastAt >= CONFLICT_WINDOW_MS) pollerConflicts().delete(botId);
       for (const update of updates) {
         try {
           await handleUpdate(bot.id, bot.username, token, update);
@@ -132,8 +171,21 @@ async function pollBot(botId: number) {
         }
         await setLastUpdateId(bot.id, update.update_id);
       }
-      await recordPollHealth(bot.id, null);
+      // A poll that won against the other poller doesn't clear the warning; it ends 5 minutes after the last 409.
+      await recordPollHealth(bot.id, ongoing ? conflictMessage(ongoing.kind) : null);
     } catch (err) {
+      const conflict = pollConflictKind(err);
+      if (conflict) {
+        const prev = pollerConflicts().get(botId);
+        const fresh = !prev || Date.now() - prev.lastAt >= CONFLICT_WINDOW_MS;
+        const entry: PollConflict = { kind: conflict, lastAt: Date.now(), count: fresh ? 1 : prev.count + 1 };
+        pollerConflicts().set(botId, entry);
+        // Not a dashboard bug, so not logError: one console line per episode.
+        if (fresh) console.warn(`[poller] bot ${bot.username}: getUpdates conflict (${conflict}); another poller or a webhook holds this bot`);
+        if (entry.count >= 2) await recordPollHealth(bot.id, conflictMessage(conflict));
+        await sleep(Math.min(CONFLICT_BACKOFF_MS * entry.count, MAX_CONFLICT_BACKOFF_MS));
+        continue;
+      }
       logError("poller", `bot ${bot.username} getUpdates failed`, err, { botId: bot.id, failures: failures + 1 });
       await recordPollHealth(bot.id, err instanceof Error ? err.message : String(err));
       // Per-bot backoff (5s growing to 60s) so a dead token neither stalls other bots nor retries every few seconds.
