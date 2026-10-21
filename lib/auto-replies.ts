@@ -78,7 +78,7 @@ function normalizePattern(matchType: AutoReplyRow["matchType"], pattern: string)
   if (matchType === "command") return trimmed.replace(/^\//, "").toLowerCase();
   if (matchType === "media") return trimmed.toLowerCase();
   if (matchType === "fallback" || matchType === "member_joined") return "*";
-  if (matchType === "reaction") return trimmed || "*";
+  if (matchType === "reaction") return trimmed.replace(/\uFE0F/g, "") || "*";
   return trimmed;
 }
 

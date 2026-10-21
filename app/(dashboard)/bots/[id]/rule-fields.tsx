@@ -212,8 +212,8 @@ export function RuleFields({ bot, draft, onChange, idPrefix = "rule" }: { bot: B
       )}
       {matchType === "regex" && (
         <p className="text-xs text-[var(--muted)]">
-          A regular expression, upper/lower case ignored, tested on the first 1000 characters. Patterns that could make the bot hang (such as <code>(a+)+</code>), look-ahead and
-          back-references are refused.
+          A regular expression, upper/lower case ignored. Only messages up to 200 characters are tested (longer ones never match). Patterns that could make the bot
+          hang (such as <code>(a+)+</code>, or more than two repeating parts), look-ahead and back-references are refused.
         </p>
       )}
       {matchType === "member_joined" && (

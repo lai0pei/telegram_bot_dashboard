@@ -99,7 +99,8 @@ export function matchMessageRules<T extends MatchableRule>(allRules: readonly T[
       case "starts_with":
         return lower.startsWith(rule.pattern.toLowerCase());
       case "regex":
-        return compileRuleRegex(rule.pattern)?.test(text.slice(0, MAX_TEST_CHARS)) ?? false;
+        // A longer message never matches (cutting it short would let `$` match mid-message).
+        return text.length <= MAX_TEST_CHARS && (compileRuleRegex(rule.pattern)?.test(text) ?? false);
       default:
         return false;
     }
@@ -112,13 +113,17 @@ export function matchMessageRule<T extends MatchableRule>(allRules: readonly T[]
   return matchMessageRules(allRules, botUsername, message, now)[0];
 }
 
+/** Emoji with and without the variation selector are the same reaction (a phone keyboard types "❤️", Telegram sends "❤"). */
+export const bareEmoji = (emoji: string): string => emoji.replace(/\uFE0F/g, "");
+
 /** The enabled "someone reacted" rules for these new emoji reactions in a chat of this type, in list order. */
 export function matchReactionRules<T extends MatchableRule>(allRules: readonly T[], emojis: readonly string[], chatType: string, now = new Date()): T[] {
+  const reacted = emojis.map(bareEmoji);
   return allRules.filter(
     (r) =>
       r.enabled &&
       r.matchType === "reaction" &&
-      (r.pattern.trim() === "*" || emojis.includes(r.pattern.trim())) &&
+      (r.pattern.trim() === "*" || reacted.includes(bareEmoji(r.pattern.trim()))) &&
       conditionsAllow(r.matchType, parseConditions(r.conditions), chatType, now)
   );
 }

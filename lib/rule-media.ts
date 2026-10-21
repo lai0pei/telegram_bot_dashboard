@@ -75,6 +75,28 @@ export async function listRuleMediaMeta(botId: number): Promise<Pick<RuleMediaRo
   return await db.select({ id: ruleMedia.id, size: ruleMedia.size }).from(ruleMedia).where(eq(ruleMedia.botId, botId)).orderBy(ruleMedia.id);
 }
 
+/** Everything but the bytes: most reads (resolving a reference, sending by `file_id`) don't need a file that may be 20 MB. */
+export type RuleMediaMeta = Omit<RuleMediaRow, "data">;
+
+export async function getRuleMediaMeta(botId: number, id: number): Promise<RuleMediaMeta | undefined> {
+  return (
+    await db
+      .select({
+        id: ruleMedia.id,
+        botId: ruleMedia.botId,
+        kind: ruleMedia.kind,
+        name: ruleMedia.name,
+        mime: ruleMedia.mime,
+        size: ruleMedia.size,
+        fileId: ruleMedia.fileId,
+        createdAt: ruleMedia.createdAt,
+      })
+      .from(ruleMedia)
+      .where(and(eq(ruleMedia.botId, botId), eq(ruleMedia.id, id)))
+  )[0];
+}
+
+/** The file with its bytes: only for uploading to Telegram, previewing, copying and exporting. */
 export async function getRuleMedia(botId: number, id: number): Promise<RuleMediaRow | undefined> {
   return (await db.select().from(ruleMedia).where(and(eq(ruleMedia.botId, botId), eq(ruleMedia.id, id))))[0];
 }
@@ -82,7 +104,7 @@ export async function getRuleMedia(botId: number, id: number): Promise<RuleMedia
 /** The reference as it should be stored: kind and name taken from the bot's own file, or null if that file isn't this bot's. */
 export async function resolveMediaRef(botId: number, ref: { mediaId: number } | null | undefined): Promise<RuleMediaRef | null> {
   if (!ref) return null;
-  const row = await getRuleMedia(botId, ref.mediaId);
+  const row = await getRuleMediaMeta(botId, ref.mediaId);
   return row ? { mediaId: row.id, kind: row.kind, name: row.name } : null;
 }
 
@@ -159,6 +181,9 @@ export async function copyRuleContent(
   return { media: main ? await copyOf(main) : null, followUps };
 }
 
+/** Telegram's wording when a `file_id` is not usable ("wrong file identifier", "wrong remote file identifier"). */
+const FILE_ID_REFUSED = /wrong (remote )?file (identifier|id)|file_id|file reference/i;
+
 function fileIdOf(sent: TelegramMessage, kind: RuleMediaKind): string | null {
   switch (kind) {
     case "photo":
@@ -190,18 +215,22 @@ export async function sendRuleMedia(
   caption: string | undefined,
   opts: SendOptions
 ): Promise<TelegramMessage> {
-  const row = await getRuleMedia(botId, ref.mediaId);
-  if (!row) throw new Error("The file attached to this rule was deleted.");
-  const method = SEND_METHOD[row.kind];
-  const text = row.kind === "sticker" ? undefined : caption;
-  if (row.fileId) {
+  const meta = await getRuleMediaMeta(botId, ref.mediaId);
+  if (!meta) throw new Error("The file attached to this rule was deleted.");
+  const method = SEND_METHOD[meta.kind];
+  const text = meta.kind === "sticker" ? undefined : caption;
+  if (meta.fileId) {
     try {
-      return await botApi.sendMediaById(token, method, chatId, row.fileId, text, opts);
+      return await botApi.sendMediaById(token, method, chatId, meta.fileId, text, opts);
     } catch (err) {
-      if (!(err instanceof BotApiError) || err.errorCode !== 400) throw err;
-      await db.update(ruleMedia).set({ fileId: null }).where(eq(ruleMedia.id, row.id));
+      // Only a refused file identifier means the cached one is bad; a bad caption or chat (also 400) must keep it.
+      if (!(err instanceof BotApiError) || err.errorCode !== 400 || !FILE_ID_REFUSED.test(err.description)) throw err;
+      await db.update(ruleMedia).set({ fileId: null }).where(eq(ruleMedia.id, meta.id));
     }
   }
+  // The bytes are read only now, when there is something to upload.
+  const row = await getRuleMedia(botId, ref.mediaId);
+  if (!row) throw new Error("The file attached to this rule was deleted.");
   const sent = await botApi.sendMedia(token, method, chatId, { name: row.name, type: row.mime, data: row.data }, text, opts);
   const fileId = fileIdOf(sent, row.kind);
   if (fileId) await db.update(ruleMedia).set({ fileId }).where(eq(ruleMedia.id, row.id));

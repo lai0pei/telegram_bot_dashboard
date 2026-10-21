@@ -31,19 +31,31 @@ export interface RuleDraft {
  * have its file yet (validation then says so).
  */
 export type FollowUpDraft =
-  | Exclude<FollowUp, { kind: "location" | "media" }>
+  | Exclude<FollowUp, { kind: "location" | "media" | "text" }>
   | (Omit<Extract<FollowUp, { kind: "location" }>, "latitude" | "longitude"> & { latitude: string; longitude: string })
-  | (Omit<Extract<FollowUp, { kind: "media" }>, "media"> & { media: RuleMediaRef | null });
+  | (Omit<Extract<FollowUp, { kind: "text" }>, "buttons"> & { buttonDrafts: ButtonDraft[] })
+  | (Omit<Extract<FollowUp, { kind: "media" }>, "media" | "buttons"> & { media: RuleMediaRef | null; buttonDrafts: ButtonDraft[] });
 
-export const followUpToDraft = (f: FollowUp): FollowUpDraft =>
-  f.kind === "location" ? { ...f, latitude: String(f.latitude), longitude: String(f.longitude) } : f;
+export const followUpToDraft = (f: FollowUp): FollowUpDraft => {
+  if (f.kind === "location") return { ...f, latitude: String(f.latitude), longitude: String(f.longitude) };
+  if (f.kind === "text" || f.kind === "media") {
+    const { buttons, ...rest } = f;
+    return { ...rest, buttonDrafts: buttonsToDrafts(buttons) } as FollowUpDraft;
+  }
+  return f;
+};
 
 export const draftToFollowUp = (f: FollowUpDraft): FollowUp => {
   if (f.kind === "location") {
     return { ...f, latitude: f.latitude.trim() === "" ? NaN : Number(f.latitude), longitude: f.longitude.trim() === "" ? NaN : Number(f.longitude) };
   }
-  // A missing file stays null so the shared validator reports it ("The attached file is missing.").
-  return f as FollowUp;
+  if (f.kind === "text" || f.kind === "media") {
+    const { buttonDrafts, ...rest } = f;
+    const buttons = draftsToButtons(buttonDrafts);
+    // A missing file stays null so the shared validator reports it ("The attached file is missing.").
+    return { ...rest, ...(buttons ? { buttons } : {}) } as FollowUp;
+  }
+  return f;
 };
 
 export const emptyRuleDraft = (): RuleDraft => ({
