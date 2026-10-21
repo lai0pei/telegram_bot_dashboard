@@ -43,6 +43,13 @@
       "when": 1792512590384,
       "tag": "0005_app_errors",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792551240813,
+      "tag": "0006_bot_claims",
+      "breakpoints": true
     }
   ]
 }

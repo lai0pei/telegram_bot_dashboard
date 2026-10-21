@@ -149,6 +149,8 @@ export const bots = pgTable(
     lastPolledAt: timestamp("last_polled_at", { withTimezone: true }),
     /** Error message from the most recent failed getUpdates call for this bot; cleared on the next success. */
     pollError: text("poll_error"),
+    /** Name of another dashboard that holds this bot's claim (lib/bot-claims.ts); this one stays on standby. Null = runs here. */
+    runElsewhere: text("run_elsewhere"),
     /** Cached from the bot's getWebhookInfo, refreshed opportunistically (webhook tab load, overview load). Null when there's no webhook or no error. */
     webhookLastError: text("webhook_last_error"),
     webhookPendingCount: integer("webhook_pending_count"),

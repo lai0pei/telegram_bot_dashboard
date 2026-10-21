@@ -2,7 +2,8 @@ import { createAutoReply, listAutoReplies } from "./auto-replies";
 import { BotApiError, botApi } from "./botapi";
 import { withRetry } from "./bot-api-retry";
 import { templateRuleKey, type BotTemplate, type TemplatePart } from "./bot-templates";
-import { setMonitorEnabled } from "./bots";
+import { enableMonitoring } from "./bot-claims";
+import type { BotRow } from "./bots";
 import { normalizeInlineButtons, normalizeReplyKeyboard, validateAutoReply } from "./validation";
 
 export interface PartResult {
@@ -22,7 +23,7 @@ const message = (err: unknown) => (err instanceof BotApiError ? err.description 
  * Each part is independent, like a clone: one failing part is reported and the others still run.
  */
 export async function applyTemplate(
-  bot: { id: number; token: string | null },
+  bot: Pick<BotRow, "id" | "ownerUserId" | "telegramId"> & { token: string | null },
   template: BotTemplate,
   parts: readonly TemplatePart[],
   opts: { overwriteProfile?: boolean } = {}
@@ -121,7 +122,8 @@ export async function applyTemplate(
         // Monitoring and a webhook exclude each other (same rule as PUT /monitor).
         if ((await botApi.getWebhookInfo(token)).url) r.errors.push("This bot has a webhook set. Remove it in Delivery before turning monitoring on.");
         else {
-          await setMonitorEnabled(bot.id, true);
+          // Throws when another dashboard runs this bot; the part reports it like any other failure.
+          await enableMonitoring(bot);
           r.applied = 1;
         }
       } catch (err) {

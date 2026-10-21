@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth, errorResponse } from "@/lib/api-guard";
-import { getBotById, getBotToken, setMonitorEnabled } from "@/lib/bots";
+import { BotRunElsewhereError, disableMonitoring, enableMonitoring } from "@/lib/bot-claims";
+import { getBotById, getBotToken } from "@/lib/bots";
 import { botApi } from "@/lib/botapi";
 
 /**
@@ -14,7 +15,7 @@ export const PUT = withAuth(async (req: Request, ctx: { params: Promise<{ id: st
     const bot = await getBotById(Number(id), userId);
     if (!bot) return NextResponse.json({ error: "Bot not found." }, { status: 404 });
 
-    const { enabled } = await req.json();
+    const { enabled, takeOver } = await req.json();
 
     if (enabled) {
       const token = getBotToken(bot);
@@ -28,9 +29,14 @@ export const PUT = withAuth(async (req: Request, ctx: { params: Promise<{ id: st
       }
     }
 
-    await setMonitorEnabled(bot.id, Boolean(enabled));
+    if (enabled) await enableMonitoring(bot, Boolean(takeOver));
+    else await disableMonitoring(bot);
     return NextResponse.json({ ok: true, monitorEnabled: Boolean(enabled) });
   } catch (err) {
+    // 422, never 409: the client reserves 409 for NO_ACTIVE_ACCOUNT / SESSION_REVOKED.
+    if (err instanceof BotRunElsewhereError) {
+      return NextResponse.json({ error: err.message, code: "BOT_RUN_ELSEWHERE", holder: err.holderName, since: err.since }, { status: 422 });
+    }
     return errorResponse(err, 400);
   }
 });

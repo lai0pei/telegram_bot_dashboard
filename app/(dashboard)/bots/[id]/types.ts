@@ -39,6 +39,8 @@ export interface BotDetail {
   hasToken: boolean;
   token?: string;
   monitorEnabled: boolean;
+  /** Name of the other dashboard that runs this bot (lib/bot-claims.ts); this one is on standby. Null/absent = runs here. */
+  runElsewhere?: string | null;
   /** Last background health check; null before the first one. */
   health?: BotHealth | null;
   info?: {

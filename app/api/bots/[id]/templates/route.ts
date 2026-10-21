@@ -27,7 +27,7 @@ export const POST = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: s
       return NextResponse.json({ error: "Choose what to add." }, { status: 400 });
     }
 
-    const results = await applyTemplate({ id: bot.id, token: getBotToken(bot) }, template, parts as TemplatePart[], {
+    const results = await applyTemplate({ id: bot.id, ownerUserId: bot.ownerUserId, telegramId: bot.telegramId, token: getBotToken(bot) }, template, parts as TemplatePart[], {
       overwriteProfile: body.overwriteProfile === true,
     });
     return NextResponse.json({ results });

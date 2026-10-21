@@ -1,0 +1,1 @@
+ALTER TABLE "bots" ADD COLUMN "run_elsewhere" text;

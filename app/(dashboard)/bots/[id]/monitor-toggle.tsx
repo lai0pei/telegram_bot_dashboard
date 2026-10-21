@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
-import { apiFetch } from "@/lib/api-client";
+import { ApiError, apiFetch } from "@/lib/api-client";
 import type { BotDetail } from "./types";
 
 /** Shown before monitoring is turned on for a bot this account owns (token bots get their own, stronger text below). */
@@ -17,15 +17,20 @@ export function MonitorToggle({ bot, onChange }: { bot: BotDetail; onChange: () 
   const [toggling, setToggling] = useState(false);
   const [confirming, setConfirming] = useState(false);
 
-  async function toggle(enabled: boolean) {
+  // Set when another dashboard signed in with this account runs the bot: the name to show in the take-over dialog.
+  const [heldBy, setHeldBy] = useState<string | null>(null);
+
+  async function toggle(enabled: boolean, takeOver = false) {
     setConfirming(false);
+    setHeldBy(null);
     setToggling(true);
     try {
-      await apiFetch(`/api/bots/${bot.id}/monitor`, { method: "PUT", body: { enabled } });
-      toast.success(enabled ? "Monitoring enabled." : "Monitoring disabled.");
+      await apiFetch(`/api/bots/${bot.id}/monitor`, { method: "PUT", body: { enabled, takeOver } });
+      toast.success(takeOver ? "This dashboard now runs the bot." : enabled ? "Monitoring enabled." : "Monitoring disabled.");
       onChange();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to toggle monitoring.");
+      if (err instanceof ApiError && err.body.code === "BOT_RUN_ELSEWHERE" && typeof err.body.holder === "string") setHeldBy(err.body.holder);
+      else toast.error(err instanceof Error ? err.message : "Failed to toggle monitoring.");
     } finally {
       setToggling(false);
     }
@@ -40,6 +45,17 @@ export function MonitorToggle({ bot, onChange }: { bot: BotDetail; onChange: () 
         onCheckedChange={(enabled) => (enabled ? setConfirming(true) : void toggle(enabled))}
         aria-label="Monitor incoming messages"
       />
+      {/* After the Switch on purpose: the header wraps this in a <label>, whose control is its first labelable child. */}
+      {bot.monitorEnabled && bot.runElsewhere && (
+        <>
+          <span className="text-[var(--muted-foreground)]" title="Another dashboard signed in with this Telegram account runs this bot, so this one is not reading its messages.">
+            Standby · runs on {bot.runElsewhere}
+          </span>
+          <Button variant="outline" size="sm" className="h-6 px-2 text-xs" disabled={toggling} onClick={() => setHeldBy(bot.runElsewhere ?? "")}>
+            Take over
+          </Button>
+        </>
+      )}
       <Dialog open={confirming} onOpenChange={setConfirming}>
         <DialogContent>
           <DialogTitle>Start monitoring @{bot.username}?</DialogTitle>
@@ -63,6 +79,24 @@ export function MonitorToggle({ bot, onChange }: { bot: BotDetail; onChange: () 
             </Button>
             <Button size="sm" onClick={() => void toggle(true)}>
               Start monitoring
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={heldBy !== null} onOpenChange={(open) => !open && setHeldBy(null)}>
+        <DialogContent>
+          <DialogTitle>Run @{bot.username} here instead?</DialogTitle>
+          <DialogDescription>
+            The dashboard &quot;{heldBy}&quot; is signed in with the same Telegram account and runs this bot. Taking it over makes that dashboard stop
+            reading the bot&apos;s messages within a minute, so its auto-replies stop. Rules, templates and message history are not shared between
+            dashboards: use &quot;Export setup&quot; there and &quot;Import setup&quot; here if you want the same rules.
+          </DialogDescription>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setHeldBy(null)}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={() => void toggle(true, true)}>
+              Take over
             </Button>
           </div>
         </DialogContent>
