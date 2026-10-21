@@ -3,6 +3,9 @@ import { withAuth, errorResponse } from "@/lib/api-guard";
 import { deleteAutoReply, DuplicateFallbackError, getAutoReply, moveAutoReply, toAutoReplyDto, updateAutoReply } from "@/lib/auto-replies";
 import type { InlineButton } from "@/lib/botapi";
 import { getBotById } from "@/lib/bots";
+import { parseFollowUps, parseRuleMedia } from "@/lib/rule-content";
+import { normalizeConditions, parseConditions } from "@/lib/rule-conditions";
+import { prepareRuleContent } from "@/lib/rule-media";
 import { normalizeInlineButtons, normalizeReplyKeyboard, validateAutoReply } from "@/lib/validation";
 
 type Ctx = { params: Promise<{ id: string; ruleId: string }> };
@@ -36,12 +39,19 @@ export const PATCH = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: 
       showAlert: body.showAlert !== undefined ? body.showAlert === true : existing.showAlert,
       callbackAction: body.callbackAction ?? existing.callbackAction,
       enabled: body.enabled !== undefined ? body.enabled === true : existing.enabled,
+      media: body.media !== undefined ? body.media : parseRuleMedia(existing.media),
+      followUps: body.followUps !== undefined ? body.followUps : parseFollowUps(existing.followUps),
+      conditions: body.conditions !== undefined ? body.conditions : parseConditions(existing.conditions),
     };
     const error = validateAutoReply(merged);
     if (error) return NextResponse.json({ error }, { status: 400 });
+    const content = await prepareRuleContent(bot.id, merged);
+    if ("error" in content) return NextResponse.json({ error: content.error }, { status: 400 });
 
     const rule = await updateAutoReply(bot.id, existing.id, {
       ...merged,
+      ...content,
+      conditions: normalizeConditions(merged.conditions),
       buttons: normalizeInlineButtons(merged.buttons) as InlineButton[][] | null,
       replyKeyboard: normalizeReplyKeyboard(merged.replyKeyboard),
     });

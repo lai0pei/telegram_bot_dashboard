@@ -50,6 +50,20 @@
       "when": 1792551240813,
       "tag": "0006_bot_claims",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792551836197,
+      "tag": "0007_rule_media",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792552428246,
+      "tag": "0008_rule_triggers",
+      "breakpoints": true
     }
   ]
 }

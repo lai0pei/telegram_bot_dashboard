@@ -5,6 +5,20 @@
  */
 
 import type { ButtonStyle, InlineButton, KeyboardButton, ReplyKeyboard } from "./botapi";
+import { validateConditions } from "./rule-conditions";
+import { validateRegex } from "./safe-regex";
+import {
+  DICE_EMOJIS,
+  FOLLOW_UP_KINDS,
+  MAX_FOLLOW_UP_DELAY_S,
+  MAX_FOLLOW_UPS,
+  MAX_TOTAL_DELAY_S,
+  RULE_MEDIA_KINDS,
+  type FollowUp,
+  type FollowUpKind,
+  type RuleMediaKind,
+  type RuleMediaRef,
+} from "./rule-content";
 
 const USERNAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]{3,30}[bB][oO][tT]$/;
 
@@ -469,7 +483,24 @@ export function validateInlineResult(r: {
   return validateMessageText(r.messageText) ?? validateParseMode(r.parseMode) ?? validateInlineButtons(r.buttons, "-1");
 }
 
-export const AUTO_REPLY_MATCH_TYPES = ["command", "exact", "contains", "callback", "callback_prefix", "deeplink", "media", "shared", "fallback"] as const;
+export const AUTO_REPLY_MATCH_TYPES = [
+  "command",
+  "exact",
+  "contains",
+  "starts_with",
+  "regex",
+  "callback",
+  "callback_prefix",
+  "deeplink",
+  "media",
+  "shared",
+  "fallback",
+  "member_joined",
+  "reaction",
+] as const;
+
+/** Types with nothing to match on: their stored pattern is always "*". */
+export const PATTERNLESS_MATCH_TYPES: readonly string[] = ["fallback", "member_joined"];
 export const CALLBACK_ACTIONS = ["toast", "edit", "reply"] as const;
 
 /** The kinds of non-text message a "media" rule can name (see mediaKindOf in lib/auto-replies.ts). */
@@ -499,14 +530,25 @@ export function validateAutoReply(rule: {
   buttons?: unknown;
   replyKeyboard?: unknown;
   callbackAction?: unknown;
+  /** A file attached to the main message (then `replyText` is its caption and may be empty). */
+  media?: unknown;
+  /** Messages sent after the main one. */
+  followUps?: unknown;
+  /** Where / when / how often the rule applies (lib/rule-conditions.ts). Message rules only. */
+  conditions?: unknown;
 }): string | null {
   if (!AUTO_REPLY_MATCH_TYPES.includes(rule.matchType as (typeof AUTO_REPLY_MATCH_TYPES)[number])) return "Unknown match type.";
   if (typeof rule.pattern !== "string" || typeof rule.replyText !== "string") return "Pattern and reply are required.";
   const pattern = rule.pattern.trim();
-  // "Anything else" has nothing to match on; its stored pattern is always "*".
-  if (!pattern && rule.matchType !== "fallback") return "Pattern is required.";
-  if (rule.matchType === "fallback") {
+  // "Anything else" and "someone joined" have nothing to match on; their stored pattern is always "*".
+  if (!pattern && !PATTERNLESS_MATCH_TYPES.includes(rule.matchType as string)) return "Pattern is required.";
+  if (PATTERNLESS_MATCH_TYPES.includes(rule.matchType as string)) {
     // nothing to check
+  } else if (rule.matchType === "regex") {
+    const error = validateRegex(pattern);
+    if (error) return error;
+  } else if (rule.matchType === "reaction") {
+    if (pattern !== "*" && (pattern.length > 16 || /[A-Za-z0-9\s]/.test(pattern))) return "Use a single emoji such as 👍, or * for any reaction.";
   } else if (rule.matchType === "command") {
     const error = validateCommand(pattern.replace(/^\//, "").toLowerCase());
     if (error) return error;
@@ -521,22 +563,139 @@ export function validateAutoReply(rule: {
   } else if (pattern.length > 200) {
     return "Pattern must be at most 200 characters.";
   }
-  if (!rule.replyText.trim()) return "Reply text is required.";
   const isCallback = rule.matchType === "callback" || rule.matchType === "callback_prefix";
   const action = rule.callbackAction ?? "toast";
   if (isCallback && !CALLBACK_ACTIONS.includes(action as (typeof CALLBACK_ACTIONS)[number])) return "Unknown button action.";
+  // A toast is text only, and an edit can't change a message into a file or add messages after it: both ignore media and follow-ups.
+  const textOnly = isCallback && (action === "toast" || action === "edit");
+  const media = textOnly ? null : rule.media;
+  if (!rule.replyText.trim() && !media) return "Reply text is required.";
   if (isCallback && action === "toast") {
     if (rule.replyText.length > 200) return "A button answer must be at most 200 characters.";
     return null;
   }
   if (isCallback && action === "edit" && rule.replyKeyboard) return "Editing a message can't add a reply keyboard; use inline buttons.";
+  const textError = media ? validateMediaCaption(media, rule.replyText) : validateMessageText(rule.replyText);
   return (
-    validateMessageText(rule.replyText) ??
+    textError ??
     validateParseMode(rule.parseMode) ??
     validateInlineButtons(rule.buttons) ??
     validateReplyKeyboard(rule.replyKeyboard) ??
-    (hasInlineButtons(rule.buttons) && rule.replyKeyboard ? "Use inline buttons or a reply keyboard, not both." : null)
+    (hasInlineButtons(rule.buttons) && rule.replyKeyboard ? "Use inline buttons or a reply keyboard, not both." : null) ??
+    (textOnly ? null : validateFollowUps(rule.followUps)) ??
+    (isCallback ? null : validateConditions(rule.conditions))
   );
+}
+
+/** The attached file's reference and the caption it comes with. */
+function validateMediaCaption(media: unknown, caption: string): string | null {
+  const error = validateRuleMediaRef(media);
+  if (error) return error;
+  if ((media as RuleMediaRef).kind === "sticker" && caption.trim()) return "A sticker can't have text. Send the text as a follow-up message.";
+  return validateCaption(caption);
+}
+
+export function validateRuleMediaRef(media: unknown): string | null {
+  const m = media as Partial<RuleMediaRef> | null;
+  if (!m || typeof m !== "object" || !Number.isInteger(m.mediaId) || (m.mediaId as number) < 1) return "The attached file is missing.";
+  if (!RULE_MEDIA_KINDS.includes(m.kind as RuleMediaKind)) return "Unknown kind of attachment.";
+  return null;
+}
+
+/** Up to 4 follow-up messages; `undefined`/`null` means none. */
+export function validateFollowUps(followUps: unknown): string | null {
+  if (followUps === undefined || followUps === null) return null;
+  if (!Array.isArray(followUps)) return "Follow-up messages must be a list.";
+  if (followUps.length > MAX_FOLLOW_UPS) return `At most ${MAX_FOLLOW_UPS} follow-up messages.`;
+  let totalDelay = 0;
+  for (const [i, raw] of followUps.entries()) {
+    const f = raw as Record<string, unknown> | null;
+    const at = `Follow-up ${i + 1}: `;
+    if (!f || typeof f !== "object" || !FOLLOW_UP_KINDS.includes(f.kind as FollowUpKind)) return `${at}unknown kind of message.`;
+    const delay = f.delaySec ?? 0;
+    if (typeof delay !== "number" || !Number.isInteger(delay) || delay < 0 || delay > MAX_FOLLOW_UP_DELAY_S) {
+      return `${at}the wait is a whole number of seconds from 0 to ${MAX_FOLLOW_UP_DELAY_S}.`;
+    }
+    totalDelay += delay;
+    const error = validateFollowUp(f);
+    if (error) return at + error;
+  }
+  return totalDelay > MAX_TOTAL_DELAY_S ? `The waits add up to more than ${MAX_TOTAL_DELAY_S} seconds.` : null;
+}
+
+function validateFollowUp(f: Record<string, unknown>): string | null {
+  switch (f.kind) {
+    case "text":
+      return (
+        (typeof f.text !== "string" ? "text is required." : validateMessageText(f.text)) ??
+        validateParseMode(f.parseMode) ??
+        validateInlineButtons(f.buttons)
+      );
+    case "media": {
+      const caption = typeof f.caption === "string" ? f.caption : "";
+      return validateMediaCaption(f.media, caption) ?? validateParseMode(f.parseMode) ?? validateInlineButtons(f.buttons);
+    }
+    case "location":
+      if (typeof f.latitude !== "number" || !Number.isFinite(f.latitude) || f.latitude < -90 || f.latitude > 90) return "latitude is a number from -90 to 90.";
+      if (typeof f.longitude !== "number" || !Number.isFinite(f.longitude) || f.longitude < -180 || f.longitude > 180) return "longitude is a number from -180 to 180.";
+      return null;
+    case "contact":
+      if (typeof f.phone !== "string" || !/^\+?[0-9 ()\-]{3,30}$/.test(f.phone.trim())) return "enter a phone number (digits, spaces, dashes, optional +).";
+      if (typeof f.firstName !== "string" || !f.firstName.trim() || f.firstName.length > 64) return "a first name of 1–64 characters is required.";
+      if (f.lastName !== undefined && (typeof f.lastName !== "string" || f.lastName.length > 64)) return "the last name is at most 64 characters.";
+      return null;
+    case "dice":
+      return DICE_EMOJIS.includes(f.emoji as (typeof DICE_EMOJIS)[number]) ? null : "choose one of the dice emoji.";
+    default:
+      return "unknown kind of message.";
+  }
+}
+
+/**
+ * Follow-ups reduced to the fields we store (call after validateFollowUps), or null when there are none.
+ * Rebuilt from a whitelist, like normalizeInlineButtons: a field not listed here is silently dropped.
+ */
+export function normalizeFollowUps(followUps: unknown): FollowUp[] | null {
+  if (!Array.isArray(followUps) || followUps.length === 0) return null;
+  return (followUps as Record<string, unknown>[]).map((f): FollowUp => {
+    const common = { ...(f.delaySec ? { delaySec: f.delaySec as number } : {}), ...(f.typing === true ? { typing: true } : {}) };
+    const parseMode = f.parseMode === "HTML" || f.parseMode === "MarkdownV2" ? f.parseMode : undefined;
+    const buttons = normalizeInlineButtons(f.buttons);
+    switch (f.kind) {
+      case "text":
+        return { kind: "text", text: f.text as string, ...(parseMode ? { parseMode } : {}), ...(buttons ? { buttons } : {}), ...common };
+      case "media": {
+        const m = f.media as RuleMediaRef;
+        return {
+          kind: "media",
+          media: { mediaId: m.mediaId, kind: m.kind, name: typeof m.name === "string" ? m.name.slice(0, 200) : "" },
+          ...(typeof f.caption === "string" && f.caption.trim() && m.kind !== "sticker" ? { caption: f.caption } : {}),
+          ...(parseMode ? { parseMode } : {}),
+          ...(buttons ? { buttons } : {}),
+          ...common,
+        };
+      }
+      case "location":
+        return { kind: "location", latitude: f.latitude as number, longitude: f.longitude as number, ...common };
+      case "contact":
+        return {
+          kind: "contact",
+          phone: (f.phone as string).trim(),
+          firstName: (f.firstName as string).trim(),
+          ...(typeof f.lastName === "string" && f.lastName.trim() ? { lastName: f.lastName.trim() } : {}),
+          ...common,
+        };
+      default:
+        return { kind: "dice", emoji: f.emoji as (typeof DICE_EMOJIS)[number], ...common };
+    }
+  });
+}
+
+/** The attached file reduced to its stored shape, or null. */
+export function normalizeRuleMedia(media: unknown): RuleMediaRef | null {
+  if (validateRuleMediaRef(media)) return null;
+  const m = media as RuleMediaRef;
+  return { mediaId: m.mediaId, kind: m.kind, name: typeof m.name === "string" ? m.name.slice(0, 200) : "" };
 }
 
 /** True when `buttons` holds at least one button. */

@@ -1,6 +1,11 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, integer, boolean, timestamp, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, timestamp, uniqueIndex, index, customType } from "drizzle-orm/pg-core";
 import type { InlineButton } from "../botapi";
+
+/** Raw bytes (a Node Buffer both ways with postgres-js). */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType: () => "bytea",
+});
 
 /**
  * A dashboard account. Can be linked to multiple Telegram accounts (see
@@ -282,7 +287,21 @@ export const autoReplies = pgTable(
     id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
     botId: integer("bot_id").notNull(),
     matchType: text("match_type", {
-      enum: ["command", "exact", "contains", "callback", "callback_prefix", "deeplink", "media", "shared", "fallback"],
+      enum: [
+        "command",
+        "exact",
+        "contains",
+        "starts_with",
+        "regex",
+        "callback",
+        "callback_prefix",
+        "deeplink",
+        "media",
+        "shared",
+        "fallback",
+        "member_joined",
+        "reaction",
+      ],
     }).notNull(),
     pattern: text("pattern").notNull(),
     replyText: text("reply_text").notNull(),
@@ -290,6 +309,12 @@ export const autoReplies = pgTable(
     buttons: text("buttons"), // JSON StoredButton[][]
     /** JSON ReplyKeyboard (lib/botapi.ts): a reply keyboard / remove / force-reply sent instead of inline buttons. */
     replyKeyboard: text("reply_keyboard"),
+    /** JSON RuleMediaRef (lib/rule-content.ts): a file attached to the main message; `reply_text` is then its caption. */
+    media: text("media"),
+    /** JSON FollowUp[] (lib/rule-content.ts): up to 4 messages sent after the main one. */
+    followUps: text("follow_ups"),
+    /** JSON RuleConditions (lib/rule-conditions.ts): where the rule applies, active hours, once per person, wait between replies. */
+    conditions: text("conditions"),
     showAlert: boolean("show_alert").notNull().default(false),
     /** What a pressed-button rule does with its reply: a toast/alert, an edit of the pressed message, or a new message. */
     callbackAction: text("callback_action", { enum: ["toast", "edit", "reply"] }).notNull().default("toast"),
@@ -307,6 +332,42 @@ export const autoReplies = pgTable(
       .on(table.botId)
       .where(sql`${table.matchType} = 'fallback'`),
   ]
+);
+
+/**
+ * Who a rule already answered and when, for the "once per person" and "wait between replies" conditions
+ * (lib/auto-replies.ts). Only rules with one of those conditions write here.
+ */
+export const autoReplyUserHits = pgTable(
+  "auto_reply_user_hits",
+  {
+    ruleId: integer("rule_id").notNull(),
+    botId: integer("bot_id").notNull(),
+    userId: text("user_id").notNull(),
+    lastAt: timestamp("last_at", { withTimezone: true }).notNull(),
+    count: integer("count").notNull().default(1),
+  },
+  (table) => [uniqueIndex("auto_reply_user_hits_rule_user_unique").on(table.ruleId, table.userId), index("auto_reply_user_hits_bot_idx").on(table.botId)]
+);
+
+/**
+ * Files attached to auto-reply rules (lib/rule-media.ts), per bot because a Telegram `file_id` only works for the bot
+ * that received the upload. The bytes stay here; `file_id` is filled after the first send so later sends upload nothing.
+ */
+export const ruleMedia = pgTable(
+  "rule_media",
+  {
+    id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+    botId: integer("bot_id").notNull(),
+    kind: text("kind", { enum: ["photo", "video", "animation", "document", "audio", "voice", "sticker"] }).notNull(),
+    name: text("name").notNull(),
+    mime: text("mime").notNull(),
+    size: integer("size").notNull(),
+    data: bytea("data").notNull(),
+    fileId: text("file_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [index("rule_media_bot_idx").on(table.botId)]
 );
 
 /** Saved `t.me` deep links of a bot (lib/deep-links.ts). Arrivals are counted from bot_users.start_payload. */

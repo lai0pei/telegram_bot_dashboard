@@ -4,6 +4,8 @@ import { listAutoReplies, parseButtons, parseReplyKeyboard } from "./auto-replie
 import { CUSTOM_CATEGORY, CUSTOM_TEMPLATE_PREFIX, getBotTemplate, type BotTemplate, type TemplateRule } from "./bot-templates";
 import { db } from "./db";
 import { customTemplates } from "./db/schema";
+import { parseFollowUps, parseRuleMedia } from "./rule-content";
+import { parseConditions } from "./rule-conditions";
 import { getTelegramAccountById } from "./telegram-accounts";
 import { normalizeInlineButtons, normalizeReplyKeyboard, validateAutoReply, validateCommand, validateCommandDescription } from "./validation";
 
@@ -56,14 +58,23 @@ export async function resolveTemplate(telegramAccountId: string, templateId: str
 
 /**
  * A bot's rules as template rules, in list order, keeping their on/off state. A rule that no longer passes validation
- * is left out and named in `notes`.
+ * is left out and named in `notes`. Attached files can't travel inside a template, so by default they (and follow-up
+ * messages that are files) are dropped, with a note; a setup export passes `keepMedia` to say which files it carries.
  */
-export async function snapshotRules(botId: number, notes: string[]): Promise<TemplateRule[]> {
+export async function snapshotRules(botId: number, notes: string[], keepMedia: (mediaId: number) => boolean = () => false): Promise<TemplateRule[]> {
   const rules: TemplateRule[] = [];
   for (const r of await listAutoReplies(botId)) {
     const buttons = parseButtons(r.buttons) ?? undefined;
     const replyKeyboard = parseReplyKeyboard(r.replyKeyboard);
+    const media = parseRuleMedia(r.media);
+    const allFollowUps = parseFollowUps(r.followUps);
+    const followUps = allFollowUps.filter((f) => f.kind !== "media" || keepMedia(f.media.mediaId));
+    const kept = media && keepMedia(media.mediaId) ? media : null;
+    if ((media && !kept) || followUps.length !== allFollowUps.length) notes.push(`${r.matchType} “${r.pattern}”: attached files are not included.`);
     const rule: TemplateRule = {
+      media: kept,
+      ...(followUps.length ? { followUps } : {}),
+      conditions: parseConditions(r.conditions),
       matchType: r.matchType,
       pattern: r.pattern,
       replyText: r.replyText,

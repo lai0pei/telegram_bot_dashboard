@@ -3,6 +3,8 @@ import { withAuth, errorResponse } from "@/lib/api-guard";
 import { createAutoReply, DuplicateFallbackError, listAutoReplies, noteStartRule, toAutoReplyDto } from "@/lib/auto-replies";
 import type { InlineButton } from "@/lib/botapi";
 import { getBotById } from "@/lib/bots";
+import { normalizeConditions } from "@/lib/rule-conditions";
+import { prepareRuleContent } from "@/lib/rule-media";
 import { normalizeInlineButtons, normalizeReplyKeyboard, validateAutoReply } from "@/lib/validation";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -26,14 +28,18 @@ export const POST = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: s
     const body = await req.json().catch(() => null);
     const error = body ? validateAutoReply(body) : "Invalid JSON body.";
     if (error) return NextResponse.json({ error }, { status: 400 });
+    const content = await prepareRuleContent(bot.id, body);
+    if ("error" in content) return NextResponse.json({ error: content.error }, { status: 400 });
 
     const rule = await createAutoReply(bot.id, {
+      ...content,
       matchType: body.matchType,
       pattern: body.pattern,
       replyText: body.replyText,
       parseMode: body.parseMode || null,
       buttons: normalizeInlineButtons(body.buttons) as InlineButton[][] | null,
       replyKeyboard: normalizeReplyKeyboard(body.replyKeyboard),
+      conditions: normalizeConditions(body.conditions),
       showAlert: body.showAlert === true,
       callbackAction: body.callbackAction ?? "toast",
       enabled: body.enabled !== false,

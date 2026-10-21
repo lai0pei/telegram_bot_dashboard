@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { RULE_MEDIA_LABELS } from "@/lib/rule-content";
+import { conditionsSummary } from "@/lib/rule-conditions";
 import { isCallbackType } from "./rule-draft";
 import { CALLBACK_ACTION_LABELS } from "./rule-fields";
 import type { AutoReplyMatchType, AutoReplyRule } from "./types";
@@ -20,9 +22,22 @@ export const MATCH_SHORT: Record<AutoReplyMatchType, string> = {
   media: "Media",
   shared: "Shared",
   fallback: "Anything else",
+  starts_with: "Starts with",
+  regex: "Pattern",
+  member_joined: "Joins group",
+  reaction: "Reaction",
 };
 
-export const ruleTitle = (r: Pick<AutoReplyRule, "matchType" | "pattern">) => (r.matchType === "command" ? `/${r.pattern}` : r.matchType === "fallback" ? "Any other message" : r.pattern);
+export const ruleTitle = (r: Pick<AutoReplyRule, "matchType" | "pattern">) =>
+  r.matchType === "command"
+    ? `/${r.pattern}`
+    : r.matchType === "fallback"
+      ? "Any other message"
+      : r.matchType === "member_joined"
+        ? "Someone joins a group"
+        : r.matchType === "reaction"
+          ? r.pattern === "*" ? "Any reaction" : `Reacts ${r.pattern}`
+          : r.pattern;
 
 /**
  * The compact rule list: each row opens its rule in the editor (the text is one button; the switch and arrows sit beside
@@ -79,8 +94,13 @@ export function RuleList({
                   </span>
                   <span className="block truncate text-xs text-[var(--muted)]">
                     {isCallbackType(rule.matchType) && rule.callbackAction !== "toast" ? `${CALLBACK_ACTION_LABELS[rule.callbackAction]}: ` : ""}
+                    {rule.media ? `📎 ${RULE_MEDIA_LABELS[rule.media.kind].toLowerCase()}${rule.replyText ? ": " : ""}` : ""}
                     {rule.replyText}
+                    {rule.followUps?.length ? ` · +${rule.followUps.length} more message${rule.followUps.length === 1 ? "" : "s"}` : ""}
                   </span>
+                  {conditionsSummary(rule.matchType, rule.conditions).length > 0 && (
+                    <span className="block truncate text-xs text-[var(--muted)]">{conditionsSummary(rule.matchType, rule.conditions).join(" · ")}</span>
+                  )}
                   {rule.hits > 0 && (
                     <span className="block text-xs text-[var(--muted)]">
                       Used {rule.hits} time{rule.hits === 1 ? "" : "s"}

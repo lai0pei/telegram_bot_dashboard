@@ -7,6 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { TEMPLATE_PLACEHOLDERS, type TemplatePlaceholder } from "@/lib/templates";
 import { MEDIA_KINDS } from "@/lib/validation";
+import { AttachmentField, FollowUpsEditor } from "./attachment-editor";
+import { ConditionsEditor } from "./conditions-editor";
 import { ButtonsEditor } from "./buttons-editor";
 import { KeyboardEditor } from "./keyboard-editor";
 import { draftError, draftOutputs, isCallbackType, isToastOnly, type RuleDraft } from "./rule-draft";
@@ -17,12 +19,16 @@ export const MATCH_TYPES: { value: AutoReplyMatchType; label: string; patternLab
   { value: "command", label: "Someone sends a command", patternLabel: "Command", patternHint: "start (without the slash)" },
   { value: "exact", label: "Someone writes exactly…", patternLabel: "Their message", patternHint: "hello" },
   { value: "contains", label: "Someone's message contains…", patternLabel: "Word or phrase", patternHint: "price" },
+  { value: "starts_with", label: "Someone's message starts with…", patternLabel: "Starts with", patternHint: "e.g. buy " },
+  { value: "regex", label: "Someone's message matches a pattern", patternLabel: "Pattern (regular expression)", patternHint: "^order #\\d+$" },
   { value: "callback", label: "Someone presses a button", patternLabel: "Button ID", patternHint: "the button's hidden ID, e.g. about" },
   { value: "callback_prefix", label: "Someone presses a button (ID starts with…)", patternLabel: "Button ID starts with", patternHint: "e.g. page:" },
   { value: "deeplink", label: "Someone opens a special link", patternLabel: "Link code", patternHint: "the code after ?start=, e.g. promo_2026" },
   { value: "media", label: "Someone sends a photo, file…", patternLabel: "Kind of message", patternHint: "" },
   { value: "shared", label: "Someone shares a contact or chat", patternLabel: "Request ID", patternHint: "the request ID of the keyboard button, e.g. 1" },
   { value: "fallback", label: "Anything else (nothing above matches)", patternLabel: "Matches", patternHint: "" },
+  { value: "member_joined", label: "Someone joins a group", patternLabel: "Matches", patternHint: "" },
+  { value: "reaction", label: "Someone reacts to a bot message", patternLabel: "Reaction", patternHint: "👍 — or * for any" },
 ];
 
 export const CALLBACK_ACTION_LABELS: Record<CallbackAction, string> = {
@@ -79,7 +85,7 @@ export function RuleFields({ bot, draft, onChange, idPrefix = "rule" }: { bot: B
             onChange={(e) => {
               const next = e.target.value as AutoReplyMatchType;
               // The pattern's meaning changes with the type (a media kind is picked from a list), so start afresh.
-              set({ matchType: next, pattern: next === "media" ? MEDIA_KINDS[0] : next === "fallback" ? "*" : "" });
+              set({ matchType: next, pattern: next === "media" ? MEDIA_KINDS[0] : next === "fallback" || next === "member_joined" ? "*" : next === "reaction" ? "👍" : "" });
             }}
           >
             {MATCH_TYPES.filter((t) => t.value !== "callback_prefix").map((t) => (
@@ -99,9 +105,9 @@ export function RuleFields({ bot, draft, onChange, idPrefix = "rule" }: { bot: B
                 </option>
               ))}
             </select>
-          ) : matchType === "fallback" ? (
+          ) : matchType === "fallback" || matchType === "member_joined" ? (
             <p id={`${idPrefix}-pattern`} className="flex h-10 items-center text-sm text-[var(--muted)]">
-              Every private message no other rule answers
+              {matchType === "fallback" ? "Every private message no other rule answers" : "Every person who joins (bots are ignored)"}
             </p>
           ) : (
             <Input id={`${idPrefix}-pattern`} value={draft.pattern} onChange={(e) => set({ pattern: e.target.value })} placeholder={meta?.patternHint} />
@@ -131,15 +137,23 @@ export function RuleFields({ bot, draft, onChange, idPrefix = "rule" }: { bot: B
       )}
 
       <div className="space-y-1.5">
-        <Label htmlFor={`${idPrefix}-reply`}>{toastOnly ? "Pop-up text" : editsMessage ? "New text of the message" : "Reply"}</Label>
+        <Label htmlFor={`${idPrefix}-reply`}>
+          {toastOnly ? "Pop-up text" : editsMessage ? "New text of the message" : draft.media ? (draft.media.kind === "sticker" ? "Text (a sticker can't have any)" : "Caption") : "Reply"}
+        </Label>
         <Textarea
           id={`${idPrefix}-reply`}
           ref={replyRef}
           value={draft.replyText}
           onChange={(e) => set({ replyText: e.target.value })}
-          maxLength={toastOnly ? 200 : 4096}
+          maxLength={toastOnly ? 200 : draft.media ? 1024 : 4096}
         />
       </div>
+      {!toastOnly && !editsMessage && (
+        <div className="space-y-1.5">
+          <Label>Attach a photo or file (optional)</Label>
+          <AttachmentField botId={bot.id} media={draft.media} onChange={(media) => set({ media })} idPrefix={`${idPrefix}-attach`} />
+        </div>
+      )}
       {!toastOnly && (
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-[var(--muted)]">
           <span>Insert:</span>
@@ -187,8 +201,31 @@ export function RuleFields({ bot, draft, onChange, idPrefix = "rule" }: { bot: B
         </>
       )}
 
-      {(matchType === "exact" || matchType === "contains") && (
-        <p className="text-xs text-[var(--muted)]">Only works in private chats. Upper/lower case doesn&apos;t matter, and the first matching rule wins.</p>
+      {!toastOnly && !editsMessage && (
+        <FollowUpsEditor botId={bot.id} items={draft.followUps} onChange={(followUps) => set({ followUps })} idPrefix={`${idPrefix}-more`} />
+      )}
+
+      {!isCallbackType(matchType) && <ConditionsEditor matchType={matchType} value={draft.conditions} onChange={(conditions) => set({ conditions })} idPrefix={`${idPrefix}-when`} />}
+
+      {(matchType === "exact" || matchType === "contains" || matchType === "starts_with") && (
+        <p className="text-xs text-[var(--muted)]">Upper/lower case doesn&apos;t matter, and the first matching rule wins. Private chats only unless you change it under &ldquo;When it applies&rdquo;.</p>
+      )}
+      {matchType === "regex" && (
+        <p className="text-xs text-[var(--muted)]">
+          A regular expression, upper/lower case ignored. Only messages up to 200 characters are tested (longer ones never match). Patterns that could make the bot
+          hang (such as <code>(a+)+</code>, or more than two repeating parts), look-ahead and back-references are refused.
+        </p>
+      )}
+      {matchType === "member_joined" && (
+        <p className="text-xs text-[var(--muted)]">
+          Sent in the group when someone joins, with {"{first_name}"} and the other placeholders filled in for the new member. Works in groups the bot is in; no admin rights needed.
+        </p>
+      )}
+      {matchType === "reaction" && (
+        <p className="text-xs text-[var(--muted)]">
+          Only reactions to messages this bot sent. Private chats work as is; in groups Telegram only tells the bot about reactions when it is an admin there, and you must set
+          &ldquo;Where&rdquo; to groups. Not available in the test chat.
+        </p>
       )}
       {matchType === "deeplink" && (
         <p className="text-xs text-[var(--muted)]">

@@ -166,6 +166,8 @@ export interface TelegramMessage {
   voice?: TelegramFile;
   sticker?: TelegramFile;
   reply_to_message?: { message_id: number };
+  /** Service message: people who joined the group (the bot itself included when it was added). */
+  new_chat_members?: { id: number; is_bot: boolean; first_name: string; last_name?: string; username?: string; language_code?: string }[];
   poll?: TelegramPoll;
   /** Set when the message came through a Business connection (a chat of the business owner). */
   business_connection_id?: string;
@@ -203,6 +205,19 @@ export interface TelegramChatJoinRequest {
   from: { id: number; is_bot: boolean; first_name: string; username?: string };
   date: number;
   bio?: string;
+}
+
+/** A reaction on a message. Only `emoji` ones can match a rule; custom and paid reactions are ignored. */
+export type TelegramReactionType = { type: "emoji"; emoji: string } | { type: "custom_emoji"; custom_emoji_id: string } | { type: "paid" };
+
+/** Someone changed their reactions on a message (needs `message_reaction` in allowed_updates; in groups the bot must be an admin). */
+export interface TelegramMessageReaction {
+  chat: { id: number; type: string; title?: string };
+  message_id: number;
+  user?: { id: number; is_bot: boolean; first_name: string; last_name?: string; username?: string; language_code?: string };
+  date: number;
+  old_reaction: TelegramReactionType[];
+  new_reaction: TelegramReactionType[];
 }
 
 export interface TelegramCallbackQuery {
@@ -309,6 +324,7 @@ export interface TelegramUpdate {
   callback_query?: TelegramCallbackQuery;
   my_chat_member?: TelegramChatMemberUpdate;
   chat_join_request?: TelegramChatJoinRequest;
+  message_reaction?: TelegramMessageReaction;
   poll?: TelegramPoll;
   inline_query?: TelegramInlineQuery;
   chosen_inline_result?: TelegramChosenInlineResult;
@@ -320,6 +336,7 @@ export interface TelegramUpdate {
 
 /** The update types the poller asks for. Sent explicitly because Telegram otherwise keeps whatever list was set before. */
 export const POLLED_UPDATE_TYPES = ["message", "edited_message", "callback_query", "my_chat_member", "chat_join_request",
+  "message_reaction",
   "poll",
   "inline_query",
   "chosen_inline_result",
@@ -512,7 +529,7 @@ function sendParams(opts: SendOptions = {}): Record<string, unknown> {
   };
 }
 
-export type MediaMethod = "sendPhoto" | "sendDocument" | "sendVideo" | "sendAudio";
+export type MediaMethod = "sendPhoto" | "sendDocument" | "sendVideo" | "sendAudio" | "sendAnimation" | "sendVoice" | "sendSticker";
 
 export interface BotApiChat {
   id: number;
@@ -630,6 +647,30 @@ export const botApi = {
       { chat_id: chatId, caption: caption || undefined, ...sendParams(opts) },
       { field: method.slice("send".length).toLowerCase(), ...file }
     ),
+
+  /** Sends a file Telegram already has (a `file_id` from an earlier upload) with no upload; fails with 400 if the ID isn't valid for this bot. */
+  sendMediaById: (token: string, method: MediaMethod, chatId: number | string, fileId: string, caption?: string, opts?: SendOptions) =>
+    call<TelegramMessage>(token, method, {
+      chat_id: chatId,
+      [method.slice("send".length).toLowerCase()]: fileId,
+      caption: caption || undefined,
+      ...sendParams(opts),
+    }),
+
+  sendLocation: (token: string, chatId: number | string, latitude: number, longitude: number, opts?: SendOptions) =>
+    call<TelegramMessage>(token, "sendLocation", { chat_id: chatId, latitude, longitude, ...sendParams(opts) }),
+
+  sendContact: (token: string, chatId: number | string, contact: { phone: string; firstName: string; lastName?: string }, opts?: SendOptions) =>
+    call<TelegramMessage>(token, "sendContact", {
+      chat_id: chatId,
+      phone_number: contact.phone,
+      first_name: contact.firstName,
+      last_name: contact.lastName || undefined,
+      ...sendParams(opts),
+    }),
+
+  sendDice: (token: string, chatId: number | string, emoji: string, opts?: SendOptions) =>
+    call<TelegramMessage>(token, "sendDice", { chat_id: chatId, emoji, ...sendParams(opts) }),
 
   editMessageText: (token: string, chatId: number | string, messageId: number, text: string, opts?: SendOptions) =>
     call<TelegramMessage | true>(token, "editMessageText", {

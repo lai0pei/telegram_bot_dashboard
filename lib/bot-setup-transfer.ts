@@ -9,11 +9,16 @@ import { listGames, saveGame } from "./games";
 import { createInlineResult, listInlineResults, toInlineResultDto, type InlineResultInput } from "./inline-results";
 import { listMiniApps, saveMiniApp } from "./mini-apps";
 import { CUSTOM_CATEGORY, type TemplateRule } from "./bot-templates";
+import { mediaIdsOf, createRuleMedia, pruneRuleMedia, getRuleMedia, listRuleMediaMeta, validateRuleUpload } from "./rule-media";
+import { RULE_MEDIA_KINDS, type RuleMediaKind, type RuleMediaRef } from "./rule-content";
 import { normalizeInlineButtons, validateInlineButtons, validateInlineResult } from "./validation";
 
 export const SETUP_FORMAT = "tgdash-bot-setup";
-export const SETUP_VERSION = 1;
+/** 2 adds `attachments`; version 1 files (no attachments) are still accepted. */
+export const SETUP_VERSION = 2;
 export const MAX_SETUP_BOTS = 100;
+/** Attached files carried per bot (base64 in the JSON, so roughly a third more on disk). The rest are left out with a note. */
+export const MAX_EXPORT_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
 interface NamedApp {
   shortName: string;
@@ -22,11 +27,25 @@ interface NamedApp {
   url: string;
 }
 
+/** A file attached to one of the rules, carried inside the setup file (rules refer to it by `id`). */
+export interface SetupAttachment {
+  id: number;
+  kind: RuleMediaKind;
+  name: string;
+  mime: string;
+  /** Base64 of the file's bytes. */
+  data: string;
+}
+
 /** One bot's dashboard-only setup. Tokens, contacts, messages, schedules and monitoring are deliberately not part of it. */
 export interface BotSetupEntry {
   telegramId: string;
   username: string;
   rules: TemplateRule[];
+  /** Files the rules attach; absent in version 1 files. */
+  attachments?: SetupAttachment[];
+  /** Things the export could not carry (e.g. files over the size limit). Informational; an import ignores it. */
+  notes?: string[];
   deepLinks: DeepLinkInput[];
   inlineResults: InlineResultInput[];
   buttonTemplates: { name: string; buttons: InlineButton[][] }[];
@@ -54,10 +73,27 @@ type Bot = NonNullable<Awaited<ReturnType<typeof getBotById>>>;
 
 export async function exportBotSetup(bot: Bot): Promise<BotSetupEntry> {
   const notes: string[] = [];
+  // Carry files oldest first until the size limit; rules naming a file that doesn't fit lose it (see snapshotRules).
+  const carried = new Set<number>();
+  let bytes = 0;
+  for (const m of await listRuleMediaMeta(bot.id)) {
+    if (bytes + m.size > MAX_EXPORT_ATTACHMENT_BYTES) continue;
+    bytes += m.size;
+    carried.add(m.id);
+  }
+  const rules = await snapshotRules(bot.id, notes, (id) => carried.has(id));
+  const attachments: SetupAttachment[] = [];
+  const used = new Set(rules.flatMap((r) => mediaIdsOf({ media: r.media ? JSON.stringify(r.media) : null, followUps: r.followUps ? JSON.stringify(r.followUps) : null })));
+  for (const id of used) {
+    const row = await getRuleMedia(bot.id, id);
+    if (row) attachments.push({ id: row.id, kind: row.kind, name: row.name, mime: row.mime, data: row.data.toString("base64") });
+  }
   return {
     telegramId: bot.telegramId,
     username: bot.username,
-    rules: await snapshotRules(bot.id, notes),
+    rules,
+    attachments,
+    notes,
     deepLinks: (await listDeepLinks(bot.id)).map((l) => ({
       label: l.label,
       kind: l.kind as DeepLinkInput["kind"],
@@ -89,7 +125,7 @@ const str = (v: unknown): string => (typeof v === "string" ? v : "");
 /** Shape check only; each item is validated again with the normal validators when it is imported. */
 export function parseSetupFile(value: unknown): BotSetupFile {
   if (!isRecord(value) || value.format !== SETUP_FORMAT) throw new InvalidSetupFileError("This is not a bot setup file exported from the dashboard.");
-  if (value.version !== SETUP_VERSION) throw new InvalidSetupFileError("This setup file comes from a different version of the dashboard.");
+  if (value.version !== SETUP_VERSION && value.version !== 1) throw new InvalidSetupFileError("This setup file comes from a different version of the dashboard.");
   if (!Array.isArray(value.bots) || value.bots.length === 0 || value.bots.length > MAX_SETUP_BOTS) {
     throw new InvalidSetupFileError(`The file must contain 1–${MAX_SETUP_BOTS} bots.`);
   }
@@ -99,6 +135,7 @@ export function parseSetupFile(value: unknown): BotSetupFile {
       telegramId: str(b.telegramId),
       username: str(b.username),
       rules: list(b.rules) as TemplateRule[],
+      attachments: list(b.attachments).filter(isAttachment),
       deepLinks: list(b.deepLinks) as DeepLinkInput[],
       inlineResults: list(b.inlineResults) as InlineResultInput[],
       buttonTemplates: list(b.buttonTemplates) as BotSetupEntry["buttonTemplates"],
@@ -108,6 +145,14 @@ export function parseSetupFile(value: unknown): BotSetupFile {
   });
   return { format: SETUP_FORMAT, version: SETUP_VERSION, exportedAt: str(value.exportedAt), bots };
 }
+
+const isAttachment = (a: unknown): a is SetupAttachment =>
+  isRecord(a) &&
+  Number.isInteger(a.id) &&
+  RULE_MEDIA_KINDS.includes(a.kind as RuleMediaKind) &&
+  typeof a.name === "string" &&
+  typeof a.mime === "string" &&
+  typeof a.data === "string";
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -134,14 +179,30 @@ export async function importBotSetup(bot: Bot, entry: BotSetupEntry): Promise<Se
 
   results.push(
     await part("rules", async (r) => {
+      // Files first: each rule that names one is added with this bot's own copy (a rule whose file can't be stored is reported).
+      const mediaMap = new Map<number, RuleMediaRef>();
+      for (const a of entry.attachments ?? []) {
+        try {
+          const data = Buffer.from(a.data, "base64");
+          const invalid = validateRuleUpload(a.kind, { type: a.mime, size: data.length });
+          if (invalid) throw new Error(invalid);
+          const row = await createRuleMedia(bot.id, a.kind, { name: a.name, type: a.mime, data });
+          mediaMap.set(a.id, { mediaId: row.id, kind: row.kind, name: row.name });
+        } catch (err) {
+          r.errors.push(`File “${a.name}”: ${message(err)}`);
+        }
+      }
       const [res] = await applyTemplate(
         { id: bot.id, ownerUserId: bot.ownerUserId, telegramId: bot.telegramId, token: null },
         { id: "import", title: "Import", blurb: "", emoji: "", category: CUSTOM_CATEGORY, shows: [], commands: [], rules: entry.rules },
-        ["rules"]
+        ["rules"],
+        { mediaMap }
       );
       r.applied = res?.applied ?? 0;
       r.skipped = res?.skipped ?? 0;
-      r.errors = res?.errors ?? [];
+      r.errors.push(...(res?.errors ?? []));
+      // Files of rules that were skipped as already present would otherwise sit unused.
+      await pruneRuleMedia(bot.id);
     })
   );
 

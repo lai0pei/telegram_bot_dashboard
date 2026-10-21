@@ -1,6 +1,7 @@
 import type { InlineButton, ReplyKeyboard, TelegramMessage } from "./botapi";
 import { findCallbackRule } from "./callback-match";
 import { matchMessageRule } from "./match-message";
+import { RULE_MEDIA_LABELS, followUpSummary, type FollowUp, type RuleMediaRef } from "./rule-content";
 
 /** The slice of an auto-reply rule a simulated conversation needs. */
 export interface SimRule {
@@ -12,6 +13,11 @@ export interface SimRule {
   buttons: InlineButton[][] | null;
   replyKeyboard: ReplyKeyboard | null;
   callbackAction: "toast" | "edit" | "reply";
+  /** Attachment and follow-up messages (optional: templates and older callers have none). */
+  media?: RuleMediaRef | null;
+  followUps?: readonly FollowUp[];
+  /** Where / when the rule applies (lib/rule-conditions.ts); the per-person limits are not simulated. */
+  conditions?: unknown;
 }
 
 export interface SimMessage {
@@ -21,6 +27,8 @@ export interface SimMessage {
   buttons?: InlineButton[][] | null;
   /** A pop-up answering a button press; it disappears at the next action, like Telegram's. */
   toast?: boolean;
+  /** A file sent with the message; `mediaId` lets the caller show the stored picture. */
+  media?: { kind: "photo" | "file"; name: string; mediaId?: number };
 }
 
 export interface SimState {
@@ -33,8 +41,18 @@ export const emptySim = (): SimState => ({ messages: [], keyboard: null });
 
 const withoutToasts = (s: SimState): SimMessage[] => s.messages.filter((m) => !m.toast);
 
-function botMessage(rule: SimRule): SimMessage {
-  return { from: "bot", text: rule.replyText, parseMode: rule.parseMode, buttons: rule.buttons };
+const mediaOf = (ref: RuleMediaRef | null | undefined): SimMessage["media"] =>
+  ref ? { kind: ref.kind === "photo" || ref.kind === "sticker" ? "photo" : "file", name: ref.name || RULE_MEDIA_LABELS[ref.kind], mediaId: ref.mediaId } : undefined;
+
+/** One bubble per message the rule sends: the main message, then each follow-up (waits and "typing…" are not simulated). */
+function botMessages(rule: SimRule): SimMessage[] {
+  const main: SimMessage = { from: "bot", text: rule.replyText, parseMode: rule.parseMode, buttons: rule.buttons, media: mediaOf(rule.media) };
+  const more = (rule.followUps ?? []).map((f): SimMessage => {
+    if (f.kind === "text") return { from: "bot", text: f.text, parseMode: f.parseMode, buttons: f.buttons };
+    if (f.kind === "media") return { from: "bot", text: f.caption ?? "", parseMode: f.parseMode, buttons: f.buttons, media: mediaOf(f.media) };
+    return { from: "bot", text: followUpSummary(f) };
+  });
+  return [main, ...more];
 }
 
 function nextKeyboard(rule: SimRule, current: SimState["keyboard"]): SimState["keyboard"] {
@@ -77,7 +95,7 @@ function simulateIncoming(state: SimState, rules: readonly SimRule[], botUsernam
   const messages: SimMessage[] = [...withoutToasts(state), { from: "user", text: shown }];
   const rule = matchMessageRule(rules, botUsername, message);
   if (!rule) return { ...state, messages };
-  return { messages: [...messages, botMessage(rule)], keyboard: nextKeyboard(rule, state.keyboard) };
+  return { messages: [...messages, ...botMessages(rule)], keyboard: nextKeyboard(rule, state.keyboard) };
 }
 
 /**
@@ -103,5 +121,5 @@ export function simulatePress(state: SimState, rules: readonly SimRule[], index:
     const edited = base.map((m, i) => (i === at ? { ...m, text: rule.replyText, parseMode: rule.parseMode, buttons: rule.buttons } : m));
     return { ...state, messages: edited };
   }
-  return { messages: [...base, botMessage(rule)], keyboard: nextKeyboard(rule, state.keyboard) };
+  return { messages: [...base, ...botMessages(rule)], keyboard: nextKeyboard(rule, state.keyboard) };
 }

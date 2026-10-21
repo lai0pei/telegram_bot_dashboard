@@ -443,6 +443,8 @@ function TemplateTry({ template, bot, photoSrc }: { template: BotTemplate; bot: 
     buttons: r.buttons ?? null,
     replyKeyboard: r.replyKeyboard ?? null,
     callbackAction: r.callbackAction ?? "toast",
+    followUps: r.followUps,
+    conditions: r.conditions,
   }));
   // It opens on what a person sees first: they press Start and the template's welcome comes back.
   const initial = () => (rules.some((r) => r.matchType === "command" && r.pattern === "start") ? simulateSend(emptySim(), rules, bot.username, "/start") : emptySim());

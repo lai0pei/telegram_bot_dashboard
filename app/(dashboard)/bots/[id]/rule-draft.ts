@@ -1,5 +1,7 @@
 import type { InlineButton, ReplyKeyboard } from "@/lib/botapi";
-import { validateAutoReply } from "@/lib/validation";
+import type { FollowUp, RuleMediaRef } from "@/lib/rule-content";
+import { conditionsForStorage, parseConditions, type RuleConditions } from "@/lib/rule-conditions";
+import { PATTERNLESS_MATCH_TYPES, validateAutoReply } from "@/lib/validation";
 import { buttonsToDrafts, draftsToButtons, type ButtonDraft } from "./buttons-editor";
 import { draftToReplyKeyboard, emptyKeyboardDraft, keyboardDraftError, replyKeyboardToDraft, type KeyboardDraft } from "./keyboard-editor";
 import type { AutoReplyMatchType, AutoReplyRule, CallbackAction, ParseModeChoice } from "./types";
@@ -17,7 +19,44 @@ export interface RuleDraft {
   callbackAction: CallbackAction;
   buttons: ButtonDraft[];
   keyboard: KeyboardDraft;
+  /** A file attached to the main message (then `replyText` is its caption). */
+  media: RuleMediaRef | null;
+  followUps: FollowUpDraft[];
+  /** Where / when / how often the rule applies; null = always. Message rules only. */
+  conditions: RuleConditions | null;
 }
+
+/**
+ * A follow-up as the form edits it: coordinates stay text so "-" and "12." can be typed, and a media follow-up may not
+ * have its file yet (validation then says so).
+ */
+export type FollowUpDraft =
+  | Exclude<FollowUp, { kind: "location" | "media" | "text" }>
+  | (Omit<Extract<FollowUp, { kind: "location" }>, "latitude" | "longitude"> & { latitude: string; longitude: string })
+  | (Omit<Extract<FollowUp, { kind: "text" }>, "buttons"> & { buttonDrafts: ButtonDraft[] })
+  | (Omit<Extract<FollowUp, { kind: "media" }>, "media" | "buttons"> & { media: RuleMediaRef | null; buttonDrafts: ButtonDraft[] });
+
+export const followUpToDraft = (f: FollowUp): FollowUpDraft => {
+  if (f.kind === "location") return { ...f, latitude: String(f.latitude), longitude: String(f.longitude) };
+  if (f.kind === "text" || f.kind === "media") {
+    const { buttons, ...rest } = f;
+    return { ...rest, buttonDrafts: buttonsToDrafts(buttons) } as FollowUpDraft;
+  }
+  return f;
+};
+
+export const draftToFollowUp = (f: FollowUpDraft): FollowUp => {
+  if (f.kind === "location") {
+    return { ...f, latitude: f.latitude.trim() === "" ? NaN : Number(f.latitude), longitude: f.longitude.trim() === "" ? NaN : Number(f.longitude) };
+  }
+  if (f.kind === "text" || f.kind === "media") {
+    const { buttonDrafts, ...rest } = f;
+    const buttons = draftsToButtons(buttonDrafts);
+    // A missing file stays null so the shared validator reports it ("The attached file is missing.").
+    return { ...rest, ...(buttons ? { buttons } : {}) } as FollowUp;
+  }
+  return f;
+};
 
 export const emptyRuleDraft = (): RuleDraft => ({
   matchType: "command",
@@ -28,6 +67,9 @@ export const emptyRuleDraft = (): RuleDraft => ({
   callbackAction: "toast",
   buttons: [],
   keyboard: emptyKeyboardDraft(),
+  media: null,
+  followUps: [],
+  conditions: null,
 });
 
 export function ruleToDraft(rule: AutoReplyRule): RuleDraft {
@@ -40,6 +82,9 @@ export function ruleToDraft(rule: AutoReplyRule): RuleDraft {
     callbackAction: rule.callbackAction ?? "toast",
     buttons: buttonsToDrafts(rule.buttons),
     keyboard: replyKeyboardToDraft(rule.replyKeyboard),
+    media: rule.media ?? null,
+    followUps: (rule.followUps ?? []).map(followUpToDraft),
+    conditions: parseConditions(rule.conditions),
   };
 }
 
@@ -48,19 +93,29 @@ export const isCallbackType = (t: AutoReplyMatchType) => t === "callback" || t =
 /** A callback rule that only shows a pop-up carries neither formatting, buttons nor a keyboard. */
 export const isToastOnly = (d: Pick<RuleDraft, "matchType" | "callbackAction">) => isCallbackType(d.matchType) && d.callbackAction === "toast";
 
-/** The inline buttons and reply keyboard the rule would actually store (mirrors the server's `columnsFor`). */
-export function draftOutputs(d: RuleDraft): { buttons: InlineButton[][] | undefined; replyKeyboard: ReplyKeyboard | undefined } {
+/** The inline buttons, reply keyboard, attachment and follow-ups the rule would actually store (mirrors the server's `columnsFor`). */
+export function draftOutputs(d: RuleDraft): {
+  buttons: InlineButton[][] | undefined;
+  replyKeyboard: ReplyKeyboard | undefined;
+  media: RuleMediaRef | undefined;
+  followUps: FollowUp[] | undefined;
+  conditions: RuleConditions | undefined;
+} {
   const toast = isToastOnly(d);
   const editsMessage = isCallbackType(d.matchType) && d.callbackAction === "edit";
+  const rich = !toast && !editsMessage;
   return {
     buttons: toast ? undefined : draftsToButtons(d.buttons),
     replyKeyboard: toast || editsMessage ? undefined : draftToReplyKeyboard(d.keyboard),
+    media: rich ? d.media ?? undefined : undefined,
+    followUps: rich && d.followUps.length ? d.followUps.map(draftToFollowUp) : undefined,
+    conditions: conditionsForStorage(d.matchType, d.conditions) ?? undefined,
   };
 }
 
 /** The JSON body for POST / PATCH `/auto-replies`. */
 export function draftToBody(d: RuleDraft) {
-  const { buttons, replyKeyboard } = draftOutputs(d);
+  const { buttons, replyKeyboard, media, followUps, conditions } = draftOutputs(d);
   return {
     matchType: d.matchType,
     pattern: d.pattern,
@@ -70,17 +125,31 @@ export function draftToBody(d: RuleDraft) {
     replyKeyboard: replyKeyboard ?? null,
     showAlert: d.showAlert,
     callbackAction: d.callbackAction,
+    media: media ?? null,
+    followUps: followUps ?? null,
+    conditions: conditions ?? null,
   };
 }
 
 /** Validation message for the draft, or null (also null while the pattern and reply are both still empty). */
 export function draftError(d: RuleDraft): string | null {
   if (!d.pattern && !d.replyText) return null;
-  const { buttons, replyKeyboard } = draftOutputs(d);
+  const { buttons, replyKeyboard, media, followUps, conditions } = draftOutputs(d);
   return (
-    validateAutoReply({ matchType: d.matchType, pattern: d.pattern, replyText: d.replyText, parseMode: d.parseMode, buttons, replyKeyboard, callbackAction: d.callbackAction }) ??
+    validateAutoReply({
+      matchType: d.matchType,
+      pattern: d.pattern,
+      replyText: d.replyText,
+      parseMode: d.parseMode,
+      buttons,
+      replyKeyboard,
+      callbackAction: d.callbackAction,
+      media,
+      followUps,
+      conditions,
+    }) ??
     keyboardDraftError(d.keyboard)
   );
 }
 
-export const draftCanSave = (d: RuleDraft) => Boolean(d.pattern.trim() && d.replyText.trim()) && !draftError(d);
+export const draftCanSave = (d: RuleDraft) => Boolean((d.pattern.trim() || PATTERNLESS_MATCH_TYPES.includes(d.matchType)) && (d.replyText.trim() || draftOutputs(d).media)) && !draftError(d);

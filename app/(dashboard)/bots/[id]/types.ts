@@ -1,4 +1,7 @@
 import type { InlineButton, ReplyKeyboard, TelegramPoll } from "@/lib/botapi";
+import type { FollowUp, RuleMediaRef } from "@/lib/rule-content";
+import type { RuleConditions } from "@/lib/rule-conditions";
+import type { AUTO_REPLY_MATCH_TYPES } from "@/lib/validation";
 
 export interface BotCommand {
   command: string;
@@ -117,7 +120,8 @@ export interface BotContact {
   name: string;
 }
 
-export type AutoReplyMatchType = "command" | "exact" | "contains" | "callback" | "callback_prefix" | "deeplink" | "media" | "shared" | "fallback";
+/** Derived from the validator's list so the two can't drift (they were once separate copies). */
+export type AutoReplyMatchType = (typeof AUTO_REPLY_MATCH_TYPES)[number];
 
 export type CallbackAction = "toast" | "edit" | "reply";
 
@@ -129,6 +133,11 @@ export interface AutoReplyRule {
   parseMode: "HTML" | "MarkdownV2" | null;
   buttons: InlineButton[][] | null;
   replyKeyboard: ReplyKeyboard | null;
+  /** A file attached to the main message (`replyText` is its caption) and messages sent after it. */
+  media: RuleMediaRef | null;
+  followUps: FollowUp[];
+  /** Where, when and how often the rule applies; null = always (message rules only). */
+  conditions: RuleConditions | null;
   showAlert: boolean;
   callbackAction: CallbackAction;
   hits: number;
