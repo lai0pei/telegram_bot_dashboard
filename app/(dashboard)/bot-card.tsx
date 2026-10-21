@@ -15,6 +15,8 @@ export interface BotSummary {
   hasToken: boolean;
   maskedToken: string | null;
   monitorEnabled: boolean;
+  /** Name of the other dashboard that runs this bot (lib/bot-claims.ts); null/absent = runs here. */
+  runElsewhere?: string | null;
   details: { id: number; first_name: string } | null;
   webhook: { url: string } | null;
   health?: { status: "ok" | "warning" | "error"; message: string | null } | null;
@@ -70,8 +72,12 @@ export const BotCard = memo(function BotCard({
                     <span className="truncate font-medium">@{bot.username}</span>
                   </span>
                   {bot.monitorEnabled && (
-                    <Badge variant="success" className="shrink-0">
-                      Monitoring
+                    <Badge
+                      variant={bot.runElsewhere ? "default" : "success"}
+                      className="shrink-0"
+                      title={bot.runElsewhere ? `Another dashboard (${bot.runElsewhere}) runs this bot; this one is on standby.` : undefined}
+                    >
+                      {bot.runElsewhere ? "Standby" : "Monitoring"}
                     </Badge>
                   )}
                 </div>

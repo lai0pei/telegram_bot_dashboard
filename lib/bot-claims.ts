@@ -47,13 +47,33 @@ export class BotRunElsewhereError extends Error {
   }
 }
 
+/** Telegram calls give up after this long: an unreachable account must read as "unknown", never stall a request or the jobs loop. */
+const TELEGRAM_TIMEOUT_MS = 8_000;
+/** How long an unreadable account is left alone before trying again (the poller asks every round). */
+const FAILURE_CACHE_MS = 30_000;
+
 declare global {
-  var __tgDashClaimReads: Map<string, { at: number; claims: Claim[] }> | undefined;
+  /** `claims: null` remembers a failed read for FAILURE_CACHE_MS. */
+  var __tgDashClaimReads: Map<string, { at: number; claims: Claim[] | null }> | undefined;
   var __tgDashClaimPublishedAt: Map<string, number> | undefined;
+  /** Message ID of this dashboard's claim per account, a hint for when the search doesn't list it yet. */
+  var __tgDashClaimMessageIds: Map<string, number> | undefined;
 }
 
 const reads = () => (globalThis.__tgDashClaimReads ??= new Map());
 const publishedAt = () => (globalThis.__tgDashClaimPublishedAt ??= new Map());
+const messageIds = () => (globalThis.__tgDashClaimMessageIds ??= new Map());
+
+function withTimeout<T>(promise: Promise<T>, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} timed out`)), TELEGRAM_TIMEOUT_MS);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+const isMessageGone = (err: unknown) => /MESSAGE_ID_INVALID|MESSAGE_NOT_FOUND/.test(String((err as { errorMessage?: string })?.errorMessage ?? err));
+const isNotModified = (err: unknown) => /MESSAGE_NOT_MODIFIED/.test(String((err as { errorMessage?: string })?.errorMessage ?? err));
 
 function parseClaim(text: string, messageId: number): Claim | null {
   const match = /\{.*\}/s.exec(text);
@@ -75,13 +95,18 @@ function parseClaim(text: string, messageId: number): Claim | null {
 /** All claim messages in the account's Saved Messages, or null when the account can't be reached. */
 async function fetchClaims(accountId: string): Promise<Claim[] | null> {
   try {
-    const client = await getClient(accountId);
-    if (!client) return null;
-    const messages = await client.getMessages("me", { search: MARKER, limit: MAX_CLAIM_MESSAGES });
-    return messages.flatMap((m) => {
-      const claim = parseClaim(m.message ?? "", m.id);
-      return claim ? [claim] : [];
-    });
+    return await withTimeout(
+      (async () => {
+        const client = await getClient(accountId);
+        if (!client) return null;
+        const messages = await client.getMessages("me", { search: MARKER, limit: MAX_CLAIM_MESSAGES });
+        return messages.flatMap((m) => {
+          const claim = parseClaim(m.message ?? "", m.id);
+          return claim ? [claim] : [];
+        });
+      })(),
+      "reading claims"
+    );
   } catch (err) {
     if (!(err instanceof TelegramSessionRevokedError)) logError("claims", "couldn't read claims", err, { accountId });
     return null;
@@ -90,9 +115,9 @@ async function fetchClaims(accountId: string): Promise<Claim[] | null> {
 
 async function readClaims(accountId: string, fresh = false): Promise<Claim[] | null> {
   const cached = reads().get(accountId);
-  if (!fresh && cached && Date.now() - cached.at < READ_CACHE_MS) return cached.claims;
+  if (!fresh && cached && Date.now() - cached.at < (cached.claims ? READ_CACHE_MS : FAILURE_CACHE_MS)) return cached.claims;
   const claims = await singleFlight(`claims-read:${accountId}`, () => fetchClaims(accountId));
-  if (claims) reads().set(accountId, { at: Date.now(), claims });
+  reads().set(accountId, { at: Date.now(), claims });
   return claims;
 }
 
@@ -105,8 +130,8 @@ function newest(holders: Claim[], botTelegramId: string): Claim {
 }
 
 /** Who runs this bot according to the account's claims. An unreadable account counts as "none" (nothing known). */
-export async function claimHolder(bot: Pick<BotRow, "ownerUserId" | "telegramId">): Promise<ClaimHolder> {
-  const claims = await readClaims(bot.ownerUserId);
+export async function claimHolder(bot: Pick<BotRow, "ownerUserId" | "telegramId">, fresh = false): Promise<ClaimHolder> {
+  const claims = await readClaims(bot.ownerUserId, fresh);
   if (!claims) return { kind: "none" };
   const holders = liveHolders(claims, bot.telegramId, Date.now());
   if (holders.length === 0) return { kind: "none" };
@@ -133,7 +158,9 @@ async function publish(accountId: string, takeOver: ReadonlySet<string>): Promis
   if (!claims) return;
   const self = await getInstanceId();
   const now = Date.now();
-  const mine = claims.find((c) => c.instance === self);
+  // Normally one message; more than one means an earlier write left a duplicate. Keep the newest and remove the rest.
+  const ownMessages = claims.filter((c) => c.instance === self).sort((a, b) => b.messageId - a.messageId);
+  const mine = ownMessages[0];
   const monitored = await db
     .select()
     .from(bots)
@@ -145,14 +172,18 @@ async function publish(accountId: string, takeOver: ReadonlySet<string>): Promis
     const otherSince = others.length ? newest(others, bot.telegramId).bots[bot.telegramId]! : undefined;
     const prior = mine?.bots[bot.telegramId];
     let runElsewhere: string | null = null;
-    if (takeOver.has(bot.telegramId) || (prior === undefined && otherSince === undefined)) claimed[bot.telegramId] = now;
+    // A take-over must win whatever the two machines' clocks say, so it is stamped just after the claim it replaces.
+    if (takeOver.has(bot.telegramId)) claimed[bot.telegramId] = Math.max(now, (otherSince ?? 0) + 1);
+    else if (prior === undefined && otherSince === undefined) claimed[bot.telegramId] = now;
     else if (prior !== undefined && (otherSince === undefined || prior >= otherSince)) claimed[bot.telegramId] = prior;
     else runElsewhere = newest(others, bot.telegramId).name;
     if (bot.runElsewhere !== runElsewhere) await db.update(bots).set({ runElsewhere }).where(eq(bots.id, bot.id));
   }
 
+  // The search can lag behind a message we just sent, so the ID remembered from our last write counts too.
+  const target = mine?.messageId ?? messageIds().get(accountId);
   // Nothing to say and nothing said before: don't create a message just to leave it empty.
-  if (!mine && Object.keys(claimed).length === 0) return;
+  if (target === undefined && Object.keys(claimed).length === 0) return;
 
   const name = getInstanceName();
   const payload = JSON.stringify({ v: 1, instance: self, name, bots: claimed, at: now });
@@ -161,21 +192,31 @@ async function publish(accountId: string, takeOver: ReadonlySet<string>): Promis
     `🤖 Bot dashboard "${name}" runs ${count} bot${count === 1 ? "" : "s"} for this account. ` +
     `Updated automatically; deleting this message only makes the dashboard forget it. ${MARKER}\n${payload}`;
 
+  await withTimeout(write(accountId, target, text, ownMessages.slice(1).map((c) => c.messageId)), "writing the claim");
+  publishedAt().set(accountId, now);
+  reads().delete(accountId);
+}
+
+/**
+ * Edits our claim message, or sends a new one only when it is really gone (deleted by hand). Any other failure
+ * (flood wait, network) is rethrown: falling back to a send there would leave two live messages from us.
+ */
+async function write(accountId: string, target: number | undefined, text: string, duplicates: number[]): Promise<void> {
   const client = await getClient(accountId);
   if (!client) return;
   // parseMode false = send as typed (the client's default would read the JSON and the hashtag as Markdown).
-  if (mine) {
+  let id = target;
+  if (id !== undefined) {
     try {
-      await client.editMessage("me", { message: mine.messageId, text, parseMode: false });
-    } catch {
-      // The message was deleted by hand (or can no longer be edited): write a fresh one.
-      await client.sendMessage("me", { message: text, parseMode: false });
+      await client.editMessage("me", { message: id, text, parseMode: false });
+    } catch (err) {
+      if (isMessageGone(err)) id = undefined;
+      else if (!isNotModified(err)) throw err;
     }
-  } else {
-    await client.sendMessage("me", { message: text, parseMode: false });
   }
-  publishedAt().set(accountId, now);
-  reads().delete(accountId);
+  if (id === undefined) id = (await client.sendMessage("me", { message: text, parseMode: false })).id;
+  messageIds().set(accountId, id);
+  if (duplicates.length) await client.deleteMessages("me", duplicates, { revoke: true }).catch(() => {});
 }
 
 export async function setRunElsewhere(botId: number, name: string | null): Promise<void> {
@@ -203,9 +244,11 @@ export async function publishAllClaims(): Promise<void> {
  * Callers check the webhook first (monitoring and a webhook exclude each other).
  */
 export async function enableMonitoring(bot: Pick<BotRow, "id" | "ownerUserId" | "telegramId">, takeOver = false): Promise<void> {
-  const holder = await claimHolder(bot);
+  // A fresh read: the cached one may be up to a minute old, which is exactly when another dashboard just claimed it.
+  const holder = await claimHolder(bot, true);
   if (holder.kind === "other" && !takeOver) throw new BotRunElsewhereError(holder.name, holder.since);
   await setMonitorEnabled(bot.id, true);
+  if (takeOver) await setRunElsewhere(bot.id, null);
   await publishClaims(bot.ownerUserId, takeOver ? new Set([bot.telegramId]) : undefined);
 }
 

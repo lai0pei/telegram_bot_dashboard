@@ -29,8 +29,12 @@ async function loadInstanceId(): Promise<string> {
   return (await db.select().from(appSettings).where(eq(appSettings.key, ID_KEY)))[0]!.value;
 }
 
-/** `INSTANCE_NAME`, else the host name. Limited to plain characters because it is written into a Telegram message. */
+/**
+ * `INSTANCE_NAME`, else the host name (a Docker container's is a random 12-digit hex ID, which tells the other
+ * dashboard nothing, so that reads as "dashboard"). Limited to plain characters because it goes into a Telegram message.
+ */
 export function getInstanceName(): string {
-  const raw = process.env.INSTANCE_NAME?.trim() || hostname();
+  const host = hostname();
+  const raw = process.env.INSTANCE_NAME?.trim() || (/^[0-9a-f]{12}$/.test(host) ? "dashboard" : host);
   return raw.replace(/[^A-Za-z0-9 .\-]/g, "").slice(0, 40) || "dashboard";
 }

@@ -43,7 +43,8 @@ async function run() {
     }
     if (Date.now() >= nextClaimsAt) {
       nextClaimsAt = Date.now() + CLAIM_HEARTBEAT_MS;
-      await guarded("bot claims heartbeat", () => publishAllClaims());
+      // Not awaited: it talks to Telegram, and scheduled messages and broadcasts must not wait for that.
+      publishAllClaims().catch((err) => logError("jobs", "bot claims heartbeat failed", err));
     }
     // A no-op after the first call each UTC day.
     await guarded("error log cleanup", () => maybePruneErrors());

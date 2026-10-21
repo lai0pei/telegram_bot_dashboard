@@ -38,6 +38,14 @@ export function MonitorToggle({ bot, onChange }: { bot: BotDetail; onChange: () 
 
   return (
     <>
+      <Switch
+        checked={bot.monitorEnabled}
+        disabled={toggling}
+        // Another server or dashboard may already be reading this bot's updates; two readers on one token fight over them.
+        onCheckedChange={(enabled) => (enabled ? setConfirming(true) : void toggle(enabled))}
+        aria-label="Monitor incoming messages"
+      />
+      {/* After the Switch on purpose: the header wraps this in a <label>, whose control is its first labelable child. */}
       {bot.monitorEnabled && bot.runElsewhere && (
         <>
           <span className="text-[var(--muted-foreground)]" title="Another dashboard signed in with this Telegram account runs this bot, so this one is not reading its messages.">
@@ -48,13 +56,6 @@ export function MonitorToggle({ bot, onChange }: { bot: BotDetail; onChange: () 
           </Button>
         </>
       )}
-      <Switch
-        checked={bot.monitorEnabled}
-        disabled={toggling}
-        // Another server or dashboard may already be reading this bot's updates; two readers on one token fight over them.
-        onCheckedChange={(enabled) => (enabled ? setConfirming(true) : void toggle(enabled))}
-        aria-label="Monitor incoming messages"
-      />
       <Dialog open={confirming} onOpenChange={setConfirming}>
         <DialogContent>
           <DialogTitle>Start monitoring @{bot.username}?</DialogTitle>

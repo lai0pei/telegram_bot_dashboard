@@ -59,6 +59,7 @@ export const GET = withAuth(async (_req, _ctx, userId) => {
           firstName: bot.firstName,
           source: bot.source,
           monitorEnabled: bot.monitorEnabled,
+          runElsewhere: bot.runElsewhere,
           health: healthOf(bot),
           setup: cachedProgress(bot.setupProgress),
         };
