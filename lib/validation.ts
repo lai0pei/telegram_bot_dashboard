@@ -24,6 +24,23 @@ export function validateBotUsername(username: string): string | null {
   return null;
 }
 
+/** Strips the spaces, dashes and brackets people type, and a leading "00" prefix; returns "+digits". */
+export function normalizePhoneNumber(value: string): string {
+  const digits = value.replace(/[^\d+]/g, "").replace(/^00/, "+");
+  return digits.startsWith("+") ? digits : `+${digits}`;
+}
+
+export function validatePhoneNumber(value: string): string | null {
+  if (!/^\+\d{7,15}$/.test(normalizePhoneNumber(value))) {
+    return "Enter the number with its country code, e.g. +1 555 123 4567.";
+  }
+  return null;
+}
+
+export function validateLoginCode(value: string): string | null {
+  return /^\d{4,8}$/.test(value.trim()) ? null : "Enter the numeric code Telegram sent you.";
+}
+
 const TELEGRAM_ID_PATTERN = /^\d{1,15}$/;
 export const MAX_ALLOWLIST_IDS = 500;
 

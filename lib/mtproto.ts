@@ -6,6 +6,8 @@ import { RPCError } from "teleproto/errors";
 import { decrypt } from "./crypto";
 import { isRegistrationOpenFor, isTelegramUserAllowed } from "./app-settings";
 import { singleFlight } from "./single-flight";
+import { rateLimit } from "./rate-limit";
+import { createHash } from "node:crypto";
 import {
   getTelegramAccountById,
   getTelegramAccountByTelegramId,
@@ -53,7 +55,7 @@ const LOGIN_STATE_TTL_MS = 10 * 60 * 1000;
 /** Hard ceiling on concurrent pending logins — sign-in mode is reachable by anyone, not just existing dashboard users. */
 const MAX_PENDING_LOGINS = 100;
 
-/** In-memory state for one browser's QR-scan login flow, then optional 2FA. */
+/** In-memory state for one browser's login flow (QR scan or phone + code), then optional 2FA. */
 interface LoginState {
   client: TelegramClient;
   expiresAt: number;
@@ -66,7 +68,16 @@ interface LoginState {
    */
   mode: "link" | "signin";
   ownerUserId?: string;
-  qr: QrLogin;
+  /** Exactly one of qr / phone is set, depending on how the login was started. */
+  qr?: QrLogin;
+  phone?: PhoneLogin;
+}
+
+interface PhoneLogin {
+  phoneNumber: string;
+  phoneCodeHash: string;
+  /** Wrong codes so far; the login is dropped at MAX_CODE_ATTEMPTS. */
+  attempts: number;
 }
 
 interface QrLogin {
@@ -85,7 +96,7 @@ function pruneExpiredLoginStates() {
   const now = Date.now();
   for (const [id, state] of states) {
     if (state.expiresAt < now) {
-      state.qr.stopListening();
+      state.qr?.stopListening();
       state.client.destroy().catch(() => {});
       states.delete(id);
     }
@@ -268,9 +279,9 @@ export async function startQrLogin(mode: "link" | "signin", ownerUserId?: string
 
   try {
     await runQrExport(state);
-    if (state.qr.error) throw new Error(state.qr.error);
+    if (state.qr!.error) throw new Error(state.qr!.error);
   } catch (err) {
-    state.qr.stopListening();
+    state.qr!.stopListening();
     getLoginStatesMap().delete(loginId);
     client.destroy().catch(() => {});
     throw err;
@@ -278,8 +289,13 @@ export async function startQrLogin(mode: "link" | "signin", ownerUserId?: string
   return { loginId };
 }
 
+function requireQr(state: LoginState): QrLogin {
+  if (!state.qr) throw new Error("This login was started differently. Start again.");
+  return state.qr;
+}
+
 function runQrExport(state: LoginState): Promise<void> {
-  const { qr } = state;
+  const qr = requireQr(state);
   qr.inFlight ??= exportQrToken(state).finally(() => {
     qr.inFlight = undefined;
   });
@@ -293,7 +309,7 @@ function runQrExport(state: LoginState): Promise<void> {
  * also runs from the update handler with no request to report to.
  */
 async function exportQrToken(state: LoginState): Promise<void> {
-  const { qr } = state;
+  const qr = requireQr(state);
   if (qr.outcome || qr.error) return;
   const { client, mode, ownerUserId } = state;
   const { apiId, apiHash } = getApiCreds();
@@ -338,7 +354,7 @@ export async function pollQrLogin(
   ownerUserId?: string
 ): Promise<QrLoginStatus> {
   const state = requireOwnedState(loginId, mode, ownerUserId);
-  const { qr } = state;
+  const qr = requireQr(state);
 
   if (!qr.outcome && !qr.error && qr.tokenExpiresAt <= Date.now()) {
     await runQrExport(state);
@@ -360,6 +376,146 @@ export async function pollQrLogin(
     qrUrl: `tg://login?token=${qr.token.toString("base64url")}`,
     expiresAt: qr.tokenExpiresAt,
   };
+}
+
+const MAX_CODE_ATTEMPTS = 5;
+const PHONE_SEND_LIMIT = { limit: 3, windowMs: 10 * 60 * 1000 };
+
+/** Telegram's refusals a person can act on; anything else surfaces as-is. */
+function phoneLoginMessage(err: unknown): string {
+  const code = err instanceof RPCError ? err.errorMessage : "";
+  if (code.startsWith("FLOOD_WAIT") || code === "PHONE_PASSWORD_FLOOD") {
+    return "Telegram is limiting login attempts for this number. Wait a while and try again.";
+  }
+  if (code === "PHONE_NUMBER_INVALID") return "That phone number isn't valid. Include the country code.";
+  if (code === "PHONE_NUMBER_BANNED") return "Telegram doesn't allow this number to sign in.";
+  if (code === "PHONE_CODE_INVALID" || code === "PHONE_CODE_EMPTY") return "Incorrect code.";
+  if (code === "PHONE_CODE_EXPIRED") return "That code has expired. Go back and request a new one.";
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Phone login, step 1: asks Telegram to send a login code to this number
+ * (in the Telegram app of a logged-in device, or by SMS). The number is only
+ * held in memory on the login state, never logged or stored. `mode` and
+ * `ownerUserId` mean the same as for startQrLogin; everything after the first
+ * factor (2FA, finishLogin) is shared with the QR flow.
+ */
+export async function startPhoneLogin(
+  mode: "link" | "signin",
+  phoneNumber: string,
+  ownerUserId?: string
+): Promise<{ loginId: string; isCodeViaApp: boolean }> {
+  pruneExpiredLoginStates();
+  if (getLoginStatesMap().size >= MAX_PENDING_LOGINS) {
+    throw new Error("Too many logins are in progress right now. Try again shortly.");
+  }
+  // Per number (hashed, so it isn't kept in the limiter either) on top of the route's per-IP limit: one visitor must not be able to make Telegram message a stranger repeatedly.
+  const numberKey = createHash("sha256").update(phoneNumber).digest("hex");
+  if (!rateLimit(`phone-send:${numberKey}`, PHONE_SEND_LIMIT.limit, PHONE_SEND_LIMIT.windowMs)) {
+    throw new Error("A code was requested for this number recently. Wait a few minutes and try again.");
+  }
+
+  const { apiId, apiHash } = getApiCreds();
+  const client = new TelegramClient(new StringSession(""), apiId, apiHash, { connectionRetries: 3 });
+  await client.connect();
+  try {
+    const sent = await client.sendCode({ apiId, apiHash }, phoneNumber);
+    // An email-setup or email-code login needs steps a browser can't do here.
+    if (sent.emailRequired || sent.emailCodeSent) {
+      throw new Error("Telegram wants an email verification for this account. Sign in with the QR code instead.");
+    }
+    const loginId = crypto.randomUUID();
+    getLoginStatesMap().set(loginId, {
+      client,
+      expiresAt: Date.now() + LOGIN_STATE_TTL_MS,
+      mode,
+      ownerUserId,
+      phone: { phoneNumber, phoneCodeHash: sent.phoneCodeHash, attempts: 0 },
+    });
+    return { loginId, isCodeViaApp: sent.isCodeViaApp };
+  } catch (err) {
+    client.destroy().catch(() => {});
+    throw new Error(phoneLoginMessage(err));
+  }
+}
+
+function requirePhone(state: LoginState): PhoneLogin {
+  if (!state.phone) throw new Error("This login was started differently. Start again.");
+  return state.phone;
+}
+
+/**
+ * Phone login, step 2: submits the code. A wrong code keeps the login for a
+ * retry (up to MAX_CODE_ATTEMPTS); 2FA continues in submitLoginPassword on the
+ * same state, exactly as after a QR scan.
+ */
+export async function submitPhoneCode(
+  loginId: string,
+  code: string,
+  mode: "link" | "signin",
+  ownerUserId?: string
+): Promise<SignInOutcome> {
+  const state = requireOwnedState(loginId, mode, ownerUserId);
+  const phone = requirePhone(state);
+
+  const drop = () => {
+    getLoginStatesMap().delete(loginId);
+    state.client.destroy().catch(() => {});
+  };
+
+  let result: Api.auth.TypeAuthorization;
+  try {
+    result = await state.client.invoke(
+      new Api.auth.SignIn({
+        phoneNumber: phone.phoneNumber,
+        phoneCodeHash: phone.phoneCodeHash,
+        phoneCode: code,
+      })
+    );
+  } catch (err) {
+    if (err instanceof RPCError && err.errorMessage === "SESSION_PASSWORD_NEEDED") {
+      return { status: "password_required" };
+    }
+    const errorMessage = err instanceof RPCError ? err.errorMessage : "";
+    if (errorMessage === "PHONE_CODE_INVALID" || errorMessage === "PHONE_CODE_EMPTY") {
+      phone.attempts += 1;
+      if (phone.attempts >= MAX_CODE_ATTEMPTS) {
+        drop();
+        throw new Error("Too many wrong codes. Start again.");
+      }
+    } else {
+      drop();
+    }
+    throw new Error(phoneLoginMessage(err));
+  }
+
+  if (!(result instanceof Api.auth.Authorization)) {
+    drop();
+    throw new Error("No Telegram account exists for this number. Create one in the Telegram app first.");
+  }
+  getLoginStatesMap().delete(loginId);
+  return finishLogin(state.client, result.user as Api.User, state.mode, state.ownerUserId);
+}
+
+/** Asks Telegram to send the code again (usually by the next channel, e.g. SMS after the app). */
+export async function resendPhoneCode(
+  loginId: string,
+  mode: "link" | "signin",
+  ownerUserId?: string
+): Promise<{ isCodeViaApp: boolean }> {
+  const state = requireOwnedState(loginId, mode, ownerUserId);
+  const phone = requirePhone(state);
+  try {
+    const sent = await state.client.invoke(
+      new Api.auth.ResendCode({ phoneNumber: phone.phoneNumber, phoneCodeHash: phone.phoneCodeHash })
+    );
+    if (!(sent instanceof Api.auth.SentCode)) throw new Error("Telegram can't resend the code. Start again.");
+    phone.phoneCodeHash = sent.phoneCodeHash;
+    return { isCodeViaApp: sent.type instanceof Api.auth.SentCodeTypeApp };
+  } catch (err) {
+    throw new Error(phoneLoginMessage(err));
+  }
 }
 
 type SignInOutcome =
