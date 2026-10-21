@@ -20,7 +20,7 @@ import {
   type RuleMediaKind,
   type RuleMediaRef,
 } from "@/lib/rule-content";
-import { ButtonsEditor } from "./buttons-editor";
+import { ButtonsField } from "./buttons-editor";
 import type { FollowUpDraft } from "./rule-draft";
 
 const select = "h-10 rounded-lg border border-[var(--card-border)] bg-[var(--card)] px-3 text-sm";
@@ -205,14 +205,7 @@ export function FollowUpsEditor({
               <Textarea id={`${id}-text`} aria-label={`Text of message ${i + 2}`} value={f.text} maxLength={4096} onChange={(e) => update(i, { text: e.target.value })} />
             )}
             {(f.kind === "text" || f.kind === "media") && (
-              <details open={f.buttonDrafts.length > 0 || undefined}>
-                <summary className="cursor-pointer select-none text-xs text-[var(--muted)]">
-                  Buttons under this message{f.buttonDrafts.length > 0 ? ` (${f.buttonDrafts.length})` : ""}
-                </summary>
-                <div className="mt-2">
-                  <ButtonsEditor drafts={f.buttonDrafts} onChange={(buttonDrafts) => update(i, { buttonDrafts })} botId={botId} />
-                </div>
-              </details>
+              <ButtonsField label={`Buttons under message ${i + 2}`} drafts={f.buttonDrafts} onChange={(buttonDrafts) => update(i, { buttonDrafts })} botId={botId} />
             )}
             {f.kind === "media" && (
               <>
