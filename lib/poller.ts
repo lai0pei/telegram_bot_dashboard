@@ -21,6 +21,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { getBusinessConnection, markBusinessMessagesDeleted, upsertBusinessConnection } from "./business";
 import { isDatabaseError } from "./db/errors";
 import { maybeSendDigests } from "./digest";
+import { logError } from "./error-log";
 import { snapshotDailyStats, utcDay } from "./stats";
 
 /**
@@ -61,7 +62,7 @@ export function startPoller() {
   if (globalThis.__tgDashPollerRunning) return;
   globalThis.__tgDashPollerRunning = true;
   globalThis.__tgDashPollerWorkers ??= new Set();
-  supervise().catch((err) => console.error("[poller] fatal error, stopped:", err));
+  supervise().catch((err) => logError("poller", "fatal error, stopped", err));
 }
 
 async function supervise() {
@@ -69,12 +70,12 @@ async function supervise() {
   while (globalThis.__tgDashPollerRunning) {
     await maybeSnapshotDailyStats();
     // Has its own schedule guard (lastDigestAt) and a per-account single-flight, so a tick overlapping a slow send is safe.
-    maybeSendDigests().catch((err) => console.error("[poller] digest check failed:", err));
+    maybeSendDigests().catch((err) => logError("poller", "digest check failed", err));
     for (const bot of (await listAllMonitoredBots())) {
       if (!bot.encryptedToken || workers.has(bot.id)) continue;
       workers.add(bot.id);
       pollBot(bot.id)
-        .catch((err) => console.error(`[poller] worker for bot ${bot.username} crashed:`, err))
+        .catch((err) => logError("poller", `worker for bot ${bot.username} crashed`, err, { botId: bot.id }))
         .finally(() => workers.delete(bot.id));
     }
     await sleep(SUPERVISOR_INTERVAL_MS);
@@ -89,7 +90,7 @@ async function maybeSnapshotDailyStats() {
   try {
     await snapshotDailyStats();
   } catch (err) {
-    console.error("[poller] daily stats snapshot failed:", err);
+    logError("poller", "daily stats snapshot failed", err);
   }
 }
 
@@ -127,13 +128,13 @@ async function pollBot(botId: number) {
           // A database error (e.g. a migration that hasn't been applied yet) must not drop updates: leave the
           // offset where it is so they're fetched again. Anything else is a bad update; skip it, don't wedge.
           if (isDatabaseError(err)) throw err;
-          console.error(`[poller] bot ${bot.username} skipped update ${update.update_id}:`, err);
+          logError("poller", `bot ${bot.username} skipped update ${update.update_id}`, err, { botId: bot.id, updateId: update.update_id });
         }
         await setLastUpdateId(bot.id, update.update_id);
       }
       await recordPollHealth(bot.id, null);
     } catch (err) {
-      console.error(`[poller] bot ${bot.username} getUpdates failed:`, err);
+      logError("poller", `bot ${bot.username} getUpdates failed`, err, { botId: bot.id, failures: failures + 1 });
       await recordPollHealth(bot.id, err instanceof Error ? err.message : String(err));
       // Per-bot backoff (5s growing to 60s) so a dead token neither stalls other bots nor retries every few seconds.
       failures++;
@@ -262,7 +263,7 @@ async function recordCallback(botId: number, token: string, query: TelegramCallb
     rule = query.data ? (await matchCallbackRule(botId, query.data)) : undefined;
     if (query.game_short_name) gameUrl = await gameUrlFor(botId, query.game_short_name);
   } catch (err) {
-    console.error(`[poller] callback rule lookup failed for bot ${botId}:`, err);
+    logError("poller", `callback rule lookup failed for bot ${botId}`, err, { botId });
   }
   if (rule) await answerCallbackWithRule(botId, token, rule, query);
   else botApi.answerCallbackQuery(token, query.id, gameUrl ? { url: gameUrl } : {}).catch(() => {});
@@ -316,7 +317,7 @@ async function recordIncomingMessage(botId: number, botUsername: string, token: 
     const rule = await matchAutoReply(botId, botUsername, message);
     if (rule) await sendAutoReply(botId, token, rule, message, botUsername);
   } catch (err) {
-    console.error(`[poller] auto-reply lookup failed for bot ${botId}:`, err);
+    logError("poller", `auto-reply lookup failed for bot ${botId}`, err, { botId });
   }
 }
 

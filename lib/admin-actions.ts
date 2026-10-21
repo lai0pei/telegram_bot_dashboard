@@ -2,6 +2,7 @@ import { desc, eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { isAdminUser } from "./admin";
 import { errorResponse } from "./api-guard";
+import { invalidateSettingsCache, writeSetting, type Allowlist, type SettingChange } from "./app-settings";
 import { listBots } from "./bots";
 import { listChats } from "./chats";
 import { db } from "./db";
@@ -36,7 +37,13 @@ async function loadTarget(adminUserId: string, targetUserId: string): Promise<Us
 }
 
 /** Always called inside the same transaction as the change it records, so an action can't succeed without its audit row (or vice versa). */
-async function audit(tx: Tx, adminUserId: string, action: AdminActionName, target: UserRow, detail: string | null) {
+async function audit(
+  tx: Tx,
+  adminUserId: string,
+  action: AdminActionName,
+  target: Pick<UserRow, "id" | "username">,
+  detail: string | null
+) {
   await tx.insert(adminActions).values({
     adminUserId,
     action,
@@ -118,6 +125,42 @@ export async function deleteUserAndData(adminUserId: string, targetUserId: strin
       );
     });
   });
+}
+
+/** `undefined` leaves a setting alone, `null` resets it to the environment's value. */
+export interface AccessPatch {
+  registrationOpen?: boolean | null;
+  allowlist?: Allowlist | null;
+}
+
+/** Changes who may sign up / be linked (lib/app-settings.ts). Written together with its audit row, then the cache is dropped so it applies at once. */
+export async function updateAccessSettings(adminUserId: string, patch: AccessPatch): Promise<void> {
+  const changes: SettingChange[] = [];
+  const notes: string[] = [];
+  if (patch.registrationOpen !== undefined) {
+    changes.push({ key: "registration", value: patch.registrationOpen });
+    notes.push(
+      patch.registrationOpen === null ? "Sign-ups: reset to .env" : `Sign-ups: ${patch.registrationOpen ? "opened" : "closed"}`
+    );
+  }
+  if (patch.allowlist !== undefined) {
+    changes.push({ key: "allowlist", value: patch.allowlist });
+    notes.push(
+      patch.allowlist === null
+        ? "Linking allowlist: reset to .env"
+        : patch.allowlist.restrict
+          ? `Linking restricted to ${patch.allowlist.ids.length} Telegram ID(s)`
+          : "Linking not restricted"
+    );
+  }
+  if (changes.length === 0) throw new AdminActionError("Nothing to change.");
+
+  await db.transaction(async (tx) => {
+    for (const change of changes) await writeSetting(tx, change);
+    // No user is involved, so the admin is recorded as the "target" under a fixed name.
+    await audit(tx, adminUserId, "update_access", { id: adminUserId, username: "Access settings" }, notes.join("; "));
+  });
+  invalidateSettingsCache();
 }
 
 export interface AdminActionDto {

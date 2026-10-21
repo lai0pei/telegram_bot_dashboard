@@ -1,4 +1,5 @@
 import { activeBroadcastIds, runBroadcastStep } from "./broadcast";
+import { logError, maybePruneErrors } from "./error-log";
 import { refreshAllBotHealth } from "./health";
 import { failInterruptedScheduled, sendDueScheduled } from "./scheduled";
 
@@ -19,7 +20,7 @@ declare global {
 export function startJobs() {
   if (globalThis.__tgDashJobsRunning) return;
   globalThis.__tgDashJobsRunning = true;
-  run().catch((err) => console.error("[jobs] fatal error, stopped:", err));
+  run().catch((err) => logError("jobs", "fatal error, stopped", err));
 }
 
 async function run() {
@@ -37,6 +38,8 @@ async function run() {
       nextHealthAt = Date.now() + HEALTH_INTERVAL_MS;
       await guarded("health checks", () => refreshAllBotHealth());
     }
+    // A no-op after the first call each UTC day.
+    await guarded("error log cleanup", () => maybePruneErrors());
     await new Promise((resolve) => setTimeout(resolve, TICK_MS));
   }
 }
@@ -55,6 +58,8 @@ async function guarded(name: string, fn: () => Promise<void>) {
   try {
     await fn();
   } catch (err) {
-    console.error(`[jobs] ${name} failed:`, err);
+    // The cleanup job itself failing (e.g. the database is down) stays console-only: logError would try the same database.
+    if (name === "error log cleanup") console.error(`[jobs] ${name} failed:`, err);
+    else logError("jobs", `${name} failed`, err);
   }
 }

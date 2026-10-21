@@ -33,7 +33,8 @@ export const adminActions = pgTable(
   {
     id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
     adminUserId: text("admin_user_id").notNull(),
-    action: text("action", { enum: ["sign_out", "suspend", "unsuspend", "delete_user"] }).notNull(),
+    action: text("action", { enum: ["sign_out", "suspend", "unsuspend", "delete_user", "update_access"] }).notNull(),
+    /** The user acted on; for `update_access` (no user involved) the admin's own ID, with `targetName` "Access settings". */
     targetUserId: text("target_user_id").notNull(),
     targetName: text("target_name").notNull(),
     /** Human-readable summary, e.g. what a delete removed. */
@@ -41,6 +42,48 @@ export const adminActions = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
   },
   (table) => [index("admin_actions_created_idx").on(table.createdAt)]
+);
+
+/**
+ * Settings the master admin edits from the dashboard (lib/app-settings.ts). A
+ * row here overrides the matching environment variable; deleting the row
+ * ("Reset to .env") falls back to it. `value` is plain text or JSON per key.
+ */
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+});
+
+/**
+ * Server and browser errors, one row per distinct problem (lib/error-log.ts).
+ * Repeats of the same fingerprint bump `count` instead of adding rows, and
+ * reopen the row if it was marked resolved. Everything stored has been
+ * scrubbed of secrets first, because the admin exports this to an LLM.
+ */
+export const appErrors = pgTable(
+  "app_errors",
+  {
+    id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+    fingerprint: text("fingerprint").notNull(),
+    /** Where it came from: api, request, poller, jobs, broadcast, auto-reply, health, digest, inline, limits, effects, client. */
+    source: text("source").notNull(),
+    /** What was being attempted, e.g. "bot foo getUpdates failed". */
+    what: text("what").notNull(),
+    errorName: text("error_name").notNull(),
+    message: text("message").notNull(),
+    stack: text("stack"),
+    /** JSON object of small, non-sensitive facts (bot id, route, ...). */
+    context: text("context"),
+    count: integer("count").notNull().default(1),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("app_errors_fingerprint_unique").on(table.fingerprint),
+    index("app_errors_last_seen_idx").on(table.lastSeenAt),
+  ]
 );
 
 /**

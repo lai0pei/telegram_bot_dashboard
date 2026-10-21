@@ -3,6 +3,7 @@ import { db } from "./db";
 import { telegramAccounts } from "./db/schema";
 import { userNotSuspended } from "./suspension";
 import { getAttentionItems } from "./attention";
+import { logError } from "./error-log";
 import { getClient } from "./mtproto";
 import { singleFlight } from "./single-flight";
 import type { TelegramAccountRow } from "./telegram-accounts";
@@ -29,7 +30,7 @@ export async function maybeSendDigests(): Promise<void> {
   for (const account of [...due, ...dueWeekly]) {
     if (!isDue(account, now)) continue;
     await singleFlight(`digest:${account.id}`, () => sendDigest(account)).catch((err) =>
-      console.error(`[digest] failed for account ${account.id}:`, err)
+      logError("digest", `failed for account ${account.id}`, err, { accountId: account.id })
     );
   }
 }

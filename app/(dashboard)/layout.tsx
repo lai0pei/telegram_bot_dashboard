@@ -5,10 +5,12 @@ import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
 import { DashboardNav } from "./dashboard-nav";
 import { AccountsProvider, useAccounts } from "./accounts-context";
+import { ClientErrorListeners } from "./client-error-listeners";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <AccountsProvider>
+      <ClientErrorListeners />
       <DashboardShell>{children}</DashboardShell>
     </AccountsProvider>
   );

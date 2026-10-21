@@ -2,6 +2,7 @@ import { and, eq, isNotNull } from "drizzle-orm";
 import { Api } from "teleproto/tl";
 import { db } from "./db";
 import { bots, chats } from "./db/schema";
+import { logError } from "./error-log";
 import { getClient } from "./mtproto";
 import { singleFlight } from "./single-flight";
 
@@ -66,7 +67,7 @@ function fetchLimits(accountId: string): Promise<Limits> {
       const result = await client.invoke(new Api.help.GetAppConfig({ hash: 0 }));
       if (result instanceof Api.help.AppConfig) config = result.config;
     } catch (err) {
-      console.error("[limits] help.getAppConfig failed, using fallbacks:", err);
+      logError("limits", "help.getAppConfig failed, using fallbacks", err);
     }
 
     const pick = (defaultKey: string, premiumKey: string, fallbackDefault: number, fallbackPremium: number) => {

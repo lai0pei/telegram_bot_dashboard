@@ -1,5 +1,6 @@
 import { BotApiError, botApi } from "./botapi";
 import { getBotToken, listAllBotsWithToken, saveBotHealth, type BotRow } from "./bots";
+import { logError } from "./error-log";
 import { getPollerFailures } from "./poller";
 
 export interface HealthResult {
@@ -61,7 +62,7 @@ export async function refreshAllBotHealth(): Promise<void> {
     try {
       await refreshBotHealth(bot);
     } catch (err) {
-      console.error(`[health] bot ${bot.username} check failed:`, err);
+      logError("health", `bot ${bot.username} check failed`, err, { botId: bot.id });
     }
   }
 }

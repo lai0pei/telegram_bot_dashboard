@@ -4,7 +4,7 @@ import { Api } from "teleproto/tl";
 import { Raw } from "teleproto/events";
 import { RPCError } from "teleproto/errors";
 import { decrypt } from "./crypto";
-import { isTelegramUserAllowed } from "./auth";
+import { isRegistrationOpenFor, isTelegramUserAllowed } from "./app-settings";
 import { singleFlight } from "./single-flight";
 import {
   getTelegramAccountById,
@@ -429,7 +429,7 @@ async function finishLogin(
 ): Promise<SignInOutcome> {
   const telegramId = me.id.toString();
 
-  if (!isTelegramUserAllowed(telegramId)) {
+  if (!(await isTelegramUserAllowed(telegramId))) {
     client.destroy().catch(() => {});
     return { status: "not_allowed", telegramId };
   }
@@ -447,7 +447,7 @@ async function finishLogin(
       return { status: "suspended", telegramId };
     }
     ownerUserId = existing.ownerUserId;
-  } else if (process.env.REGISTRATION_ENABLED === "false") {
+  } else if (!(await isRegistrationOpenFor(telegramId))) {
     client.destroy().catch(() => {});
     return { status: "registration_closed", telegramId };
   } else {
