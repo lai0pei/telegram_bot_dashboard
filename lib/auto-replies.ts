@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { botApi, buttonsForChat, replyKeyboardForChat, type InlineButton, type ReplyKeyboard, type TelegramCallbackQuery, type TelegramMessage } from "./botapi";
 import { findCallbackRule } from "./callback-match";
+import { isCallbackMatch } from "./flow";
 import { db } from "./db";
 import { isUniqueViolation } from "./db/errors";
 import { autoReplies, autoReplyUserHits, botMessages } from "./db/schema";
@@ -188,16 +189,27 @@ export async function deleteAutoReply(botId: number, id: number): Promise<boolea
   return deleted;
 }
 
-/** Swaps a rule with its neighbour in list order. */
+/**
+ * Swaps a rule with its neighbour of the same kind in list order: a starting rule with the next starting rule, a button
+ * answer with the next button answer. Only starting rules are checked in order, so stepping over the other kind keeps a
+ * click from looking like it did nothing.
+ */
 export async function moveAutoReply(botId: number, id: number, direction: "up" | "down"): Promise<void> {
   const rules = await listAutoReplies(botId);
   const index = rules.findIndex((r) => r.id === id);
-  const other = rules[direction === "up" ? index - 1 : index + 1];
-  if (index < 0 || !other) return;
+  if (index < 0) return;
+  const kind = isCallbackMatch(rules[index]);
+  const sameKind = rules.filter((r) => isCallbackMatch(r) === kind);
+  const other = sameKind[sameKind.findIndex((r) => r.id === id) + (direction === "up" ? -1 : 1)];
+  if (!other) return;
   await db.transaction(async (tx) => {
     // Positions can tie (default 0), so assign the whole order explicitly.
     const order = rules.map((r) => r.id);
-    [order[index], order[order.indexOf(other.id)]] = [other.id, id];
+    // The neighbour's slot is looked up first: inside the destructuring target it would be read after the first
+    // assignment, which made every move *down* write the rule back to its own slot (a no-op).
+    const otherIndex = order.indexOf(other.id);
+    order[index] = other.id;
+    order[otherIndex] = id;
     for (const [position, ruleId] of order.entries()) {
       await tx.update(autoReplies).set({ position }).where(and(eq(autoReplies.botId, botId), eq(autoReplies.id, ruleId)));
     }

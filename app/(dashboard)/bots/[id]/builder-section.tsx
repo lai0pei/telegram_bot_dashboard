@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/api-client";
 import { buttonIdFrom } from "@/lib/button-id";
 import { entryRules, flowButtons, isCallbackMatch, newStepId, pointingAt, unusedReplies, type FlowButton } from "@/lib/flow";
-import { previewOf } from "./automation-tab";
+import { previewOf } from "./rule-preview";
 import { FlowMap } from "./flow-map";
 import { TestChat } from "./test-chat";
 import { newButtonUid } from "./buttons-editor";
