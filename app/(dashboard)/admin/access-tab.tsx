@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { ApiError, apiFetch } from "@/lib/api-client";
 import { parseTelegramIdText, validateTelegramIdList } from "@/lib/validation";
 import type { AccessSettings } from "@/lib/app-settings";
@@ -120,14 +121,14 @@ export function AccessTab() {
         <label className="mt-4 block text-sm font-medium" htmlFor="allowlist-ids">
           Allowed Telegram user IDs
         </label>
-        <textarea
+        <Textarea
+          rows={6}
+          className="mt-1 font-mono"
           id="allowlist-ids"
           value={idText}
           onChange={(e) => setIdText(e.target.value)}
-          rows={6}
           placeholder={"One per line, e.g.\n123456789"}
           spellCheck={false}
-          className="mt-1 w-full rounded-lg border border-[var(--card-border)] bg-[var(--card)] px-3 py-2 font-mono text-sm outline-none transition-colors placeholder:text-[var(--muted)] focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
         />
         <p className="mt-1 text-xs text-[var(--muted)]">
           {invalid ?? `${ids.length} ID${ids.length === 1 ? "" : "s"}. A rejected account's ID is shown on its sign-in screen, so people can send it to you.`}

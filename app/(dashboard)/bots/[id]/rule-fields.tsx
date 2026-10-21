@@ -4,6 +4,7 @@ import { useRef } from "react";
 import { FieldError } from "@/components/ui/field-error";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { TEMPLATE_PLACEHOLDERS, type TemplatePlaceholder } from "@/lib/templates";
 import { MEDIA_KINDS } from "@/lib/validation";
 import { ButtonsEditor } from "./buttons-editor";
@@ -131,14 +132,12 @@ export function RuleFields({ bot, draft, onChange, idPrefix = "rule" }: { bot: B
 
       <div className="space-y-1.5">
         <Label htmlFor={`${idPrefix}-reply`}>{toastOnly ? "Pop-up text" : editsMessage ? "New text of the message" : "Reply"}</Label>
-        <textarea
+        <Textarea
           id={`${idPrefix}-reply`}
           ref={replyRef}
           value={draft.replyText}
           onChange={(e) => set({ replyText: e.target.value })}
-          rows={3}
           maxLength={toastOnly ? 200 : 4096}
-          className="w-full rounded-lg border border-[var(--card-border)] bg-[var(--card)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
         />
       </div>
       {!toastOnly && (
