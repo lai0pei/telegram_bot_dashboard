@@ -9,7 +9,7 @@ import { TEMPLATE_PLACEHOLDERS, type TemplatePlaceholder } from "@/lib/templates
 import { MEDIA_KINDS } from "@/lib/validation";
 import { AttachmentField, FollowUpsEditor } from "./attachment-editor";
 import { ConditionsEditor } from "./conditions-editor";
-import { ButtonsEditor } from "./buttons-editor";
+import { ButtonsField } from "./buttons-editor";
 import { KeyboardEditor } from "./keyboard-editor";
 import { draftError, draftOutputs, isCallbackType, isToastOnly, type RuleDraft } from "./rule-draft";
 import type { AutoReplyMatchType, BotDetail, CallbackAction, ParseModeChoice } from "./types";
@@ -190,7 +190,7 @@ export function RuleFields({ bot, draft, onChange, idPrefix = "rule" }: { bot: B
               ))}
             </select>
           </div>
-          <ButtonsEditor drafts={draft.buttons} onChange={(next) => set({ buttons: next })} botId={bot.id} inlineMode={bot.info?.supports_inline_queries} />
+          <ButtonsField label="Buttons under the message" drafts={draft.buttons} onChange={(next) => set({ buttons: next })} botId={bot.id} inlineMode={bot.info?.supports_inline_queries} />
           {!editsMessage && (
             <KeyboardEditor
               draft={draft.keyboard}

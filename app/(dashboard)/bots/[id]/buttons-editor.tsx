@@ -5,6 +5,7 @@ import { Reorder, useDragControls } from "motion/react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/api-client";
 import { buttonIdFrom } from "@/lib/button-id";
 import { isPrivateChatId, type ButtonStyle, type InlineButton } from "@/lib/botapi";
@@ -419,6 +420,64 @@ export function ButtonsEditor({
         <p className="text-xs text-[var(--muted)]">Mini App buttons only work in private chats; in a group the rule replies without them.</p>
       )}
       {error && <p className="text-xs text-[var(--danger)]">{error}</p>}
+    </div>
+  );
+}
+
+/**
+ * The button editor for a narrow form: a summary of the layout in place and the full editor in a dialog. A row of the
+ * editor needs more width than a rule's edit column has. Edits apply live (like every other field), so closing the
+ * dialog any way never loses work and the preview is already current.
+ */
+export function ButtonsField({ label, ...editor }: { label: string } & Parameters<typeof ButtonsEditor>[0]) {
+  const [open, setOpen] = useState(false);
+  const { drafts } = editor;
+  const error = draftsError(drafts, editor.chatId);
+  // Same grouping the message gets: a button starts a new row unless it is flagged "same row" (never the first one).
+  const rows = drafts.reduce<ButtonDraft[][]>((acc, d, i) => {
+    if (i > 0 && d.sameRow) acc[acc.length - 1].push(d);
+    else acc.push([d]);
+    return acc;
+  }, []);
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-sm font-medium">{label}</span>
+        <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
+          {drafts.length ? "Edit buttons…" : "Add buttons…"}
+        </Button>
+      </div>
+      {rows.length ? (
+        <div className="space-y-1" aria-label="Current buttons">
+          {rows.map((row, r) => (
+            <div key={r} className="flex gap-1">
+              {row.map((b, i) => (
+                <span key={b.uid ?? i} className="min-w-0 flex-1 truncate rounded-md border border-[var(--card-border)] bg-[var(--card)] px-2 py-1 text-center text-xs">
+                  {b.text.trim() || "(no text)"}
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-[var(--muted)]">No buttons.</p>
+      )}
+      {error && <p className="text-xs text-[var(--danger)]">{error}</p>}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogTitle>{label}</DialogTitle>
+          <DialogDescription>Changes apply as you type. Drag the grip to reorder; the arrow beside a button puts it on the same row as the one above.</DialogDescription>
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+            <ButtonsEditor {...editor} />
+          </div>
+          <div className="flex justify-end">
+            <Button type="button" onClick={() => setOpen(false)}>
+              Done
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
