@@ -1,5 +1,6 @@
 import type { InlineButton, KeyboardButton, ReplyKeyboard } from "./botapi";
 import type { FollowUp, RuleMediaRef } from "./rule-content";
+import { conditionsForStorage, type RuleConditions } from "./rule-conditions";
 import { normalizeFollowUps, normalizeInlineButtons, normalizeReplyKeyboard, type AUTO_REPLY_MATCH_TYPES } from "./validation";
 
 /**
@@ -26,6 +27,8 @@ export interface TemplateRule {
    */
   media?: RuleMediaRef | null;
   followUps?: FollowUp[];
+  /** Where, when and how often the rule applies (lib/rule-conditions.ts). */
+  conditions?: RuleConditions | null;
   /** Defaults to true; a saved template keeps a rule that was switched off, so its buttons' targets stay in place. */
   enabled?: boolean;
 }
@@ -582,7 +585,8 @@ export const BOT_TEMPLATES: BotTemplate[] = [
 export const getBotTemplate = (id: string): BotTemplate | undefined => BOT_TEMPLATES.find((t) => t.id === id);
 
 /** What identifies a rule for "already there" checks (commands are stored lowercase without the slash). */
-export const templateRuleKey = (r: { matchType: string; pattern: string }) => `${r.matchType}:${r.pattern.trim().toLowerCase()}`;
+export const templateRuleKey = (r: { matchType: string; pattern: string }) =>
+  `${r.matchType}:${r.matchType === "regex" ? r.pattern.trim() : r.pattern.trim().toLowerCase()}`;
 
 export const TEMPLATE_PARTS = ["profile", "commands", "rules", "monitoring"] as const;
 export type TemplatePart = (typeof TEMPLATE_PARTS)[number];
@@ -603,6 +607,7 @@ export interface StoredRuleLike {
   callbackAction: string;
   media: RuleMediaRef | null;
   followUps: FollowUp[];
+  conditions: RuleConditions | null;
 }
 
 /** JSON with sorted keys, so two buttons that differ only in key order compare equal. */
@@ -629,6 +634,7 @@ function expectedColumns(rule: TemplateRule) {
   return {
     media: rich ? rule.media ?? null : null,
     followUps: rich ? normalizeFollowUps(rule.followUps) ?? [] : [],
+    conditions: conditionsForStorage(rule.matchType, rule.conditions),
     parseMode: sends ? rule.parseMode ?? null : null,
     buttons,
     replyKeyboard: sends && action !== "edit" && !buttons?.length && rule.replyKeyboard ? normalizeReplyKeyboard(rule.replyKeyboard) : null,
@@ -647,7 +653,8 @@ export function ruleIsUnchanged(stored: StoredRuleLike, rule: TemplateRule): boo
     canon(stored.replyKeyboard ?? null) === canon(want.replyKeyboard ?? null) &&
     // A stored attachment is a different file than any the template could name, so any attachment counts as an edit.
     (stored.media?.mediaId ?? null) === (want.media?.mediaId ?? null) &&
-    canon(stored.followUps) === canon(want.followUps)
+    canon(stored.followUps) === canon(want.followUps) &&
+    canon(stored.conditions) === canon(want.conditions)
   );
 }
 

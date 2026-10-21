@@ -287,7 +287,21 @@ export const autoReplies = pgTable(
     id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
     botId: integer("bot_id").notNull(),
     matchType: text("match_type", {
-      enum: ["command", "exact", "contains", "callback", "callback_prefix", "deeplink", "media", "shared", "fallback"],
+      enum: [
+        "command",
+        "exact",
+        "contains",
+        "starts_with",
+        "regex",
+        "callback",
+        "callback_prefix",
+        "deeplink",
+        "media",
+        "shared",
+        "fallback",
+        "member_joined",
+        "reaction",
+      ],
     }).notNull(),
     pattern: text("pattern").notNull(),
     replyText: text("reply_text").notNull(),
@@ -299,6 +313,8 @@ export const autoReplies = pgTable(
     media: text("media"),
     /** JSON FollowUp[] (lib/rule-content.ts): up to 4 messages sent after the main one. */
     followUps: text("follow_ups"),
+    /** JSON RuleConditions (lib/rule-conditions.ts): where the rule applies, active hours, once per person, wait between replies. */
+    conditions: text("conditions"),
     showAlert: boolean("show_alert").notNull().default(false),
     /** What a pressed-button rule does with its reply: a toast/alert, an edit of the pressed message, or a new message. */
     callbackAction: text("callback_action", { enum: ["toast", "edit", "reply"] }).notNull().default("toast"),
@@ -316,6 +332,22 @@ export const autoReplies = pgTable(
       .on(table.botId)
       .where(sql`${table.matchType} = 'fallback'`),
   ]
+);
+
+/**
+ * Who a rule already answered and when, for the "once per person" and "wait between replies" conditions
+ * (lib/auto-replies.ts). Only rules with one of those conditions write here.
+ */
+export const autoReplyUserHits = pgTable(
+  "auto_reply_user_hits",
+  {
+    ruleId: integer("rule_id").notNull(),
+    botId: integer("bot_id").notNull(),
+    userId: text("user_id").notNull(),
+    lastAt: timestamp("last_at", { withTimezone: true }).notNull(),
+    count: integer("count").notNull().default(1),
+  },
+  (table) => [uniqueIndex("auto_reply_user_hits_rule_user_unique").on(table.ruleId, table.userId), index("auto_reply_user_hits_bot_idx").on(table.botId)]
 );
 
 /**

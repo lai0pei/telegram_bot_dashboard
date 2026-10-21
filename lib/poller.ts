@@ -5,6 +5,7 @@ import {
   type TelegramChatJoinRequest,
   type TelegramChatMemberUpdate,
   type TelegramMessage,
+  type TelegramMessageReaction,
   type TelegramPoll,
   type TelegramUpdate,
 } from "./botapi";
@@ -13,7 +14,7 @@ import { getBotToken, getMonitoredBot, listAllMonitoredBots, setLastUpdateId, se
 import { db } from "./db";
 import { botMessages } from "./db/schema";
 import { setBotUserBlocked, upsertBotUser } from "./bot-users";
-import { answerCallbackWithRule, matchAutoReply, matchCallbackRule, sendAutoReply, startPayloadOf } from "./auto-replies";
+import { answerCallbackWithRule, fireRule, matchAutoReply, matchCallbackRule, matchReactionRule, sendAutoReply, startPayloadOf } from "./auto-replies";
 import { gameUrlFor } from "./games";
 import { answerInline, recordChosenInlineResult } from "./inline-results";
 import { recordJoinRequest } from "./join-requests";
@@ -217,6 +218,7 @@ export async function handleUpdate(botId: number, botUsername: string, token: st
   else if (update.callback_query) await recordCallback(botId, token, update.callback_query);
   else if (update.my_chat_member) await recordMembership(botId, update.my_chat_member);
   else if (update.chat_join_request) await recordJoinRequestUpdate(botId, update.chat_join_request);
+  else if (update.message_reaction) await handleReaction(botId, token, update.message_reaction);
   else if (update.poll) await applyPollUpdate(botId, update.poll);
   else if (update.inline_query) await answerInline(botId, token, update.inline_query);
   else if (update.chosen_inline_result) await recordChosenInlineResult(botId, update.chosen_inline_result.result_id);
@@ -227,6 +229,34 @@ export async function handleUpdate(botId: number, botUsername: string, token: st
     const d = update.deleted_business_messages;
     await markBusinessMessagesDeleted(botId, d.business_connection_id, String(d.chat.id), d.message_ids);
   }
+}
+
+/**
+ * A new emoji reaction on one of the bot's own messages can trigger a "someone reacted" rule. Reactions to other
+ * messages, by anonymous admins or bots, and removed or custom/paid reactions are ignored. Telegram sends these only
+ * where the bot may see them (always in private chats, in groups only when it is an admin).
+ */
+async function handleReaction(botId: number, token: string, reaction: TelegramMessageReaction) {
+  const user = reaction.user;
+  if (!user || user.is_bot) return;
+  const before = new Set(reaction.old_reaction.flatMap((r) => (r.type === "emoji" ? [r.emoji] : [])));
+  const added = reaction.new_reaction.flatMap((r) => (r.type === "emoji" && !before.has(r.emoji) ? [r.emoji] : []));
+  if (!added.length) return;
+  const own = (await db
+    .select({ id: botMessages.id })
+    .from(botMessages)
+    .where(
+      and(
+        eq(botMessages.botId, botId),
+        eq(botMessages.chatId, String(reaction.chat.id)),
+        eq(botMessages.telegramMessageId, reaction.message_id),
+        eq(botMessages.direction, "out")
+      )
+    )
+    .limit(1))[0];
+  if (!own) return;
+  const rule = await matchReactionRule(botId, added, reaction.chat.type, user.id);
+  if (rule) await fireRule(botId, token, rule, reaction.chat.id, user, null);
 }
 
 async function recordJoinRequestUpdate(botId: number, request: TelegramChatJoinRequest) {

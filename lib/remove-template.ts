@@ -1,5 +1,6 @@
 import { deleteAutoReply, listAutoReplies, parseButtons, parseReplyKeyboard } from "./auto-replies";
 import { parseFollowUps, parseRuleMedia } from "./rule-content";
+import { parseConditions } from "./rule-conditions";
 import { BotApiError, botApi } from "./botapi";
 import { withRetry } from "./bot-api-retry";
 import { planRemoval, type BotTemplate } from "./bot-templates";
@@ -22,6 +23,7 @@ export const storedRules = async (botId: number) =>
     replyKeyboard: parseReplyKeyboard(r.replyKeyboard),
     media: parseRuleMedia(r.media),
     followUps: parseFollowUps(r.followUps),
+    conditions: parseConditions(r.conditions),
   }));
 
 /**

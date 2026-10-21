@@ -32,6 +32,14 @@ function triggerTitle(r: AutoReplyRule, via?: string): string {
       return `Writes “${r.pattern}”`;
     case "contains":
       return `Mentions “${r.pattern}”`;
+    case "starts_with":
+      return `Starts with “${r.pattern}”`;
+    case "regex":
+      return `Matches pattern ${r.pattern}`;
+    case "member_joined":
+      return "Someone joins a group";
+    case "reaction":
+      return r.pattern === "*" ? "Reacts to a message" : `Reacts ${r.pattern}`;
     case "deeplink":
       return `Opens link code ${r.pattern}`;
     case "media":

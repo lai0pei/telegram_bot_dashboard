@@ -143,6 +143,7 @@ export async function applyTemplate(
         buttons,
         replyKeyboard,
         callbackAction: rule.callbackAction,
+        conditions: rule.conditions,
         ...content,
       });
       r.applied++;

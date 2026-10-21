@@ -1,4 +1,6 @@
 import type { TelegramMessage } from "./botapi";
+import { conditionsAllow, parseConditions } from "./rule-conditions";
+import { MAX_TEST_CHARS, compileRuleRegex } from "./safe-regex";
 import type { MEDIA_KINDS } from "./validation";
 
 /**
@@ -34,37 +36,48 @@ export function startPayloadOf(message: TelegramMessage, botUsername: string): s
   return match[2];
 }
 
+/** What the matcher needs of a rule. `conditions` is the stored JSON or the parsed object (lib/rule-conditions.ts). */
+export interface MatchableRule {
+  enabled: boolean;
+  matchType: string;
+  pattern: string;
+  conditions?: unknown;
+}
+
+/** The person a rule's reply is about: whoever joined for a "someone joined" rule, otherwise the sender. */
+export function actorOf(message: TelegramMessage): TelegramMessage["from"] {
+  const joined = message.new_chat_members?.find((m) => !m.is_bot);
+  return joined ?? message.from;
+}
+
 /**
- * The first enabled message rule that fits `message`, or undefined. Text rules only apply in private chats (commands
- * everywhere). Text messages: a deep-link rule for the `/start` payload beats everything, then rules in list order.
- * Messages without text: "shared" rules (a user/chat picked through a keyboard button) and "media" rules.
- * Last of all, a private message nothing else matched gets the "fallback" rule ("anything else"), wherever it sits in
- * the list. It never answers a message that carries nothing to answer (a service message).
+ * The enabled message rules that fit `message`, best first; the poller answers with the first one whose per-person
+ * limits (once per person, wait between replies) also allow it, so a blocked rule falls through to the next.
+ * Where each rule applies and its active hours are checked here (see lib/rule-conditions.ts): by default text rules
+ * work in private chats only and commands everywhere. Order: a deep-link rule for the `/start` payload, then rules in
+ * list order, then the "anything else" rule for a private message nothing else matched. Messages without text only
+ * reach "shared" and "media" rules (and "someone joined" for a group's service message); the fallback never answers a
+ * message that carries nothing to answer.
  */
-export function matchMessageRule<T extends { enabled: boolean; matchType: string; pattern: string }>(
-  allRules: readonly T[],
-  botUsername: string,
-  message: TelegramMessage
-): T | undefined {
-  if (message.from?.is_bot) return undefined;
-  const isPrivate = message.chat.type === "private";
-  const rules = allRules.filter((r) => r.enabled);
-  const fallback = isPrivate ? rules.find((r) => r.matchType === "fallback") : undefined;
+export function matchMessageRules<T extends MatchableRule>(allRules: readonly T[], botUsername: string, message: TelegramMessage, now = new Date()): T[] {
+  if (message.from?.is_bot) return [];
+  const chatType = message.chat.type;
+  const rules = allRules.filter((r) => r.enabled && conditionsAllow(r.matchType, parseConditions(r.conditions), chatType, now));
+  const fallback = rules.filter((r) => r.matchType === "fallback");
   const text = message.text?.trim();
 
   if (!text) {
-    if (!isPrivate) return undefined;
+    if (message.new_chat_members?.length) {
+      return message.new_chat_members.some((m) => !m.is_bot) ? rules.filter((r) => r.matchType === "member_joined") : [];
+    }
     const shared = message.users_shared?.request_id ?? message.chat_shared?.request_id;
-    if (shared !== undefined) return rules.find((r) => r.matchType === "shared" && r.pattern === String(shared)) ?? fallback;
+    if (shared !== undefined) return [...rules.filter((r) => r.matchType === "shared" && r.pattern === String(shared)), ...fallback];
     const kind = mediaKindOf(message);
-    return kind ? rules.find((r) => r.matchType === "media" && r.pattern === kind) ?? fallback : undefined;
+    return kind ? [...rules.filter((r) => r.matchType === "media" && r.pattern === kind), ...fallback] : [];
   }
 
   const payload = startPayloadOf(message, botUsername);
-  if (payload !== null) {
-    const deepLink = rules.find((r) => r.matchType === "deeplink" && r.pattern === payload);
-    if (deepLink) return deepLink;
-  }
+  const deepLinks = payload !== null ? rules.filter((r) => r.matchType === "deeplink" && r.pattern === payload) : [];
 
   let command: string | null = null;
   if (text.startsWith("/")) {
@@ -75,19 +88,37 @@ export function matchMessageRule<T extends { enabled: boolean; matchType: string
   }
   const lower = text.toLowerCase();
 
-  return (
-    rules.find((rule) => {
-      const pattern = rule.pattern.toLowerCase();
-      switch (rule.matchType) {
-        case "command":
-          return command !== null && command === pattern;
-        case "exact":
-          return isPrivate && lower === pattern;
-        case "contains":
-          return isPrivate && lower.includes(pattern);
-        default:
-          return false;
-      }
-    }) ?? fallback
+  const matches = rules.filter((rule) => {
+    switch (rule.matchType) {
+      case "command":
+        return command !== null && command === rule.pattern.toLowerCase();
+      case "exact":
+        return lower === rule.pattern.toLowerCase();
+      case "contains":
+        return lower.includes(rule.pattern.toLowerCase());
+      case "starts_with":
+        return lower.startsWith(rule.pattern.toLowerCase());
+      case "regex":
+        return compileRuleRegex(rule.pattern)?.test(text.slice(0, MAX_TEST_CHARS)) ?? false;
+      default:
+        return false;
+    }
+  });
+  return [...deepLinks, ...matches, ...fallback];
+}
+
+/** The first rule that fits, ignoring per-person limits (what the dashboard's test chat uses). */
+export function matchMessageRule<T extends MatchableRule>(allRules: readonly T[], botUsername: string, message: TelegramMessage, now = new Date()): T | undefined {
+  return matchMessageRules(allRules, botUsername, message, now)[0];
+}
+
+/** The enabled "someone reacted" rules for these new emoji reactions in a chat of this type, in list order. */
+export function matchReactionRules<T extends MatchableRule>(allRules: readonly T[], emojis: readonly string[], chatType: string, now = new Date()): T[] {
+  return allRules.filter(
+    (r) =>
+      r.enabled &&
+      r.matchType === "reaction" &&
+      (r.pattern.trim() === "*" || emojis.includes(r.pattern.trim())) &&
+      conditionsAllow(r.matchType, parseConditions(r.conditions), chatType, now)
   );
 }

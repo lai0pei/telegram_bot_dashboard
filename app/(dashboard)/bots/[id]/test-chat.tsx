@@ -15,6 +15,7 @@ function suggestions(rules: readonly AutoReplyRule[]): string[] {
     if (!r.enabled) continue;
     if (r.matchType === "command") out.push(`/${r.pattern}`);
     else if (r.matchType === "exact" || r.matchType === "contains") out.push(r.pattern);
+    else if (r.matchType === "starts_with") out.push(`${r.pattern} please`);
     else if (r.matchType === "deeplink") out.push(`/start ${r.pattern}`);
   }
   if (rules.some((r) => r.enabled && r.matchType === "fallback")) out.push("something else");
@@ -51,6 +52,7 @@ export function TestChat({
     callbackAction: r.callbackAction,
     media: r.media,
     followUps: r.followUps,
+    conditions: r.conditions,
   }));
   const listening = bot.monitorEnabled && !bot.webhook?.url;
   const send = (text: string) => setSim((s) => simulateSend(s, simRules, bot.username, text));

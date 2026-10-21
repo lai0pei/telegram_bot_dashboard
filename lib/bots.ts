@@ -7,6 +7,7 @@ import { db } from "./db";
 import { isUniqueViolation } from "./db/errors";
 import {
   autoReplies,
+  autoReplyUserHits,
   ruleMedia,
   botBusinessConnections,
   botButtonTemplates,
@@ -282,6 +283,7 @@ export async function deleteBotRow(id: number): Promise<void> {
     await tx.delete(botChats).where(eq(botChats.botId, id));
     await tx.delete(autoReplies).where(eq(autoReplies.botId, id));
     await tx.delete(ruleMedia).where(eq(ruleMedia.botId, id));
+    await tx.delete(autoReplyUserHits).where(eq(autoReplyUserHits.botId, id));
     await tx.delete(scheduledMessages).where(eq(scheduledMessages.botId, id));
     await tx.delete(broadcasts).where(eq(broadcasts.botId, id));
     await tx.delete(botJoinRequests).where(eq(botJoinRequests.botId, id));

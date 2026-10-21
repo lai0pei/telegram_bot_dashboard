@@ -3,8 +3,9 @@ import { botApi, buttonsForChat, replyKeyboardForChat, type InlineButton, type R
 import { findCallbackRule } from "./callback-match";
 import { db } from "./db";
 import { isUniqueViolation } from "./db/errors";
-import { autoReplies, botMessages } from "./db/schema";
-import { matchMessageRule, startPayloadOf } from "./match-message";
+import { autoReplies, autoReplyUserHits, botMessages } from "./db/schema";
+import { actorOf, matchMessageRules, matchReactionRules, startPayloadOf } from "./match-message";
+import { conditionsForStorage, needsUserState, parseConditions, type RuleConditions } from "./rule-conditions";
 import { describeMessage } from "./messages";
 import { recordOutgoing } from "./outgoing";
 import { recordSetup } from "./setup-cache";
@@ -23,6 +24,8 @@ export type AutoReplyInput = Pick<AutoReplyRow, "matchType" | "pattern" | "reply
   media?: RuleMediaRef | null;
   /** Messages sent after the main one. Not for toast or edit button rules. */
   followUps?: FollowUp[] | null;
+  /** Where, when and how often the rule applies. Message rules only (button rules ignore it). */
+  conditions?: RuleConditions | null;
 };
 
 /** The dashboard-facing shape: buttons, keyboard, attachment and follow-ups parsed from their JSON columns. */
@@ -33,6 +36,7 @@ export function toAutoReplyDto(row: AutoReplyRow) {
     replyKeyboard: parseReplyKeyboard(row.replyKeyboard),
     media: parseRuleMedia(row.media),
     followUps: parseFollowUps(row.followUps),
+    conditions: parseConditions(row.conditions),
   };
 }
 
@@ -73,7 +77,8 @@ function normalizePattern(matchType: AutoReplyRow["matchType"], pattern: string)
   const trimmed = pattern.trim();
   if (matchType === "command") return trimmed.replace(/^\//, "").toLowerCase();
   if (matchType === "media") return trimmed.toLowerCase();
-  if (matchType === "fallback") return "*";
+  if (matchType === "fallback" || matchType === "member_joined") return "*";
+  if (matchType === "reaction") return trimmed || "*";
   return trimmed;
 }
 
@@ -93,6 +98,7 @@ function columnsFor(input: AutoReplyInput) {
       message && input.callbackAction !== "edit" && !input.buttons?.length && input.replyKeyboard ? JSON.stringify(input.replyKeyboard) : null,
     media: rich && input.media ? JSON.stringify(input.media) : null,
     followUps: rich && input.followUps?.length ? JSON.stringify(input.followUps) : null,
+    conditions: ((c) => (c ? JSON.stringify(c) : null))(conditionsForStorage(input.matchType, input.conditions)),
     showAlert: isCallbackRule(input.matchType) && (input.callbackAction ?? "toast") === "toast" && input.showAlert,
     callbackAction: isCallbackRule(input.matchType) ? input.callbackAction ?? "toast" : ("toast" as const),
     enabled: input.enabled,
@@ -176,6 +182,7 @@ export async function updateAutoReply(botId: number, id: number, input: AutoRepl
 
 export async function deleteAutoReply(botId: number, id: number): Promise<boolean> {
   const deleted = (await db.delete(autoReplies).where(and(eq(autoReplies.botId, botId), eq(autoReplies.id, id)))).count > 0;
+  await db.delete(autoReplyUserHits).where(and(eq(autoReplyUserHits.botId, botId), eq(autoReplyUserHits.ruleId, id)));
   await noteStartRule(botId);
   await pruneRuleMedia(botId);
   return deleted;
@@ -201,9 +208,38 @@ export { MEDIA_KINDS } from "./validation";
 export type { MediaKind } from "./match-message";
 export { mediaKindOf, startPayloadOf } from "./match-message";
 
-/** The first enabled message rule that fits `message` (see `matchMessageRule`, which the dashboard's test chat shares). */
+/**
+ * Whether the person's history allows this rule to answer them now: "once per person" and "wait between replies" need
+ * the stored record of earlier answers. A rule without those conditions, or an unknown person, is always allowed.
+ */
+async function personAllows(rule: AutoReplyRow, userId: number | undefined): Promise<boolean> {
+  const c = parseConditions(rule.conditions);
+  if (!needsUserState(c) || userId === undefined) return true;
+  const row = (await db
+    .select()
+    .from(autoReplyUserHits)
+    .where(and(eq(autoReplyUserHits.ruleId, rule.id), eq(autoReplyUserHits.userId, String(userId)))))[0];
+  if (!row) return true;
+  if (c!.oncePerUser) return false;
+  return !(c!.cooldownSec && Date.now() - row.lastAt.getTime() < c!.cooldownSec * 1000);
+}
+
+/**
+ * The rule that answers `message`: the first candidate from the shared matcher (`matchMessageRules`, which the
+ * dashboard's test chat also runs) whose per-person limits allow it, so a rule that already answered this person
+ * "once" lets the next matching rule (often "anything else") reply instead.
+ */
 export async function matchAutoReply(botId: number, botUsername: string, message: TelegramMessage): Promise<AutoReplyRow | undefined> {
-  return matchMessageRule((await listAutoReplies(botId)), botUsername, message);
+  const candidates = matchMessageRules(await listAutoReplies(botId), botUsername, message);
+  const userId = actorOf(message)?.id;
+  for (const rule of candidates) if (await personAllows(rule, userId)) return rule;
+  return undefined;
+}
+
+/** The "someone reacted" rule for a new emoji reaction, honouring the same per-person limits. */
+export async function matchReactionRule(botId: number, emojis: readonly string[], chatType: string, userId: number | undefined): Promise<AutoReplyRow | undefined> {
+  for (const rule of matchReactionRules(await listAutoReplies(botId), emojis, chatType)) if (await personAllows(rule, userId)) return rule;
+  return undefined;
 }
 
 /** The first enabled rule answering a pressed button with this callback data (exact data or a data prefix). */
@@ -240,10 +276,29 @@ function templateContext(token: string, sender: TelegramMessage["from"], payload
  * retry of the update after a database error can't reply twice.
  */
 export async function sendAutoReply(botId: number, token: string, rule: AutoReplyRow, message: TelegramMessage, botUsername = ""): Promise<void> {
+  // For a "someone joined" rule the reply is about the person who joined, not whoever added them.
+  await fireRule(botId, token, rule, message.chat.id, actorOf(message), startPayloadOf(message, botUsername));
+}
+
+/**
+ * Counts the rule firing, remembers the person (only for rules with a per-person limit) and sends the reply in the
+ * background. The writes come first and the send is not awaited, as in `sendAutoReply`: a retried update can't reply twice.
+ */
+export async function fireRule(botId: number, token: string, rule: AutoReplyRow, chatId: number, sender: TelegramMessage["from"], payload: string | null): Promise<void> {
   await bumpHits(rule.id);
-  deliverRuleReply(botId, token, rule, message.chat.id, message.from, startPayloadOf(message, botUsername)).catch((err) =>
+  await recordUserHit(rule, sender?.id);
+  deliverRuleReply(botId, token, rule, chatId, sender, payload).catch((err) =>
     logError("auto-reply", `bot ${botId} rule ${rule.id} failed`, err, { botId, ruleId: rule.id })
   );
+}
+
+async function recordUserHit(rule: AutoReplyRow, userId: number | undefined): Promise<void> {
+  if (userId === undefined || !needsUserState(parseConditions(rule.conditions))) return;
+  const now = new Date();
+  await db
+    .insert(autoReplyUserHits)
+    .values({ ruleId: rule.id, botId: rule.botId, userId: String(userId), lastAt: now, count: 1 })
+    .onConflictDoUpdate({ target: [autoReplyUserHits.ruleId, autoReplyUserHits.userId], set: { lastAt: now, count: sql`${autoReplyUserHits.count} + 1` } });
 }
 
 async function deliverRuleReply(

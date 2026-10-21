@@ -1,6 +1,7 @@
 import type { InlineButton, ReplyKeyboard } from "@/lib/botapi";
 import type { FollowUp, RuleMediaRef } from "@/lib/rule-content";
-import { validateAutoReply } from "@/lib/validation";
+import { conditionsForStorage, parseConditions, type RuleConditions } from "@/lib/rule-conditions";
+import { PATTERNLESS_MATCH_TYPES, validateAutoReply } from "@/lib/validation";
 import { buttonsToDrafts, draftsToButtons, type ButtonDraft } from "./buttons-editor";
 import { draftToReplyKeyboard, emptyKeyboardDraft, keyboardDraftError, replyKeyboardToDraft, type KeyboardDraft } from "./keyboard-editor";
 import type { AutoReplyMatchType, AutoReplyRule, CallbackAction, ParseModeChoice } from "./types";
@@ -21,6 +22,8 @@ export interface RuleDraft {
   /** A file attached to the main message (then `replyText` is its caption). */
   media: RuleMediaRef | null;
   followUps: FollowUpDraft[];
+  /** Where / when / how often the rule applies; null = always. Message rules only. */
+  conditions: RuleConditions | null;
 }
 
 /**
@@ -54,6 +57,7 @@ export const emptyRuleDraft = (): RuleDraft => ({
   keyboard: emptyKeyboardDraft(),
   media: null,
   followUps: [],
+  conditions: null,
 });
 
 export function ruleToDraft(rule: AutoReplyRule): RuleDraft {
@@ -68,6 +72,7 @@ export function ruleToDraft(rule: AutoReplyRule): RuleDraft {
     keyboard: replyKeyboardToDraft(rule.replyKeyboard),
     media: rule.media ?? null,
     followUps: (rule.followUps ?? []).map(followUpToDraft),
+    conditions: parseConditions(rule.conditions),
   };
 }
 
@@ -82,6 +87,7 @@ export function draftOutputs(d: RuleDraft): {
   replyKeyboard: ReplyKeyboard | undefined;
   media: RuleMediaRef | undefined;
   followUps: FollowUp[] | undefined;
+  conditions: RuleConditions | undefined;
 } {
   const toast = isToastOnly(d);
   const editsMessage = isCallbackType(d.matchType) && d.callbackAction === "edit";
@@ -91,12 +97,13 @@ export function draftOutputs(d: RuleDraft): {
     replyKeyboard: toast || editsMessage ? undefined : draftToReplyKeyboard(d.keyboard),
     media: rich ? d.media ?? undefined : undefined,
     followUps: rich && d.followUps.length ? d.followUps.map(draftToFollowUp) : undefined,
+    conditions: conditionsForStorage(d.matchType, d.conditions) ?? undefined,
   };
 }
 
 /** The JSON body for POST / PATCH `/auto-replies`. */
 export function draftToBody(d: RuleDraft) {
-  const { buttons, replyKeyboard, media, followUps } = draftOutputs(d);
+  const { buttons, replyKeyboard, media, followUps, conditions } = draftOutputs(d);
   return {
     matchType: d.matchType,
     pattern: d.pattern,
@@ -108,13 +115,14 @@ export function draftToBody(d: RuleDraft) {
     callbackAction: d.callbackAction,
     media: media ?? null,
     followUps: followUps ?? null,
+    conditions: conditions ?? null,
   };
 }
 
 /** Validation message for the draft, or null (also null while the pattern and reply are both still empty). */
 export function draftError(d: RuleDraft): string | null {
   if (!d.pattern && !d.replyText) return null;
-  const { buttons, replyKeyboard, media, followUps } = draftOutputs(d);
+  const { buttons, replyKeyboard, media, followUps, conditions } = draftOutputs(d);
   return (
     validateAutoReply({
       matchType: d.matchType,
@@ -126,9 +134,10 @@ export function draftError(d: RuleDraft): string | null {
       callbackAction: d.callbackAction,
       media,
       followUps,
+      conditions,
     }) ??
     keyboardDraftError(d.keyboard)
   );
 }
 
-export const draftCanSave = (d: RuleDraft) => Boolean(d.pattern.trim() && (d.replyText.trim() || draftOutputs(d).media)) && !draftError(d);
+export const draftCanSave = (d: RuleDraft) => Boolean((d.pattern.trim() || PATTERNLESS_MATCH_TYPES.includes(d.matchType)) && (d.replyText.trim() || draftOutputs(d).media)) && !draftError(d);

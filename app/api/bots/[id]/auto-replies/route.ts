@@ -3,6 +3,7 @@ import { withAuth, errorResponse } from "@/lib/api-guard";
 import { createAutoReply, DuplicateFallbackError, listAutoReplies, noteStartRule, toAutoReplyDto } from "@/lib/auto-replies";
 import type { InlineButton } from "@/lib/botapi";
 import { getBotById } from "@/lib/bots";
+import { normalizeConditions } from "@/lib/rule-conditions";
 import { prepareRuleContent } from "@/lib/rule-media";
 import { normalizeInlineButtons, normalizeReplyKeyboard, validateAutoReply } from "@/lib/validation";
 
@@ -38,6 +39,7 @@ export const POST = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: s
       parseMode: body.parseMode || null,
       buttons: normalizeInlineButtons(body.buttons) as InlineButton[][] | null,
       replyKeyboard: normalizeReplyKeyboard(body.replyKeyboard),
+      conditions: normalizeConditions(body.conditions),
       showAlert: body.showAlert === true,
       callbackAction: body.callbackAction ?? "toast",
       enabled: body.enabled !== false,

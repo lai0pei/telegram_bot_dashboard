@@ -5,6 +5,7 @@ import { CUSTOM_CATEGORY, CUSTOM_TEMPLATE_PREFIX, getBotTemplate, type BotTempla
 import { db } from "./db";
 import { customTemplates } from "./db/schema";
 import { parseFollowUps, parseRuleMedia } from "./rule-content";
+import { parseConditions } from "./rule-conditions";
 import { getTelegramAccountById } from "./telegram-accounts";
 import { normalizeInlineButtons, normalizeReplyKeyboard, validateAutoReply, validateCommand, validateCommandDescription } from "./validation";
 
@@ -73,6 +74,7 @@ export async function snapshotRules(botId: number, notes: string[], keepMedia: (
     const rule: TemplateRule = {
       media: kept,
       ...(followUps.length ? { followUps } : {}),
+      conditions: parseConditions(r.conditions),
       matchType: r.matchType,
       pattern: r.pattern,
       replyText: r.replyText,

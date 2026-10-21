@@ -22,7 +22,14 @@ function triggerText(d: RuleDraft): string | null {
       return `/${p.replace(/^\//, "") || "command"}`;
     case "exact":
     case "contains":
+    case "starts_with":
       return p || "…";
+    case "regex":
+      return "A message matching the pattern";
+    case "member_joined":
+      return "[someone joined the group]";
+    case "reaction":
+      return `[reacts ${p && p !== "*" ? p : "👍"} to a bot message]`;
     case "deeplink":
       return `/start ${p || "code"}`;
     case "media":

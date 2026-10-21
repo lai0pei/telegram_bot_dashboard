@@ -5,6 +5,8 @@
  */
 
 import type { ButtonStyle, InlineButton, KeyboardButton, ReplyKeyboard } from "./botapi";
+import { validateConditions } from "./rule-conditions";
+import { validateRegex } from "./safe-regex";
 import {
   DICE_EMOJIS,
   FOLLOW_UP_KINDS,
@@ -481,7 +483,24 @@ export function validateInlineResult(r: {
   return validateMessageText(r.messageText) ?? validateParseMode(r.parseMode) ?? validateInlineButtons(r.buttons, "-1");
 }
 
-export const AUTO_REPLY_MATCH_TYPES = ["command", "exact", "contains", "callback", "callback_prefix", "deeplink", "media", "shared", "fallback"] as const;
+export const AUTO_REPLY_MATCH_TYPES = [
+  "command",
+  "exact",
+  "contains",
+  "starts_with",
+  "regex",
+  "callback",
+  "callback_prefix",
+  "deeplink",
+  "media",
+  "shared",
+  "fallback",
+  "member_joined",
+  "reaction",
+] as const;
+
+/** Types with nothing to match on: their stored pattern is always "*". */
+export const PATTERNLESS_MATCH_TYPES: readonly string[] = ["fallback", "member_joined"];
 export const CALLBACK_ACTIONS = ["toast", "edit", "reply"] as const;
 
 /** The kinds of non-text message a "media" rule can name (see mediaKindOf in lib/auto-replies.ts). */
@@ -515,14 +534,21 @@ export function validateAutoReply(rule: {
   media?: unknown;
   /** Messages sent after the main one. */
   followUps?: unknown;
+  /** Where / when / how often the rule applies (lib/rule-conditions.ts). Message rules only. */
+  conditions?: unknown;
 }): string | null {
   if (!AUTO_REPLY_MATCH_TYPES.includes(rule.matchType as (typeof AUTO_REPLY_MATCH_TYPES)[number])) return "Unknown match type.";
   if (typeof rule.pattern !== "string" || typeof rule.replyText !== "string") return "Pattern and reply are required.";
   const pattern = rule.pattern.trim();
-  // "Anything else" has nothing to match on; its stored pattern is always "*".
-  if (!pattern && rule.matchType !== "fallback") return "Pattern is required.";
-  if (rule.matchType === "fallback") {
+  // "Anything else" and "someone joined" have nothing to match on; their stored pattern is always "*".
+  if (!pattern && !PATTERNLESS_MATCH_TYPES.includes(rule.matchType as string)) return "Pattern is required.";
+  if (PATTERNLESS_MATCH_TYPES.includes(rule.matchType as string)) {
     // nothing to check
+  } else if (rule.matchType === "regex") {
+    const error = validateRegex(pattern);
+    if (error) return error;
+  } else if (rule.matchType === "reaction") {
+    if (pattern !== "*" && (pattern.length > 16 || /[A-Za-z0-9\s]/.test(pattern))) return "Use a single emoji such as 👍, or * for any reaction.";
   } else if (rule.matchType === "command") {
     const error = validateCommand(pattern.replace(/^\//, "").toLowerCase());
     if (error) return error;
@@ -556,7 +582,8 @@ export function validateAutoReply(rule: {
     validateInlineButtons(rule.buttons) ??
     validateReplyKeyboard(rule.replyKeyboard) ??
     (hasInlineButtons(rule.buttons) && rule.replyKeyboard ? "Use inline buttons or a reply keyboard, not both." : null) ??
-    (textOnly ? null : validateFollowUps(rule.followUps))
+    (textOnly ? null : validateFollowUps(rule.followUps)) ??
+    (isCallback ? null : validateConditions(rule.conditions))
   );
 }
 

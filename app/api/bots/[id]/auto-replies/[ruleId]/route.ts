@@ -4,6 +4,7 @@ import { deleteAutoReply, DuplicateFallbackError, getAutoReply, moveAutoReply, t
 import type { InlineButton } from "@/lib/botapi";
 import { getBotById } from "@/lib/bots";
 import { parseFollowUps, parseRuleMedia } from "@/lib/rule-content";
+import { normalizeConditions, parseConditions } from "@/lib/rule-conditions";
 import { prepareRuleContent } from "@/lib/rule-media";
 import { normalizeInlineButtons, normalizeReplyKeyboard, validateAutoReply } from "@/lib/validation";
 
@@ -40,6 +41,7 @@ export const PATCH = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: 
       enabled: body.enabled !== undefined ? body.enabled === true : existing.enabled,
       media: body.media !== undefined ? body.media : parseRuleMedia(existing.media),
       followUps: body.followUps !== undefined ? body.followUps : parseFollowUps(existing.followUps),
+      conditions: body.conditions !== undefined ? body.conditions : parseConditions(existing.conditions),
     };
     const error = validateAutoReply(merged);
     if (error) return NextResponse.json({ error }, { status: 400 });
@@ -49,6 +51,7 @@ export const PATCH = withAuth(async (req: Request, ctx: Ctx, telegramAccountId: 
     const rule = await updateAutoReply(bot.id, existing.id, {
       ...merged,
       ...content,
+      conditions: normalizeConditions(merged.conditions),
       buttons: normalizeInlineButtons(merged.buttons) as InlineButton[][] | null,
       replyKeyboard: normalizeReplyKeyboard(merged.replyKeyboard),
     });

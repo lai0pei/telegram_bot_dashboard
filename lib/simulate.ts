@@ -16,6 +16,8 @@ export interface SimRule {
   /** Attachment and follow-up messages (optional: templates and older callers have none). */
   media?: RuleMediaRef | null;
   followUps?: readonly FollowUp[];
+  /** Where / when the rule applies (lib/rule-conditions.ts); the per-person limits are not simulated. */
+  conditions?: unknown;
 }
 
 export interface SimMessage {
